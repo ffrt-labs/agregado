@@ -1,0 +1,5 @@
+.env
+*.exe
+/bin/
+.DS_Store
+.claude/

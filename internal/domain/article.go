@@ -17,5 +17,6 @@ type Article struct {
 	ReadAt *time.Time
 	WordCount *int
 	EstimatedReadMinutes *int
+	Tags []Tag
 	CreatedAt time.Time
 }

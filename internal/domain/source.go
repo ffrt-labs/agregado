@@ -21,6 +21,7 @@ type Source struct {
 	LastFetchedAt *time.Time
 	LastError *string
 	ErrorCount int
+	DefaultTagID *string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

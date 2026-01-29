@@ -1,0 +1,4 @@
+ALTER TABLE sources DROP COLUMN IF EXISTS default_tag_id;
+
+DROP TABLE IF EXISTS article_tags;
+DROP TABLE IF EXISTS tags;

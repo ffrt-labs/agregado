@@ -36,14 +36,14 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Use custom type with constants for source types
 
 ### 1.4b Article Tagging
-- [ ] Create migration `000002_add_tags.up.sql` and `000002_add_tags.down.sql`
-- [ ] Add `tags` table with predefined entries (Tech, Business, Personal, etc.)
-- [ ] Add `article_tags` junction table for many-to-many relationship
-- [ ] Add `default_tag_id` column to sources table
-- [ ] Create `internal/domain/tag.go` entity
-- [ ] Update `internal/domain/source.go` with `DefaultTagID` field
-- [ ] Update `internal/domain/article.go` with `Tags` field
-- [ ] Run migration and verify tables exist
+- [x] Create migration `000002_add_tags.up.sql` and `000002_add_tags.down.sql`
+- [x] Add `tags` table with predefined entries (Tech, Business, Personal, etc.)
+- [x] Add `article_tags` junction table for many-to-many relationship
+- [x] Add `default_tag_id` column to sources table
+- [x] Create `internal/domain/tag.go` entity
+- [x] Update `internal/domain/source.go` with `DefaultTagID` field
+- [x] Update `internal/domain/article.go` with `Tags` field
+- [x] Run migration and verify tables exist
 
 ### 1.5 RabbitMQ Integration
 - [ ] Create `internal/broker/rabbitmq.go` - connection management

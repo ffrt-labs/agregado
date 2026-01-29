@@ -1,0 +1,37 @@
+package config
+
+import "github.com/caarlos0/env/v10"
+
+type Database struct {
+	Host     string `env:"DATABASE_HOST" envDefault:"localhost"`
+	Port     string `env:"DATABASE_PORT" envDefault:"5432"`
+	User     string `env:"DATABASE_USER,required"`
+	Password string `env:"DATABASE_PASSWORD,required"`
+	Name     string `env:"DATABASE_DB,required"`
+}
+
+type Queue struct {
+	User     string `env:"RABBITMQ_USER,required"`
+	Password string `env:"RABBITMQ_PASS,required"`
+	Host     string `env:"RABBITMQ_HOST" envDefault:"localhost"`
+	Port     string `env:"RABBITMQ_PORT" envDefault:"5672"`
+}
+
+type Http struct {
+	Port string `env:"HTTP_PORT" envDefault:"8080"`
+}
+
+type Config struct {
+	Database
+	Queue
+	Http
+}
+
+func Load() (*Config, error) {
+	cfg := &Config{}
+	if err := env.Parse(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}

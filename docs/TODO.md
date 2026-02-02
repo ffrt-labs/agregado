@@ -46,13 +46,13 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Run migration and verify tables exist
 
 ### 1.5 RabbitMQ Integration
-- [ ] Create `internal/broker/rabbitmq.go` - connection management
-- [ ] Implement reconnection logic with backoff
-- [ ] Create exchanges and queues on startup
-- [ ] Create `internal/broker/publisher.go` - publish helper
-- [ ] Create `internal/broker/consumer.go` - consume helper
-- [ ] Set up dead-letter exchange and queue
-- [ ] Test publish/consume round-trip
+- [x] Create `internal/broker/rabbitmq.go` - connection management
+- [x] Implement reconnection logic with backoff
+- [x] Create exchanges and queues on startup
+- [x] Create `internal/broker/publisher.go` - publish helper
+- [x] Create `internal/broker/consumer.go` - consume helper
+- [x] Set up dead-letter exchange and queue
+- [x] Test publish/consume round-trip
 
 ### 1.6 PostgreSQL Storage
 - [ ] Create `internal/storage/postgres.go` - connection pool

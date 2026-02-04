@@ -117,12 +117,28 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Extract from → source identifier
 - [ ] Convert HTML body to text/markdown
 - [ ] Handle multipart emails
-- [ ] Extract links from newsletter content
+- [ ] **Always** create main article from newsletter body
+- [ ] Check `source.extract_links` setting
+- [ ] If `extract_links=true`, trigger link extraction pipeline (Phase 2.4)
 
 ### 2.3 Newsletter Source Management
 - [ ] Auto-create source from new sender email
 - [ ] Link newsletters to sources by `email_sender` field
 - [ ] Publish parsed articles to RabbitMQ
+
+### 2.4 Link Extraction Pipeline
+- [ ] Create migration `000004_add_extract_links.up.sql` and `.down.sql`
+  - Add `extract_links BOOLEAN DEFAULT true` to sources
+  - Add `parent_article_id UUID REFERENCES articles(id)` to articles
+- [ ] Create `internal/ingestion/email/link_extractor.go`
+  - Parse HTML for `<a href>` links using goquery
+  - Filter out navigation/unsubscribe/social links (heuristics)
+- [ ] Create `internal/ingestion/email/article_fetcher.go`
+  - Fetch URL content with timeout (10s)
+  - Extract article content using go-readability
+  - Handle errors gracefully (skip inaccessible URLs)
+- [ ] Set `parent_article_id` linking child articles to newsletter
+- [ ] Publish each extracted article to RabbitMQ
 
 ### Phase 2 Verification
 - [ ] POST to webhook endpoint returns 200
@@ -136,12 +152,16 @@ Progress tracker for building Agregado. Check items as you complete them.
 ### 3.1 Digest Query + Ranking
 - [ ] Create `internal/digest/ranker.go`
 - [ ] Query unread articles from last 24 hours
-- [ ] Implement ranking algorithm (recency + priority + unread bonus)
+- [ ] **Group articles by tag first**
+- [ ] **Within tag, cluster by AI-detected topic**
+- [ ] Apply relevance scoring to filter low-value articles
+- [ ] Implement ranking algorithm (recency + priority + relevance)
 - [ ] Limit to configurable max articles
 
 ### 3.2 Email Generation
 - [ ] Create `internal/digest/generator.go`
-- [ ] Create HTML email template
+- [ ] Create HTML email template with **Tag → Topic → Articles** structure
+- [ ] Include AI-generated topic summaries in template
 - [ ] Create plain text fallback
 - [ ] Format article summaries and links
 
@@ -198,7 +218,13 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] PostgreSQL full-text search query
 - [ ] Display search results
 
-### 4.6 Polish
+### 4.6 Blocklist Management
+- [ ] Add `GET /api/preferences/blocklist` endpoint
+- [ ] Add `PUT /api/preferences/blocklist` endpoint
+- [ ] Add blocklist management page in UI
+- [ ] Allow adding/removing blocked terms
+
+### 4.7 Polish
 - [ ] Mobile-responsive layout
 - [ ] Loading states
 - [ ] Error messages
@@ -239,13 +265,46 @@ Progress tracker for building Agregado. Check items as you complete them.
 
 ---
 
+## Phase 5.5: AI Infrastructure
+
+**Note:** AI processing runs at digest time (batch), not on article ingestion.
+
+### 5.5.1 Ollama Setup
+- [ ] Add Ollama service to `docker-compose.yml`
+- [ ] Pull recommended models (Phi-3-mini for categorization, Mistral-7B for summarization)
+- [ ] Verify Ollama responds on `http://localhost:11434`
+
+### 5.5.2 AI Client Layer
+- [ ] Create `internal/ai/client.go` — provider interface
+- [ ] Create `internal/ai/ollama.go` — Ollama HTTP client
+- [ ] Add AI config to `internal/config/config.go` (model names, endpoint, timeout)
+
+### 5.5.3 AI Features
+- [ ] Create `internal/ai/categorizer.go` — batch assign tags to articles
+- [ ] Create `internal/ai/summarizer.go` — generate topic summaries
+- [ ] Create `internal/ai/relevance.go` — score article relevance using blocklist
+- [ ] Integrate blocklist from preferences table (`key='blocklist'`)
+
+### 5.5.4 Digest Integration
+- [ ] Modify digest generator to call AI categorizer before grouping
+- [ ] Modify digest generator to call AI summarizer for topic clusters
+- [ ] Apply relevance scoring to filter articles
+
+### Phase 5.5 Verification
+- [ ] Ollama container starts with docker-compose
+- [ ] AI client can communicate with Ollama
+- [ ] Batch categorization works with sample articles
+- [ ] Topic summaries appear in digest preview
+
+---
+
 ## Phase 6: Social Media Integration (Post-MVP)
 
 **Prerequisites:** Phases 1-5 complete, AI summarization infrastructure
 
 ### 6.1 Social Sources Schema
-- [ ] Create migration `000003_add_social_sources.up.sql`
-- [ ] Create migration `000003_add_social_sources.down.sql`
+- [ ] Create migration `000005_add_social_sources.up.sql`
+- [ ] Create migration `000005_add_social_sources.down.sql`
 - [ ] Add `social_sources` table (platform, handle, display_name, etc.)
 - [ ] Add `social_posts` table (temporary buffer for posts)
 - [ ] Add `social_digests` table (AI-generated summaries)

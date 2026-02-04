@@ -802,3 +802,298 @@ Failed:    Consumer NACK → articles.dlx → articles.dlq (for inspection)
 ```
 
 ---
+
+## Session 5: PostgreSQL Storage Layer (Phase 1.6)
+
+**Date:** 2026-02-04
+
+### Topics Covered
+
+#### 1. pgx v5 — Connection Pooling
+
+**pgxpool.New vs pgx.Connect:**
+- `pgx.Connect()` — single connection, not concurrency safe
+- `pgxpool.New(ctx, connStr)` — creates a connection pool (multiple connections, thread-safe)
+- `pgxpool.Connect` existed in v4 but was **removed in v5** — breaking change
+
+**Startup verification:**
+- `pgxpool.New` does NOT ping automatically (unlike v4's `Connect`)
+- Must call `pool.Ping(ctx)` explicitly to verify DB is reachable at startup
+- If Ping fails, close the pool before returning (prevent resource leak)
+
+**Connection string format:**
+```
+postgresql://user:password@host:port/dbname
+```
+
+---
+
+#### 2. The Repository Pattern
+
+**What it is:** A layer that separates domain logic from database access.
+
+**The three layers:**
+```
+internal/domain/   → WHAT the data looks like (structs)
+internal/storage/  → HOW to get data in/out of PostgreSQL (repos)
+rest of app        → USES repos without knowing any SQL
+```
+
+**Why it matters:**
+- The RSS Poller calls `repo.ListActive(ctx)` — no SQL knowledge needed
+- If you swap PostgreSQL for another DB later, only the repo changes
+- Similar to how `broker/` hides AMQP details from the rest of the app
+
+---
+
+#### 3. Consumer-Side Interfaces (Go Idiom)
+
+**The decision:** Where to define repository interfaces?
+
+**Option A:** Next to the concrete type (one file, one place)
+**Option B:** At the point of consumption (idiomatic Go) ← we chose this
+
+**Why Option B:**
+- Each consumer declares only what it needs (small interfaces)
+- Rob Pike: *"Don't ask for big interfaces when small ones will do"*
+- Example: Storage Worker only needs `Create`. It defines its own tiny interface.
+
+**Key insight:** In Go, you write the concrete type first. Interfaces are defined later, when consumers are built. The concrete type doesn't need to know about them.
+
+---
+
+#### 4. pgx Query Patterns
+
+**Three methods, three use cases:**
+
+| Method | Returns | Use when |
+|--------|---------|----------|
+| `pool.Query(ctx, sql, args...)` | Multiple rows (`pgx.Rows`) | SELECT returning many rows |
+| `pool.QueryRow(ctx, sql, args...)` | Single row (`pgx.Row`) | SELECT/INSERT RETURNING one row |
+| `pool.Exec(ctx, sql, args...)` | Command result (rows affected) | INSERT/UPDATE/DELETE with no row back |
+
+**Modern row scanning (pgx v5):**
+- `pgx.CollectRows(rows, pgx.RowToStructByName[T])` — collects all rows into a slice
+- `pgx.CollectOneRow(rows, pgx.RowToStructByName[T])` — collects exactly one row
+- These handle `rows.Close()` and `rows.Err()` internally — no manual loop needed
+
+**Manual loop (older pattern):**
+```go
+defer rows.Close()          // ← AFTER error check, not before
+for rows.Next() {
+    var s domain.Source
+    rows.Scan(&s.ID, &s.Name, ...)  // one row at a time
+    result = append(result, s)
+}
+return result, rows.Err()   // ← check loop errors
+```
+
+---
+
+#### 5. Struct Tags: `db:"column_name"` and `db:"-"`
+
+**Purpose:** Tell pgx how to map DB columns ↔ struct fields.
+
+**Same concept as `env` tags from config.go, different library:**
+```go
+Host        string `env:"DATABASE_HOST"`     // caarlos0/env reads this
+EmailSender string `db:"email_sender"`       // pgx reads this
+```
+
+**`db:"-"` skips a field entirely:**
+```go
+Tags []Tag `db:"-"`  // not a DB column — populated via JOIN later
+```
+Without this, `RowToStructByName` errors if field count ≠ column count.
+
+**Which fields need `db` tags?**
+- Any field where the Go name ≠ the column name
+- Multi-word fields: `EmailSender` → `email_sender`
+- Single words match automatically: `Name` → `name`
+
+---
+
+#### 6. How to Discover Struct Tag Requirements
+
+**The question:** How do you know a function needs struct tags without it being in the docs?
+
+**The answer:** Read the source code. Three steps:
+1. Look at the **function name** for clues — "ByName" implies name mapping
+2. Search the library source for `Tag.Lookup` or `reflect` — that's where tags are read
+3. The tag name before the colon (`db`, `json`, `env`) tells you which library reads it
+
+**pgx's actual matching logic (rows.go):**
+- If `db` tag present → use tag value, exact match
+- If no tag → use Go field name, **strip underscores from both sides**, compare case-insensitively
+- So `EmailSender` actually matches `email_sender` without a tag (both become `emailsender`)
+- Tags are still good practice: explicit > implicit
+
+**Key line in pgx source:** `const structTagKey = "db"` — one line defines the magic string.
+
+---
+
+#### 7. SQL Parameterized Queries (Preventing Injection)
+
+**The rule:** Values NEVER go inside the SQL string.
+
+**Wrong (SQL injection):**
+```go
+fmt.Sprintf("DELETE FROM sources WHERE id = %s", id)
+// If id = "'; DROP TABLE sources; --" → catastrophe
+```
+
+**Right (parameterized):**
+```go
+pool.Exec(ctx, "DELETE FROM sources WHERE id = $1", id)
+//                                        ^^^^        ^^^^
+//                                   placeholder   separate arg
+```
+
+**How it works:**
+- `$1`, `$2` are pgx placeholders (not fmt verbs!)
+- Values are sent separately over the wire — PostgreSQL never sees them as SQL
+- `fmt.Sprintf` processes the string BEFORE pgx sees it, so `$1` means nothing to fmt
+
+**PostgreSQL uses `$N` (not `?` like MySQL)** — numbered, so order doesn't matter in the SQL.
+
+---
+
+#### 8. ON CONFLICT — URL-Based Deduplication
+
+**The problem:** RSS poller fetches the same feed every 15 minutes. Re-inserting known articles would either crash (UNIQUE violation) or create duplicates.
+
+**The solution:**
+```sql
+INSERT INTO articles (external_url, title, ...)
+VALUES ($1, $2, ...)
+ON CONFLICT (external_url) DO NOTHING
+```
+
+- `external_url` is the UNIQUE column (dedup key)
+- `DO NOTHING` = if URL already exists, silently skip
+- No error, no duplicate, poller can blast freely
+
+**The RETURNING * gotcha:**
+- `ON CONFLICT DO NOTHING RETURNING *` returns **zero rows** when conflict fires
+- `CollectOneRow` will error on zero rows
+- If you don't need the created row back, use `Exec` (no RETURNING) — simplest fix
+- Alternative: `DO UPDATE SET col = EXCLUDED.col` forces a row to always be returned
+
+**`EXCLUDED` keyword:** Refers to the values that *would have been* inserted. Useful in `DO UPDATE` to reference the conflicting insert's values.
+
+---
+
+#### 9. Context in Go
+
+**What it is:** A "timeout/cancel ticket" that travels top-down through function calls.
+
+**Three things a context carries:**
+1. **Deadline** — "finish by this time or I don't care"
+2. **Cancel signal** — "abort, something changed"
+3. **Values** — request-scoped data (e.g., request ID)
+
+**The rules:**
+- Always the **first parameter**, never stored in a struct
+- Name it `ctx`, always
+- Pass it down, don't create new ones mid-chain
+- Only create at the top: `main`, HTTP handlers
+
+**Why `context.Background()` mid-chain is wrong:**
+- It has no deadline, no cancel signal
+- Operations using it can hang forever
+- The caller's context (with its timeout) gets ignored
+
+**In this project:**
+```
+NewDB(ctx) → connect(ctx) → pgxpool.New(ctx) → Ping(ctx)
+```
+If the caller sets a 5-second timeout, Ping auto-cancels after 5s. Zero extra code needed.
+
+---
+
+#### 10. Go Value vs Pointer Patterns
+
+**Returning nil vs zero value:**
+```go
+func foo() (MyStruct, error)   // value — can't return nil, use MyStruct{}
+func foo() (*MyStruct, error)  // pointer — can return nil
+```
+
+**Slices are already references:**
+```go
+// ❌ Never do this
+func List() (*[]Article, error)
+
+// ✅ Slices already hold an internal pointer
+func List() ([]Article, error)
+```
+
+**Resource leak prevention pattern:**
+```go
+pool, err := pgxpool.New(ctx, connStr)
+if err != nil { return err }
+
+if err := pool.Ping(ctx); err != nil {
+    pool.Close()   // ← close before returning, or it leaks
+    return err
+}
+```
+
+**`defer` ordering matters:**
+```go
+rows, err := pool.Query(ctx, sql)
+if err != nil { return nil, err }   // ← error check FIRST
+defer rows.Close()                  // ← defer AFTER (rows could be nil)
+```
+
+**`updated_at` — let the DB decide:**
+```sql
+-- ✅ DB sets the timestamp (it's happening right now)
+UPDATE sources SET name = $1, updated_at = NOW() WHERE id = $2
+
+-- ❌ Don't pass UpdatedAt from the struct (stale value)
+```
+
+---
+
+### Files Created/Modified
+
+| File | Purpose |
+|------|---------|
+| `internal/storage/postgres.go` | pgxpool connection, Ping verification, Close |
+| `internal/storage/source_repo.go` | SourceRepo: List, ListActive, Create, Delete, Update |
+| `internal/storage/article_repo.go` | ArticleRepo: GetById, List, Create (ON CONFLICT), Delete, MarkRead |
+| `internal/domain/source.go` | Added `db` struct tags to all multi-word fields |
+| `internal/domain/article.go` | Added `db` struct tags + `db:"-"` on Tags field |
+
+### Design Decisions
+
+1. **pgxpool over single connection** — thread-safe, shared across all repos
+2. **Consumer-side interfaces (Option B)** — defined later with consumers, not alongside repos
+3. **`RowToStructByName` over positional `RowTo`** — robust against column order changes (e.g. ALTER TABLE adding columns)
+4. **`ON CONFLICT DO NOTHING` + `Exec`** — simplest dedup; storage worker doesn't need the row back
+5. **`updated_at = NOW()` in SQL** — DB sets timestamps, not the application
+6. **Shared `*DB` via constructors** — one pool, many repos. `NewSourceRepo(db)` not `NewSourceRepo(cfg)`
+
+### Key Learnings
+
+**pgx v4 → v5 breaking changes:**
+- `pgxpool.Connect` → `pgxpool.New` (no auto-ping)
+- Must explicitly Ping after New
+
+**`CollectRows` vs manual loop:**
+- `CollectRows` handles Close + Err internally
+- No need for `defer rows.Close()` when using it
+- Manual loop is still useful to understand the underlying pattern
+
+**Struct tags are metadata, not magic:**
+- Libraries read them via `reflect` at runtime
+- The tag name (`db`, `json`, `env`) is just a convention — each library defines its own
+- You can always find which tag a library uses by searching its source for `Tag.Lookup`
+
+**ON CONFLICT + RETURNING is tricky:**
+- `DO NOTHING` means PostgreSQL does nothing — including not returning rows
+- This silently breaks `CollectOneRow` (expects exactly one row)
+- Know your use case: if you don't need the row back, don't ask for it
+
+---

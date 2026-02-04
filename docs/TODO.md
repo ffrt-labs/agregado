@@ -20,7 +20,6 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Set up golang-migrate
 - [x] Run migrations successfully
 - [x] Verify tables exist in PostgreSQL
-- [x] Added `manual` source type for user-submitted articles
 
 ### 1.3 Configuration
 - [x] Create `internal/config/config.go`
@@ -45,6 +44,14 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Update `internal/domain/article.go` with `Tags` field
 - [x] Run migration and verify tables exist
 
+### 1.4c Nullable Source ID
+- [x] Create migration `000003_nullable_source_id.up.sql` and `000003_nullable_source_id.down.sql`
+- [x] Remove `manual` from source type CHECK constraint (only `rss`, `newsletter`)
+- [x] Make `source_id` nullable on articles (NULL = manually added)
+- [x] Update `internal/domain/source.go` - remove `Manual` constant
+- [x] Update `internal/domain/article.go` - change `SourceID` to `*string`
+- [x] Run migration and verify constraint updated
+
 ### 1.5 RabbitMQ Integration
 - [x] Create `internal/broker/rabbitmq.go` - connection management
 - [x] Implement reconnection logic with backoff
@@ -55,11 +62,11 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Test publish/consume round-trip
 
 ### 1.6 PostgreSQL Storage
-- [ ] Create `internal/storage/postgres.go` - connection pool
-- [ ] Create `internal/storage/source_repo.go` - CRUD for sources
-- [ ] Create `internal/storage/article_repo.go` - CRUD for articles
-- [ ] Implement URL-based deduplication (ON CONFLICT)
-- [ ] Add repository interfaces for testing
+- [x] Create `internal/storage/postgres.go` - connection pool (pgxpool)
+- [x] Create `internal/storage/source_repo.go` - CRUD for sources
+- [x] Create `internal/storage/article_repo.go` - CRUD for articles
+- [x] Implement URL-based deduplication (ON CONFLICT DO NOTHING)
+- [x] Repository interfaces - decided consumer-side (Option B); defined with consumers in 1.7/1.8
 
 ### 1.7 RSS Poller
 - [ ] Create `internal/ingestion/rss/parser.go` - feed parsing with gofeed

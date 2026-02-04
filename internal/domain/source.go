@@ -5,9 +5,8 @@ import "time"
 type Type string
 
 const (
-    Rss  Type = "rss"
-    Newsletter Type = "newsletter"
-    Manual Type = "manual"
+	Rss        Type = "rss"
+	Newsletter Type = "newsletter"
 )
 
 type Source struct {
@@ -15,13 +14,13 @@ type Source struct {
 	Name string
 	Type Type
 	URL *string
-	EmailSender *string
+	EmailSender *string `db:"email_sender"`
 	Priority int
-	IsActive bool
-	LastFetchedAt *time.Time
-	LastError *string
-	ErrorCount int
-	DefaultTagID *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	IsActive bool `db:"is_active"`
+	LastFetchedAt *time.Time `db:"last_fetched_at"`
+	LastError *string `db:"last_error"`
+	ErrorCount int `db:"error_count"`
+	DefaultTagID *string `db:"default_tag_id"`
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
 }

@@ -11,6 +11,7 @@
 | Database | PostgreSQL | Full-featured, scalable, industry standard |
 | Frontend | HTMX + Go templates | Minimal JS, stays in Go ecosystem, modern hypermedia |
 | Email Intake | Webhooks (Cloudflare Email Routing) | Event-driven, aligns with pub/sub goals, free tier |
+| AI Inference | Ollama (local) | Free, privacy-preserving, learning value |
 | Deployment | Docker Compose | Self-hosted, reproducible, simple |
 
 ---
@@ -29,6 +30,10 @@
 │  │   Service    │     │   Handler    │     │  Scheduler   │                │
 │  └──────┬───────┘     └──────┬───────┘     └──────┬───────┘                │
 │         │                    │                    │                         │
+│         │              ┌─────┴─────┐              │                         │
+│         │              │   Link    │              │                         │
+│         │              │  Fetcher  │              │                         │
+│         │              └─────┬─────┘              │                         │
 │         └────────────────────┼────────────────────┘                         │
 │                              ▼                                              │
 │                    ┌─────────────────┐                                      │
@@ -53,13 +58,23 @@
 │  │   Worker     │     │   Generator  │     │   Worker     │                │
 │  └──────┬───────┘     └──────┬───────┘     └──────────────┘                │
 │         │                    │                                              │
-│         ▼                    ▼                                              │
-│  ┌──────────────┐     ┌──────────────┐                                     │
-│  │  PostgreSQL  │     │ Email (SMTP) │                                     │
-│  └──────────────┘     └──────────────┘                                     │
-│         ▲                                                                   │
-│         │                                                                   │
-│  ┌──────┴───────┐                                                          │
+│         ▼                    │                                              │
+│  ┌──────────────┐            │      ┌──────────────┐                       │
+│  │  PostgreSQL  │            │      │    Ollama    │                       │
+│  └──────────────┘            │      │  (local AI)  │                       │
+│         ▲                    │      └──────┬───────┘                       │
+│         │                    │             │                                │
+│         │                    ▼             ▼                                │
+│         │              ┌─────────────────────────┐                          │
+│         │              │     AI Processing       │                          │
+│         │              │  (categorize, summary,  │                          │
+│         │              │   relevance scoring)    │                          │
+│         │              └───────────┬─────────────┘                          │
+│         │                          │                                        │
+│         │                          ▼                                        │
+│         │                   ┌──────────────┐                                │
+│         │                   │ Email (SMTP) │                                │
+│  ┌──────┴───────┐           └──────────────┘                                │
 │  │   Web API    │◄────── HTMX Frontend                                     │
 │  │  (HTTP/REST) │                                                          │
 │  └──────────────┘                                                          │
@@ -135,21 +150,90 @@ Exchange: digest.trigger (type: direct)
 #### F3: Email Newsletter Ingestion
 **User Story:** As a user, I can forward newsletters to a dedicated email and have them appear as articles.
 
+**Hybrid Processing Approach:**
+Every newsletter is processed as BOTH:
+1. **Main Article** — the newsletter email body itself (always created)
+2. **Child Articles** — extracted links from the newsletter (configurable per source)
+
+This handles the spectrum from essay-style newsletters (Stratechery, where links are references) to link-aggregation newsletters (TLDR, where links ARE the content).
+
+**Configuration:**
+```sql
+-- Add to sources table
+ALTER TABLE sources ADD COLUMN extract_links BOOLEAN DEFAULT true;
+
+-- Link child articles to their parent newsletter
+ALTER TABLE articles ADD COLUMN parent_article_id UUID REFERENCES articles(id);
+```
+
+**Examples:**
+| Newsletter | `extract_links` | Rationale |
+|------------|-----------------|-----------|
+| Stratechery | `false` | Essay-style; links are references, not recommendations |
+| TLDR | `true` | Links ARE the main content |
+| Morning Brew | `true` | Both editorial and links have value |
+
 **Acceptance Criteria:**
 - Webhook endpoint receives POST from Cloudflare Email Routing
 - Parse email: subject → title, body → content, from → source
 - Handle HTML emails (convert to readable text/markdown)
+- **Always** create main article from newsletter body
+- If `source.extract_links = true`, trigger link extraction pipeline
 - Publish parsed articles to RabbitMQ
 - Verify webhook authenticity (shared secret)
 
+#### F3.1: Link Extraction Pipeline
+**User Story:** As a user, links from my newsletters are automatically fetched and stored as separate articles.
+
+**Description:**
+When a newsletter source has `extract_links = true`, the system extracts links from the HTML body, fetches their content, and creates child articles linked to the parent newsletter.
+
+**Process:**
+1. Parse newsletter HTML with goquery
+2. Extract `<a href>` links
+3. Filter out noise (navigation, unsubscribe, social media, tracking links)
+4. For each valid link:
+   - Fetch URL content with timeout
+   - Extract article content using readability algorithm
+   - Create child article with `parent_article_id` set to newsletter
+   - Publish to RabbitMQ
+
+**Filtering Heuristics:**
+- Exclude links containing: `unsubscribe`, `mailto:`, `twitter.com`, `facebook.com`, `linkedin.com/share`
+- Exclude links in header/footer navigation
+- Exclude tracking/redirect URLs (detect common patterns)
+
+**Error Handling:**
+- Skip inaccessible URLs gracefully (404, timeout, paywall)
+- Log failures but don't block newsletter processing
+- Set reasonable timeout (10s per link)
+
 #### F4: Daily Digest Email
-**User Story:** As a user, I receive a daily email with top articles from the last 24 hours.
+**User Story:** As a user, I receive a daily email with top articles from the last 24 hours, organized by topic.
+
+**Structure:**
+```
+Daily Digest
+├── Tag: Tech
+│   ├── Topic: "AI Model Releases" (AI-detected cluster)
+│   │   ├── [Article 1]
+│   │   └── [Article 2]
+│   └── Topic: "Cloud Infrastructure"
+│       └── [Article 3]
+├── Tag: Business
+│   └── Topic: "Startup Funding"
+│       └── [Article 4]
+└── ...
+```
 
 **Acceptance Criteria:**
 - Configurable digest time (default: 7:00 AM)
 - Query articles from last 24 hours
-- Rank by: recency, source priority (user-configurable)
-- Generate HTML email with article titles, summaries, links
+- **Group by Tag first** (existing categorization)
+- **Within each tag, AI clusters by specific topic** (e.g., "AI Model Releases", "Cloud Infrastructure")
+- Apply relevance scoring to filter low-value articles
+- Rank by: recency, source priority, relevance score
+- Generate HTML email with topic groupings and AI-generated topic summaries
 - Send via SMTP (configurable provider)
 - Track digest history (avoid re-sending same articles)
 
@@ -514,6 +598,67 @@ GET    /health/rabbit            - RabbitMQ connection status
 }
 ```
 
+### AI Infrastructure
+
+**Processing Strategy:** Batch at digest time (not on ingestion)
+- More efficient — process all articles at once
+- Simpler architecture — no real-time AI pipeline
+- Allows human review window before digest
+
+**Ollama Container:**
+```yaml
+# docker-compose.yml addition
+ollama:
+  image: ollama/ollama:latest
+  ports:
+    - "11434:11434"
+  volumes:
+    - ollama_data:/root/.ollama
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]  # Optional: for GPU acceleration
+```
+
+**Model Recommendations by Task:**
+
+| Task | Model Size | Recommendations | Why |
+|------|------------|-----------------|-----|
+| Categorization | Small (1-3B) | Phi-3-mini, Llama-3.2-1B | Fast, accurate for classification |
+| Summarization | Medium (7-8B) | Mistral-7B, Llama-3.1-8B | Balance of quality and speed |
+| Topic Clustering | Small (1-3B) | Phi-3-mini | Just needs semantic similarity |
+
+**AI Components:**
+- `internal/ai/client.go` — Provider interface (swappable backends)
+- `internal/ai/ollama.go` — Ollama HTTP client implementation
+- `internal/ai/categorizer.go` — Batch tag assignment
+- `internal/ai/summarizer.go` — Generate article/topic summaries
+- `internal/ai/relevance.go` — Score article relevance
+
+### Relevance Scoring
+
+**Scoring Factors:**
+1. **Source priority** — Existing `sources.priority` field (1-10)
+2. **Keyword blocklist** — Filter out articles matching blocked terms
+3. **AI relevance** — (Post-MVP) Based on reading history patterns
+
+**Blocklist Storage:**
+```sql
+-- Uses existing preferences table
+-- key = 'blocklist', value = JSON array of terms
+INSERT INTO preferences (key, value) VALUES (
+  'blocklist',
+  '["sponsored", "partner content", "advertorial"]'
+);
+```
+
+**Blocklist Management:** Added to Phase 4 Web UI
+- `GET /api/preferences/blocklist` — Retrieve current blocklist
+- `PUT /api/preferences/blocklist` — Update blocklist
+
 ---
 
 ## 4. Key Go Libraries
@@ -527,6 +672,7 @@ GET    /health/rabbit            - RabbitMQ connection status
 | Migrations | `github.com/golang-migrate/migrate` | CLI + library |
 | SMTP | `github.com/wneessen/go-mail` | Modern, well-maintained |
 | HTML parsing | `github.com/PuerkitoBio/goquery` | jQuery-like HTML parsing |
+| Article extraction | `github.com/go-shiori/go-readability` | Readability algorithm for clean content |
 | Cron | `github.com/robfig/cron/v3` | Standard cron library |
 | Config | `github.com/caarlos0/env/v10` | Env vars to struct |
 | Logging | `log/slog` | Standard library, structured |

@@ -315,7 +315,7 @@ CREATE TABLE tags (
 CREATE TABLE sources (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('rss', 'newsletter', 'manual')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('rss', 'newsletter')),
     url VARCHAR(2048),                    -- RSS feed URL (null for newsletters)
     email_sender VARCHAR(255),            -- Newsletter sender email (null for RSS)
     default_tag_id UUID REFERENCES tags(id) ON DELETE SET NULL,  -- Default tag for new articles
@@ -328,10 +328,10 @@ CREATE TABLE sources (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Articles
+-- Articles (source_id NULL = manually added by user)
 CREATE TABLE articles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    source_id UUID REFERENCES sources(id) ON DELETE CASCADE,
+    source_id UUID REFERENCES sources(id) ON DELETE CASCADE,  -- NULL = manually added
     external_url VARCHAR(2048) NOT NULL UNIQUE,  -- Dedupe key
     title VARCHAR(500) NOT NULL,
     author VARCHAR(255),

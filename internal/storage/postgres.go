@@ -51,3 +51,7 @@ func (db *DB) Close() error {
 
 	return nil
 }
+
+func (db *DB) Ping(ctx context.Context) error {
+	return db.pool.Ping(ctx)
+}

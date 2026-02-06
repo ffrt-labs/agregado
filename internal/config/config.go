@@ -1,6 +1,10 @@
 package config
 
-import "github.com/caarlos0/env/v10"
+import (
+	"time"
+
+	"github.com/caarlos0/env/v10"
+)
 
 type Database struct {
 	Host     string `env:"DATABASE_HOST" envDefault:"localhost"`
@@ -21,10 +25,15 @@ type Http struct {
 	Port string `env:"HTTP_PORT" envDefault:"8080"`
 }
 
+type Pooler struct {
+	Interval time.Duration `env:"RSS_POLL_INTERVAL" envDefault:"15m"`
+}
+
 type Config struct {
 	Database
 	Queue
 	Http
+	Pooler
 }
 
 func Load() (*Config, error) {

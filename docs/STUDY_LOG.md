@@ -1097,3 +1097,395 @@ UPDATE sources SET name = $1, updated_at = NOW() WHERE id = $2
 - Know your use case: if you don't need the row back, don't ask for it
 
 ---
+
+## Session 6: RSS Poller & Storage Worker (Phases 1.7-1.8)
+
+**Date:** 2026-02-06
+
+### Topics Covered
+
+#### 1. JSON Marshaling & Unmarshaling in Go
+
+**What is marshaling?**
+- Marshal = Go struct → bytes (for storage/transmission)
+- Unmarshal = bytes → Go struct (for processing)
+
+**JSON encoding/decoding:**
+```go
+// Marshal: struct → JSON bytes
+article := domain.Article{Title: "News", ...}
+body, _ := json.Marshal(article)
+// body = []byte(`{"title":"News",...}`)
+
+// Unmarshal: JSON bytes → struct
+var decoded domain.Article
+json.Unmarshal(body, &decoded)
+```
+
+**Why JSON for RabbitMQ?**
+- Language-agnostic wire format (consumers could be Python, Node.js)
+- Stable format independent of Go's internal memory layout
+- Human-readable for debugging
+
+**JSON struct tags control behavior:**
+```go
+type Article struct {
+    Title   string    `json:"title"`      // serialize as "title"
+    ID      string    `json:"-"`          // skip this field
+    Content *string   `json:"content"`    // handles nil automatically
+}
+```
+
+---
+
+#### 2. The `&` Operator and Taking Addresses
+
+**The problem:** Can't take address of function return values directly.
+
+```go
+// ❌ Won't compile
+author := &item.Author.Name  // can't take address of method call
+
+// ✅ Store in variable first
+authorName := item.Author.Name
+author := &authorName
+```
+
+**Why needed?** Database fields are `*string` (nullable), but most sources give you `string` values.
+
+**Converting string → *string:**
+```go
+var summary *string
+if item.Description != "" {
+    summary = &item.Description  // OK: taking address of struct field
+}
+// summary is nil if empty, pointer to string if not
+```
+
+---
+
+#### 3. Nil vs Empty String Semantics
+
+**The question:** Why use `nil` instead of `""` for optional fields?
+
+**Database semantics:**
+- `NULL` (from Go `nil`) = "no data available"
+- `""` (empty string) = "explicitly empty content"
+
+**Benefits:**
+1. **Clarity** - `nil` means "unknown/missing", not "empty on purpose"
+2. **Storage** - PostgreSQL stores `NULL` as a 1-bit flag, `""` takes actual space
+3. **API design** - JSON `null` is clearer than `""` for consumers
+
+**Example:**
+```go
+// RSS feed with no author
+item.Author = nil  // Better: clearly no author data
+
+// vs
+item.Author = &""  // Ambiguous: is author really "" or just unknown?
+```
+
+---
+
+#### 4. Closures in Go
+
+**What is a closure?** A function that captures variables from its surrounding scope.
+
+**The pattern:**
+```go
+func NewWorker(repo ArticleCreator) func([]byte) error {
+    return func(body []byte) error {
+        // This inner function "closes over" repo
+        // It can access repo even after NewWorker returns
+        var article domain.Article
+        json.Unmarshal(body, &article)
+        return repo.Create(context.Background(), article)
+    }
+}
+```
+
+**Why use closures?**
+- Configure dependencies once (at construction time)
+- Return a lightweight handler that uses them repeatedly
+- Common Go pattern for creating configured handlers
+
+**The flow:**
+1. `worker := NewWorker(repo)` - called once at startup, captures `repo`
+2. `consumer.Consume("queue", worker)` - passes the handler to consumer
+3. Consumer calls `worker(body)` for each message - `repo` is still accessible
+
+---
+
+#### 5. Consumer-Side Interfaces (Revisited)
+
+**Poller defines its own interface:**
+```go
+// In internal/ingestion/rss/poller.go
+type SourceLister interface {
+    ListActive(ctx context.Context) ([]domain.Source, error)
+    Update(ctx context.Context, source domain.Source) error
+}
+```
+
+**Worker defines its own interface:**
+```go
+// In internal/storage/worker.go
+type ArticleCreator interface {
+    Create(ctx context.Context, article domain.Article) error
+}
+```
+
+**Key insight:** Each consumer defines the MINIMAL interface it needs. The concrete `*SourceRepo` satisfies `SourceLister` via structural typing - zero glue code!
+
+**Benefits:**
+- Poller never imports `storage` package
+- Easy to test (pass any struct with those methods)
+- Clear contract ("I only need these two methods")
+
+---
+
+#### 6. RSS Feed Parsing with gofeed
+
+**What gofeed does:** Parses multiple feed formats (RSS 2.0, RSS 1.0, Atom) into a unified structure.
+
+**The problem it solves:**
+- RSS feeds come in different formats with different XML structures
+- Date formats vary (50+ variations across feeds)
+- Optional fields in different locations
+
+**Usage:**
+```go
+parser := gofeed.NewParser()
+feed, _ := parser.ParseURL("https://blog.example.com/feed.xml")
+
+for _, item := range feed.Items {
+    item.Title            // works for RSS or Atom
+    item.Link             // normalized URL
+    item.PublishedParsed  // already parsed as *time.Time
+    item.Description      // content preview
+    item.Content          // full content
+}
+```
+
+**Key types:**
+- `*gofeed.Feed` - feed-level metadata (title, description, items)
+- `*gofeed.Item` - individual article
+- `*gofeed.Person` - author info (has `.Name` field)
+
+---
+
+#### 7. Ticker Loop Pattern for Periodic Work
+
+**Problem:** Need to poll RSS feeds every 15 minutes, and stop cleanly on shutdown.
+
+**Solution:** `time.Ticker` + `select` + context cancellation
+
+```go
+func (p *Poller) Start(ctx context.Context) {
+    ticker := time.NewTicker(p.interval)
+    defer ticker.Stop()
+
+    p.poll(ctx)  // immediate first poll
+
+    for {
+        select {
+        case <-ticker.C:
+            p.poll(ctx)  // poll on each tick
+        case <-ctx.Done():
+            return  // graceful shutdown
+        }
+    }
+}
+```
+
+**How it works:**
+- `ticker.C` sends a value every interval (15m)
+- `ctx.Done()` closes when SIGINT/SIGTERM received
+- `select` waits for whichever happens first
+- `defer ticker.Stop()` cleans up the ticker
+
+---
+
+#### 8. Handling Multiple Authors
+
+**The challenge:** `gofeed.Item` has both:
+- `item.Author` - a `*Person` (singular, can be nil)
+- `item.Authors` - a `[]*Person` slice (multiple, can be empty)
+
+**The solution:** Check both, concatenate with commas:
+```go
+var authors []string
+if len(item.Authors) > 0 {
+    for _, author := range item.Authors {
+        if author.Name != "" {
+            authors = append(authors, author.Name)
+        }
+    }
+} else if item.Author != nil && item.Author.Name != "" {
+    authors = append(authors, item.Author.Name)
+}
+
+var author *string
+if len(authors) > 0 {
+    joined := strings.Join(authors, ", ")
+    author = &joined
+}
+```
+
+**Result:** `author` is `nil` if no authors, otherwise `*string` pointing to "Alice, Bob".
+
+---
+
+#### 9. Filtering Stale Items
+
+**The optimization:** Only publish NEW articles, skip ones we've seen before.
+
+```go
+for _, item := range feed.Items {
+    // Skip items published before last fetch
+    if item.PublishedParsed != nil && source.LastFetchedAt != nil {
+        if item.PublishedParsed.Before(*source.LastFetchedAt) {
+            continue
+        }
+    }
+    // Process new item...
+}
+```
+
+**Why needed?**
+- Poller runs every 15 minutes
+- RSS feeds often include last 10-20 articles
+- Without filtering, we'd republish the same 20 articles every 15 minutes
+
+**Nil checks matter:** First poll has `LastFetchedAt = nil`, so we publish everything.
+
+---
+
+#### 10. Error Tracking in Sources
+
+**On parse error:**
+```go
+if err != nil {
+    errMsg := err.Error()
+    source.LastError = &errMsg
+    source.ErrorCount++
+    p.sources.Update(ctx, source)
+    continue  // skip to next source
+}
+```
+
+**On success:**
+```go
+source.LastError = nil
+source.ErrorCount = 0
+now := time.Now()
+source.LastFetchedAt = &now
+p.sources.Update(ctx, source)
+```
+
+**Benefits:**
+- Track which feeds are broken
+- Implement exponential backoff later (if `ErrorCount > 5`, slow down polling)
+- Surface errors in web UI ("Source hasn't updated in 3 days")
+
+---
+
+#### 11. context.Background() in Worker
+
+**The situation:** Worker handler signature is `func([]byte) error` - no context parameter.
+
+**Current approach:**
+```go
+repo.Create(context.Background(), article)
+```
+
+**Why it's OK for now:**
+- Handler signature is fixed by broker consumer design
+- `context.Background()` has no deadline/cancel - could hang forever
+- **Phase 5** will add context propagation for distributed tracing
+
+**Better long-term:** Extract request ID from message headers, create context with it.
+
+---
+
+#### 12. Topic Exchange Routing Keys
+
+**What we publish:**
+```go
+pub.Publish("articles.ingest", "rss", body)
+//           ^^^^^^^^^^^^^^^^  ^^^^^
+//           exchange          routing key
+```
+
+**Why "rss" as routing key?**
+- Our binding uses `#` (match anything), so it doesn't matter functionally
+- But `"rss"` is **self-documenting** for future filtering
+- Later: email ingestion could use key `"email"`
+- Could change binding to `rss.*` or `email.*` for selective consumption
+
+**Topic exchange benefit:** Flexible routing without changing publisher code.
+
+---
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `internal/ingestion/rss/parser.go` | gofeed wrapper with single Parse method |
+| `internal/ingestion/rss/poller.go` | Ticker-based RSS polling with error tracking |
+| `internal/storage/worker.go` | RabbitMQ consumer handler using closure pattern |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `internal/config/config.go` | Added `Poller` struct with `Interval` field |
+| `internal/domain/article.go` | Added `json` struct tags for marshaling |
+| `docker-compose.yml` | Moved adminer to port 8888 |
+| `.env.example` | Added `RSS_POLL_INTERVAL=15m` |
+
+### Design Patterns Used
+
+1. **Wrapper pattern** - `parser.go` wraps `gofeed.Parser` for testability/isolation
+2. **Consumer-side interfaces** - Poller/Worker define minimal interfaces, never import concrete repos
+3. **Closure pattern** - `NewWorker` returns a function that captures `repo`
+4. **Ticker + select pattern** - Periodic work with graceful shutdown
+5. **Nil-safe optional fields** - Use `*string` with nil for missing data, not empty strings
+
+---
+
+### Key Learnings
+
+**Marshaling requires struct tags:**
+- `json:"field_name"` controls JSON key names
+- `json:"-"` excludes fields from JSON
+- Only exported (capitalized) fields are marshaled
+
+**Taking addresses of strings:**
+- Can't do `&err.Error()` (function return)
+- Can do `&item.Description` (struct field)
+- For function returns: store in variable first, then take address
+
+**Closures capture by reference:**
+- The returned function "remembers" variables from outer scope
+- Even after the outer function returns
+- Useful for dependency injection without global state
+
+**gofeed handles RSS complexity:**
+- 50+ date formats
+- Multiple feed types (RSS 2.0, RSS 1.0, Atom)
+- Vendor extensions (iTunes, Google News)
+- Don't reinvent this wheel!
+
+**Stale item filtering saves bandwidth:**
+- RSS feeds repeat old articles
+- Filter by `PublishedParsed < LastFetchedAt`
+- Reduces RabbitMQ traffic after first poll
+
+**Routing keys for future flexibility:**
+- Use meaningful keys ("rss", "email") even if binding is `#`
+- Sets you up for selective consumption later
+- Self-documenting message origins
+
+---

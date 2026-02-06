@@ -69,19 +69,19 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Repository interfaces - decided consumer-side (Option B); defined with consumers in 1.7/1.8
 
 ### 1.7 RSS Poller
-- [ ] Create `internal/ingestion/rss/parser.go` - feed parsing with gofeed
-- [ ] Create `internal/ingestion/rss/poller.go` - polling service
-- [ ] Implement periodic fetching (configurable interval)
-- [ ] Publish articles to `articles.ingest` exchange
-- [ ] Handle errors with exponential backoff
-- [ ] Update source `last_fetched_at` and `error_count`
+- [x] Create `internal/ingestion/rss/parser.go` - feed parsing with gofeed
+- [x] Create `internal/ingestion/rss/poller.go` - polling service
+- [x] Implement periodic fetching (configurable interval)
+- [x] Publish articles to `articles.ingest` exchange
+- [x] Handle errors with error tracking (LastError, ErrorCount updates)
+- [x] Update source `last_fetched_at` and `error_count`
 
 ### 1.8 Storage Worker
-- [ ] Create `internal/storage/worker.go`
-- [ ] Consume from `articles.store` queue
-- [ ] Store articles via repository
-- [ ] Implement ACK/NACK based on success/failure
-- [ ] Handle graceful shutdown
+- [x] Create `internal/storage/worker.go`
+- [x] Consume from `articles.store` queue
+- [x] Store articles via repository
+- [x] Implement ACK/NACK based on success/failure
+- [x] Handle graceful shutdown (via consumer's context)
 
 ### 1.9 Health Endpoints
 - [ ] Create `internal/api/server.go` - HTTP server setup

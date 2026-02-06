@@ -84,10 +84,10 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Handle graceful shutdown (via consumer's context)
 
 ### 1.9 Health Endpoints
-- [ ] Create `internal/api/server.go` - HTTP server setup
-- [ ] Add `GET /health` - basic health check
-- [ ] Add `GET /health/rabbit` - RabbitMQ status
-- [ ] Add `GET /health/db` - PostgreSQL status
+- [x] Create `internal/api/server.go` - HTTP server setup
+- [x] Add `GET /health` - basic health check
+- [x] Add `GET /health/rabbit` - RabbitMQ status
+- [x] Add `GET /health/db` - PostgreSQL status
 
 ### 1.10 Main Entry Point
 - [ ] Create `cmd/agregado/main.go`

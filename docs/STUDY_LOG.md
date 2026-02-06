@@ -1489,3 +1489,410 @@ pub.Publish("articles.ingest", "rss", body)
 - Self-documenting message origins
 
 ---
+
+## Session 7: Health Endpoints & HTTP Server (Phase 1.9)
+
+**Date:** 2026-02-06
+
+### Topics Covered
+
+#### 1. Chi Router - Lightweight HTTP Routing
+
+**What is Chi?**
+- Lightweight, composable HTTP router built on `net/http`
+- Provides cleaner routing syntax than stdlib `ServeMux`
+- Middleware composition support
+- Pattern matching in URLs
+
+**Why use Chi over stdlib?**
+```go
+// Stdlib - verbose
+http.HandleFunc("/health", healthHandler)
+
+// Chi - cleaner, more expressive
+r := chi.NewRouter()
+r.Get("/health", s.healthHandler)
+r.Post("/api/articles", s.createArticle)
+```
+
+**Benefits:**
+- Built on standard library (minimal abstraction)
+- Route variables: `/users/{id}`
+- Method-specific handlers (Get, Post, Put, Delete)
+- Middleware chains
+
+---
+
+#### 2. Health Check Patterns: Liveness vs Readiness
+
+**Two types of health checks:**
+
+| Check | Purpose | When to use | Return |
+|-------|---------|-------------|--------|
+| **Liveness** | "Is the app alive?" | `/health` | Always 200 (if reachable) |
+| **Readiness** | "Can it handle traffic?" | `/health/db`, `/health/rabbit` | 200 if deps OK, 503 if not |
+
+**Kubernetes/orchestrators use both:**
+- **Liveness probe** → if fails, restart the pod
+- **Readiness probe** → if fails, remove from load balancer (but don't restart)
+
+**Why separate them?**
+- If PostgreSQL is down, the app is still "alive" (don't restart it)
+- But it's "not ready" to serve traffic (remove from rotation)
+- When PostgreSQL recovers, readiness passes → traffic resumes
+
+**Our implementation:**
+```go
+GET /health          → {"status":"ok"}  // always 200
+GET /health/rabbit   → 200 or 503
+GET /health/db       → 200 or 503
+```
+
+---
+
+#### 3. Context With Timeout for Health Checks
+
+**The problem:** If PostgreSQL is hung (not just down), `Ping()` could wait forever.
+
+**The solution:** Wrap request context with a timeout:
+```go
+ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+defer cancel()
+
+err := s.db.Ping(ctx)
+```
+
+**How it works:**
+- `r.Context()` - the HTTP request's context (cancels if client disconnects)
+- `context.WithTimeout(parent, duration)` - creates a **derived context**
+- Derived context cancels after 2 seconds OR when parent cancels, whichever comes first
+- `defer cancel()` - manually cancel early if Ping succeeds (cleanup)
+
+**Why 2 seconds?**
+- Health checks should be fast (orchestrators poll frequently)
+- If DB takes > 2s to respond, something is wrong anyway
+- Prevents health check itself from hanging
+
+---
+
+#### 4. Pointer Fields in Structs
+
+**The pattern:**
+```go
+type Server struct {
+    broker     *broker.Broker  // pointer
+    db         *storage.DB     // pointer
+    httpServer *http.Server    // pointer
+}
+```
+
+**Why pointers, not values?**
+
+| Issue | Value (wrong) | Pointer (right) |
+|-------|---------------|-----------------|
+| **Copies** | Entire struct copied | Just the address copied |
+| **Shared state** | Each Server has its own copy of pool | All Servers share same pool |
+| **Nil checking** | Can't represent "no value" | Can be `nil` |
+
+**Resource leak example:**
+```go
+// ❌ Value type copies the pool
+type Server struct {
+    db storage.DB  // copies the entire pgxpool
+}
+
+// When you call db.Close(), it closes the COPY, not the original!
+// The original pool leaks connections.
+```
+
+**Correct pattern:**
+```go
+// ✅ Pointer shares the resource
+type Server struct {
+    db *storage.DB  // points to the same pool
+}
+
+// Now Close() actually closes the shared pool
+```
+
+---
+
+#### 5. Method Receivers and Struct Initialization Order
+
+**The problem:** Can't reference methods before the struct exists.
+
+**Wrong approach:**
+```go
+func NewServer(b *broker.Broker, db *storage.DB) *Server {
+    r := chi.NewRouter()
+    r.Get("/health", s.healthHandler)  // ❌ s doesn't exist yet!
+
+    s := &Server{...}  // too late
+}
+```
+
+**Right approach:**
+```go
+func NewServer(b *broker.Broker, db *storage.DB) *Server {
+    r := chi.NewRouter()
+
+    s := &Server{
+        broker: b,
+        db: db,
+        httpServer: &http.Server{Handler: r},
+    }
+
+    r.Get("/health", s.healthHandler)  // ✅ now s exists
+    return s
+}
+```
+
+**Key insight:** Create the struct first, THEN register routes that use its methods.
+
+---
+
+#### 6. Channel Cleanup in Health Checks
+
+**The pattern:**
+```go
+ch, err := s.broker.NewChannel()
+if err == nil {
+    ch.Close()  // Always clean up!
+    // ... return 200
+}
+// Don't call ch.Close() here - ch is nil on error!
+```
+
+**Why close immediately?**
+- Each AMQP channel consumes resources on both client and server
+- Health checks run every 10-30 seconds
+- Without cleanup: leak a channel on every health check → OOM crash
+
+**Why not close in error branch?**
+- If `NewChannel()` fails, `ch` is `nil`
+- Calling `nil.Close()` panics
+- Only close in the success branch
+
+---
+
+#### 7. Goroutines for Non-Blocking Server Start
+
+**The problem:** `ListenAndServe()` blocks forever (until the server stops).
+
+```go
+// ❌ This never reaches line 2
+func (s *Server) Start(ctx context.Context, port string) error {
+    s.httpServer.ListenAndServe()  // blocks forever
+    <-ctx.Done()                    // never reached!
+}
+```
+
+**The solution:** Run server in a background goroutine:
+```go
+func (s *Server) Start(ctx context.Context, port string) error {
+    go func() {
+        s.httpServer.ListenAndServe()  // runs in background
+    }()
+
+    <-ctx.Done()  // now we can wait for shutdown signal
+
+    // Graceful shutdown...
+}
+```
+
+**Why goroutines are cheap:**
+- OS threads: ~2MB stack, expensive context switching
+- Go goroutines: ~2KB stack, cooperatively scheduled
+- Can easily run thousands of goroutines
+
+---
+
+#### 8. Graceful Shutdown Pattern
+
+**The full flow:**
+```go
+func (s *Server) Start(ctx context.Context, port string) error {
+    s.httpServer.Addr = fmt.Sprintf(":%s", port)
+
+    // 1. Start server in background
+    go func() {
+        if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            // Real errors (not shutdown-related) logged here
+        }
+    }()
+
+    // 2. Block until shutdown signal
+    <-ctx.Done()
+
+    // 3. Graceful shutdown with timeout
+    shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    return s.Shutdown(shutdownCtx)
+}
+```
+
+**Key steps:**
+1. **Background start** - server runs without blocking
+2. **Wait for signal** - `ctx.Done()` closes when SIGINT/SIGTERM received
+3. **New context** - original `ctx` is already canceled, need fresh one for shutdown
+4. **5-second timeout** - give active connections time to finish, but not forever
+
+**Why `context.Background()` for shutdown?**
+- The original `ctx` is already canceled (that's why we reached this point)
+- `Shutdown()` needs a LIVE context with its own timeout
+- Otherwise shutdown would fail immediately
+
+---
+
+#### 9. http.ErrServerClosed - Expected Error
+
+**The pattern:**
+```go
+if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+    // Only log if it's NOT the expected shutdown error
+}
+```
+
+**Why this check?**
+- When `Shutdown()` is called, the server stops gracefully
+- `ListenAndServe()` returns `http.ErrServerClosed`
+- This is **expected behavior**, not an error to log/handle
+
+**Without the check:**
+- Every shutdown logs "server closed" as an error
+- Clutters logs with false alarms
+- Hard to spot real errors
+
+---
+
+#### 10. HTTP Status Codes for Health Checks
+
+**200 OK:**
+- Dependency is healthy and reachable
+- Service can handle requests
+
+**503 Service Unavailable:**
+- Dependency is down or unreachable
+- Service should be removed from load balancer
+- But the service itself is still running (don't restart it)
+
+**Why not 500 Internal Server Error?**
+- 500 implies a bug in the service code
+- 503 implies external dependency issue (not our fault)
+- Orchestrators look for 503 to know it's a temporary condition
+
+---
+
+#### 11. JSON Response Pattern
+
+**Setting up JSON responses:**
+```go
+w.Header().Set("Content-Type", "application/json")
+w.WriteHeader(http.StatusOK)
+json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+```
+
+**Order matters:**
+1. **Set headers first** - must happen before WriteHeader
+2. **Write status code** - sends the HTTP response line
+3. **Encode body** - writes JSON to response
+
+**Why `json.NewEncoder(w).Encode()` instead of `json.Marshal()`?**
+- `Marshal` → bytes → then you write bytes
+- `Encoder` writes directly to `http.ResponseWriter` (fewer allocations)
+- More idiomatic for HTTP handlers
+
+---
+
+#### 12. The Facade Pattern for DB Access
+
+**What we did:**
+```go
+type DB struct {
+    pool *pgxpool.Pool  // unexported (lowercase)
+}
+
+func (db *DB) Ping(ctx context.Context) error {
+    return db.pool.Ping(ctx)  // expose through method
+}
+```
+
+**Why not just export the pool?**
+```go
+// ❌ Bad
+type DB struct {
+    Pool *pgxpool.Pool  // exported
+}
+// Now anyone can call db.Pool.Close() directly!
+```
+
+**Benefits of facade:**
+- **Encapsulation** - `DB` controls how pool is accessed
+- **Future flexibility** - can add logging, metrics, retries
+- **Clear interface** - exposes only what's needed
+
+---
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `internal/api/server.go` | HTTP server with Chi router and health endpoints |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `internal/storage/postgres.go` | Added `Ping(ctx)` method to expose pool health check |
+
+### Design Patterns Used
+
+1. **Facade pattern** - DB struct wraps pgxpool, exposes limited interface
+2. **Constructor pattern** - `NewServer()` wires dependencies before registering routes
+3. **Method receivers** - Health handlers are methods on `*Server`, access dependencies via `s.db`, `s.broker`
+4. **Context propagation** - Request context flows through health checks with timeout
+5. **Graceful shutdown** - Non-blocking start, wait for signal, clean stop
+
+---
+
+### Key Learnings
+
+**Liveness vs Readiness:**
+- Not the same thing!
+- Liveness = "is the process alive?" (always return 200)
+- Readiness = "can it serve traffic?" (return 503 if deps down)
+- Orchestrators use both to make different decisions
+
+**Goroutines are not threads:**
+- Extremely lightweight (2KB vs 2MB)
+- Scheduled cooperatively by Go runtime
+- Can spawn thousands without performance issues
+
+**Context timeout creates a derived context:**
+- `WithTimeout(parent, duration)` inherits from parent
+- Cancels when either duration expires OR parent cancels
+- Always `defer cancel()` even if timeout hasn't fired (cleanup)
+
+**http.ErrServerClosed is expected:**
+- Returned by ListenAndServe when Shutdown() is called
+- Must explicitly check for it to avoid logging normal shutdowns as errors
+
+**Order of HTTP response matters:**
+- Headers → Status Code → Body
+- Can't set headers after writing status/body (already sent!)
+
+**Pointer struct fields for shared resources:**
+- Value types copy the entire struct
+- Pointer types share the same underlying resource
+- Critical for connection pools, channels, anything with cleanup
+
+**Method receiver gotcha:**
+- Can't reference `s.method` before `s` exists
+- Create struct first, then register routes with its methods
+
+**Channel cleanup:**
+- Always close AMQP channels after health checks
+- Only close in success branch (nil on error)
+- Without cleanup: resource leak on every check
+
+---

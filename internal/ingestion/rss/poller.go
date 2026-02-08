@@ -69,12 +69,6 @@ func (p *Poller) poll(ctx context.Context) {
 			continue
 		}
 
-		source.LastError = nil
-		source.ErrorCount = 0
-		now := time.Now()
-		source.LastFetchedAt = &now
-		p.sources.Update(ctx, source)
-
 		for _, item := range feed.Items {
 			if item.PublishedParsed != nil && source.LastFetchedAt != nil {
 				if item.PublishedParsed.Before(*source.LastFetchedAt) {
@@ -130,5 +124,11 @@ func (p *Poller) poll(ctx context.Context) {
 				continue
 			}
 		}
+
+		source.LastError = nil
+		source.ErrorCount = 0
+		now := time.Now()
+		source.LastFetchedAt = &now
+		p.sources.Update(ctx, source)
 	}
 }

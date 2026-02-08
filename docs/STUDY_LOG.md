@@ -1896,3 +1896,314 @@ type DB struct {
 - Without cleanup: resource leak on every check
 
 ---
+
+## Session 8: Main Entry Point & RSS Poller (Phase 1.10)
+
+**Date:** 2026-02-08
+
+### Topics Covered
+
+#### 1. Graceful Shutdown with signal.NotifyContext
+
+**Modern Go pattern (1.16+):**
+```go
+ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer cancel()
+```
+
+**What it does:**
+- Creates a context that automatically cancels when OS signals arrive
+- Converts signals (SIGINT from Ctrl-C, SIGTERM from orchestrators) into context cancellation
+- All components use the same cancellation mechanism
+
+**Component integration:**
+```go
+go poller.Start(ctx)      // Polls until ctx.Done()
+go server.Start(ctx, port) // Serves until ctx.Done()
+consumer.Consume(queue, h) // Already non-blocking
+
+<-ctx.Done() // Blocks here until signal received
+```
+
+**Why reverse order for shutdown?**
+1. Stop accepting new work (HTTP server)
+2. Stop producing messages (publisher)
+3. Stop consuming messages (consumer)
+4. Close storage layer (database)
+5. Close message broker
+
+This "drains the pipeline" — work in progress completes, no data loss.
+
+---
+
+#### 2. Shutdown Context Must Be Fresh
+
+**The Bug:**
+```go
+<-ctx.Done()
+server.Shutdown(ctx) // ❌ ctx is already cancelled!
+```
+
+After `ctx.Done()`, the context is **cancelled**. Using it for shutdown means operations timeout immediately (0 seconds).
+
+**The Fix:**
+```go
+<-ctx.Done()
+shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+server.Shutdown(shutdownCtx) // ✅ Has 5 seconds to drain
+```
+
+Create a **new context** with fresh timeout for graceful shutdown operations.
+
+---
+
+#### 3. Timing Bugs in Polling Systems
+
+**The Critical Bug in poller.go:**
+
+Original code:
+```go
+// 1. Fetch feed
+feed, err := parser.Parse(url)
+
+// 2. Update timestamp to NOW
+now := time.Now()
+source.LastFetchedAt = &now
+sources.Update(ctx, source)
+
+// 3. Filter items published before NOW
+for _, item := range feed.Items {
+    if item.PublishedParsed.Before(*source.LastFetchedAt) {
+        continue // Skip old items
+    }
+    // Process item...
+}
+```
+
+**Problem:** Comparing against CURRENT time (NOW), not PREVIOUS fetch time. Since RSS items are always from the past, this skips ALL items on every poll after the first!
+
+**The Fix:**
+```go
+// 1. Fetch feed (LastFetchedAt still has OLD value from database)
+feed, err := parser.Parse(url)
+
+// 2. Filter using OLD timestamp
+for _, item := range feed.Items {
+    if item.PublishedParsed.Before(*source.LastFetchedAt) {
+        continue // Skip items older than PREVIOUS fetch
+    }
+    // Process item...
+}
+
+// 3. Update timestamp AFTER processing
+now := time.Now()
+source.LastFetchedAt = &now
+sources.Update(ctx, source)
+```
+
+**Key insight:** In polling systems, always compare against the **previous checkpoint**, not the current time. Sequence matters: read old → compare → update new.
+
+---
+
+#### 4. Error Shadowing with :=
+
+**The Bug:**
+```go
+publisher, err := broker.NewPublisher(b)
+consumer, err := broker.NewConsumer(b) // ❌ err from publisher is lost!
+```
+
+`:=` declares a new variable. Using it twice means the second declaration **overwrites** the first error without checking it.
+
+**The Fix:**
+```go
+publisher, err := broker.NewPublisher(b)
+if err != nil {
+    log.Fatal("Failed to create publisher", err)
+}
+
+consumer, err := broker.NewConsumer(b) // Now safe to reuse err
+if err != nil {
+    log.Fatal("Failed to create consumer", err)
+}
+```
+
+**When to use `:=` vs `=`:**
+- `:=` declares AND assigns (for new variables)
+- `=` assigns to existing variables
+- If `err` already exists, use `=` to reuse it
+- Common pattern: check error immediately after `:=`
+
+---
+
+#### 5. Component Wiring Order
+
+**Dependency graph determines order:**
+```
+1. godotenv.Load()          # Load env vars
+2. config.Load()            # Parse config
+3. signal.NotifyContext()   # Create cancellable context
+4. storage.NewDB()          # Needs config.Database
+5. broker.NewBroker()       # Needs config.Queue
+6. broker.DeclareTopology() # Needs broker
+7. broker.NewPublisher()    # Needs broker
+8. broker.NewConsumer()     # Needs broker
+9. storage repos            # Need db
+10. rss.NewPoller()         # Needs repos, publisher, config
+11. storage.NewWorker()     # Needs article repo
+12. api.NewServer()         # Needs broker, db
+```
+
+**Rule:** Never create a component before its dependencies exist.
+
+---
+
+#### 6. Goroutines vs Non-Blocking Operations
+
+**Need `go` keyword:**
+```go
+go poller.Start(ctx)  // Runs in background, Start() blocks on ticker
+go server.Start(ctx, port) // Runs in background, Start() blocks on HTTP
+```
+
+These functions **block** until context is cancelled, so they must run in goroutines.
+
+**Don't need `go` keyword:**
+```go
+consumer.Consume(queue, handler) // Already spawns goroutines internally
+```
+
+This function **returns immediately** after spawning internal goroutines. Adding `go` would be redundant.
+
+**How to tell?** Check if the function:
+- Loops until context cancellation → needs `go`
+- Spawns goroutines and returns → doesn't need `go`
+
+---
+
+#### 7. Consumer-Side Interfaces
+
+**Pattern from Phase 1.6:**
+```go
+// In internal/ingestion/rss/poller.go
+type SourceLister interface {
+    ListActive(ctx context.Context) ([]domain.Source, error)
+    Update(ctx context.Context, source domain.Source) error
+}
+```
+
+**Why define interface in consumer package?**
+1. **Dependency inversion** — poller doesn't import storage package
+2. **Testability** — can mock SourceLister without real database
+3. **Structural typing** — `*storage.SourceRepo` satisfies interface automatically (no glue code)
+
+The poller only declares what it needs. The storage repo happens to provide it. Zero coupling.
+
+---
+
+#### 8. JSON Tags for Wire Format
+
+**Added to domain.Article:**
+```go
+type Article struct {
+    ID          string     `db:"id" json:"-"`           // DB-generated, not on wire
+    SourceID    *string    `db:"source_id" json:"source_id"`
+    ExternalURL string     `db:"external_url" json:"external_url"`
+    Title       string     `db:"title" json:"title"`
+    CreatedAt   time.Time  `db:"created_at" json:"-"`   // DB-generated
+    // ...
+}
+```
+
+**Why reuse domain types for messaging?**
+- Avoids creating separate DTO structs
+- Works when wire format matches domain model
+- `json:"-"` excludes DB-generated fields (ID, timestamps)
+
+**When NOT to do this?**
+- Wire format differs from domain model
+- Need different validation rules
+- External API with fixed schema
+
+In our case, poller → RabbitMQ → worker all use the same Article structure, so reuse makes sense.
+
+---
+
+#### 9. Port Conflicts
+
+**The Fix:**
+Changed `docker-compose.yml`:
+```yaml
+adminer:
+  ports:
+    - 8888:8080  # Was 8080:8080
+```
+
+**Why?** HTTP server listens on 8080. Adminer on the same port would conflict. Moving adminer to 8888 prevents runtime errors.
+
+**Lesson:** Plan port allocation early:
+- 8080: Application HTTP API
+- 8888: Adminer (DB admin UI)
+- 5432: PostgreSQL
+- 5672: RabbitMQ AMQP
+- 15672: RabbitMQ Management UI
+
+---
+
+### Design Patterns Used
+
+1. **Signal-driven shutdown** - OS signals → context cancellation → graceful stop
+2. **Pipeline drain** - Shutdown in reverse of startup order
+3. **Consumer-side interfaces** - Components define their own dependency contracts
+4. **Structural typing** - Interfaces satisfied implicitly (no `implements` keyword)
+5. **Ticker pattern** - Periodic operations via `time.NewTicker`
+6. **Error accumulation** - Log and continue vs fail-fast (appropriate for batch operations)
+
+---
+
+### Key Learnings
+
+**Context cancellation is one-way:**
+- Once cancelled, can never be un-cancelled
+- Need fresh context for operations after parent cancellation
+- Shutdown contexts are always fresh with new timeouts
+
+**Polling checkpoint timing is critical:**
+- Compare against OLD checkpoint, not current time
+- Update checkpoint AFTER processing, not before
+- Order: fetch → filter by old → process → update new
+
+**Error shadowing is subtle:**
+- `:=` creates new variables, shadows existing ones
+- Always check errors immediately after declaring
+- Reuse `err` variable with `=` when intentional
+
+**Component startup order follows dependency graph:**
+- Config before anything else
+- Connections before clients
+- Repositories before services
+- Services before HTTP server
+- No circular dependencies
+
+**Goroutine discipline:**
+- Use `go` for blocking loops/servers
+- Don't use `go` for functions that return immediately
+- Always provide context for cancellation
+
+**JSON struct tag strategy:**
+- Reuse domain types when wire format matches
+- Use `json:"-"` for fields that shouldn't serialize
+- Snake_case matching DB columns is fine for internal messaging
+
+**Port conflicts happen at runtime:**
+- Plan port allocation in advance
+- Document in docker-compose.yml and .env.example
+- Test with `docker-compose up` early
+
+**Shutdown is as important as startup:**
+- Reverse order prevents data loss
+- Fresh contexts give operations time to complete
+- Log all errors, even during shutdown
+
+---

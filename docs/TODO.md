@@ -90,16 +90,16 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Add `GET /health/db` - PostgreSQL status
 
 ### 1.10 Main Entry Point
-- [ ] Create `cmd/agregado/main.go`
-- [ ] Wire up all components
-- [ ] Implement graceful shutdown (SIGINT, SIGTERM)
-- [ ] Start HTTP server, poller, and workers
+- [x] Create `cmd/agregado/main.go`
+- [x] Wire up all components
+- [x] Implement graceful shutdown (SIGINT, SIGTERM)
+- [x] Start HTTP server, poller, and workers
 
 ### Phase 1 Verification
-- [ ] `docker-compose up` starts all services
-- [ ] Health endpoint returns 200
-- [ ] RabbitMQ management UI shows exchanges/queues
-- [ ] Add RSS feed via database → articles appear after poll
+- [x] `docker-compose up` starts all services
+- [x] Health endpoint returns 200
+- [x] RabbitMQ management UI shows exchanges/queues
+- [x] Add RSS feed via database → articles appear after poll
 
 ---
 

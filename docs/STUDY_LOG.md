@@ -2633,3 +2633,136 @@ adminer:
 - Log all errors, even during shutdown
 
 ---
+
+## Session 10: Digest Ranker Bug Fixes (Phase 3.1)
+
+**Date:** 2026-04-20
+
+### Topics Covered
+
+#### 1. Duration Arithmetic in Go
+
+`time.Duration` represents nanoseconds. `time.Duration(24)` = 24 nanoseconds, not 24 hours.
+
+```go
+// ❌ Wrong — 24 nanoseconds ago
+time.Now().Add(-time.Duration(lookbackHours))
+
+// ✅ Correct — 24 hours ago
+time.Now().Add(-time.Duration(lookbackHours) * time.Hour)
+```
+
+**Common duration constants:** `time.Hour`, `time.Minute`, `time.Second`, `time.Millisecond`
+
+---
+
+#### 2. Nil Pointer Guards in sort.Slice
+
+When sorting slices of structs with pointer fields, always guard before dereferencing. The guard must come **before** the dereference, and you need to guard **both** operands.
+
+```go
+sort.Slice(articles, func(i, j int) bool {
+    if articles[j].PublishedAt == nil {
+        return true   // nil dates sort to the end
+    }
+    if articles[i].PublishedAt == nil {
+        return false  // same — push nil to end
+    }
+    return articles[i].PublishedAt.After(*articles[j].PublishedAt)
+})
+```
+
+**Why guard `j` first?** You're comparing `i` against `j`. If `j` is nil, the comparison is meaningless — so you decide its position before involving `i`.
+
+---
+
+#### 3. Map Lookups in sort.Slice Closures
+
+Accessing a map by key inside a sort closure works, but is wasteful: a map lookup runs on every comparison pair `(i, j)`.
+
+```go
+// ❌ Map lookup on every comparison
+sort.Slice(m["uncategorized"], func(i, j int) bool {
+    return m["uncategorized"][i].Title > m["uncategorized"][j].Title
+})
+
+// ✅ Extract once, use local variable
+items := m["uncategorized"]
+sort.Slice(items, func(i, j int) bool {
+    return items[i].Title > items[j].Title
+})
+```
+
+This also makes the code easier to read.
+
+---
+
+#### 4. Variable Scope in Closures
+
+Go closures capture variables from the **enclosing scope**. When a variable is redeclared (`:=`) in an inner scope (like a `for` loop), it shadows the outer variable.
+
+```go
+for _, tag := range tags {
+    articles, ok := articlesMap[tag.ID]  // 'articles' only lives in this loop body
+    // ...
+}
+
+// ❌ articles and tag are undefined here — loop scope ended
+sort.Slice(articles, ...) // references wrong outer 'articles'
+```
+
+**Symptom:** No compile error, but the wrong data is sorted or used. Always ask: "which `articles` am I referencing right now?"
+
+---
+
+#### 5. Type Safety in append
+
+`append(slice, elem)` requires the element type to match the slice's element type. Mixing types is a compile error.
+
+```go
+var taggedArticles []TaggedArticles
+
+// ❌ Type mismatch — []domain.Article cannot receive a TaggedArticles
+taggedArticles = append(articlesMap["uncategorized"], TaggedArticles{...})
+
+// ✅ Correct — append to the right slice
+taggedArticles = append(taggedArticles, TaggedArticles{
+    Tag:      nil,
+    Articles: articlesMap["uncategorized"],
+})
+```
+
+---
+
+#### 6. Nil Pointer in sort.Slice for Optional Groups
+
+When a slice contains entries with optional pointer fields (`Tag *domain.Tag`), sort comparisons must guard against nil:
+
+```go
+sort.Slice(taggedArticles, func(a, b int) bool {
+    if taggedArticles[a].Tag == nil {
+        return false  // nil (uncategorized) sorts last
+    }
+    return taggedArticles[a].Tag.Name > taggedArticles[b].Tag.Name
+})
+```
+
+**Convention:** For UI clarity, categorized content leads; uncategorized falls at the end.
+
+---
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `internal/digest/ranker.go` | Fixed 4 bugs: duration units, nil guards in sort, type mismatch on append, variable scope in uncategorized block |
+
+### Key Learnings
+
+- `time.Duration(n)` is nanoseconds — multiply by `time.Hour`, `time.Minute`, etc.
+- Nil pointer guards must come **before** dereferencing, and guard **both** operands in comparisons
+- Extract map values to local variables before sort closures (performance + clarity)
+- Closure variable capture follows lexical scope — loop variables don't persist after the loop
+- `append` is type-strict: element type must exactly match slice element type
+
+---

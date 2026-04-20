@@ -152,13 +152,13 @@ Progress tracker for building Agregado. Check items as you complete them.
 ## Phase 3: Digest Generation
 
 ### 3.1 Digest Query + Ranking
-- [ ] Create `internal/digest/ranker.go`
-- [ ] Query unread articles from last 24 hours
-- [ ] **Group articles by tag first**
-- [ ] **Within tag, cluster by AI-detected topic**
-- [ ] Apply relevance scoring to filter low-value articles
-- [ ] Implement ranking algorithm (recency + priority + relevance)
-- [ ] Limit to configurable max articles
+- [x] Create `internal/digest/ranker.go` (existed with bugs — fixed: duration units, nil guards, type mismatch, uncategorized sort)
+- [x] **Group articles by tag first** (implemented in ranker — tagged + uncategorized groups, sorted by recency)
+- [ ] Add `FindUnreadSince` to `ArticleRepo` (two-query approach: articles + batch tag load)
+- [ ] Add `TagRepo` with `FindAll` method (satisfies `digest.TagQuerier`)
+- [ ] **Within tag, cluster by AI-detected topic** (Phase 5.5 — deferred)
+- [ ] Apply relevance scoring to filter low-value articles (Phase 5.5 — deferred)
+- [ ] Limit to configurable max articles (`maxArticles` field exists, not yet enforced)
 
 ### 3.2 Email Generation
 - [ ] Create `internal/digest/generator.go`

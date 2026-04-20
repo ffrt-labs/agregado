@@ -15,7 +15,7 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** 1.7 — RSS Poller (`internal/ingestion/rss/`)
+**Active phase:** 3.1 — Digest Ranker + Storage (`internal/digest/`, `internal/storage/`)
 **Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
 
 ### Completed

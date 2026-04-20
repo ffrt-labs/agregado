@@ -36,7 +36,7 @@ func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int) *Ranke
 }
 
 func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]TaggedArticles, error) {
-	since := time.Now().Add(-time.Duration(lookbackHours))
+	since := time.Now().Add(-time.Duration(lookbackHours) * time.Hour)
 
 	articles, err := r.articles.FindUnreadSince(ctx, since)
 	if err != nil {
@@ -51,7 +51,7 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 	articlesGrouppedByTag := make(map[string][]domain.Article)
 	for _, article := range articles {
 		if len(article.Tags) == 0 {
-			articlesGrouppedByTag["uncategorized"] = append(articlesGrouppedByTag["uncathegorized"], article)
+			articlesGrouppedByTag["uncategorized"] = append(articlesGrouppedByTag["uncategorized"], article)
 			continue
 		}
 
@@ -69,11 +69,15 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 		}
 
 		sort.Slice(articles, func(i, j int) bool {
-			nextArticlePublishedAt := *articles[j].PublishedAt
-			if nextArticlePublishedAt == nil {
+			if articles[j].PublishedAt == nil {
 				return true
 			}
 
+			if articles[i].PublishedAt == nil {
+				return false
+			}
+
+			nextArticlePublishedAt := *articles[j].PublishedAt
 			return articles[i].PublishedAt.After(nextArticlePublishedAt)
 		})
 
@@ -84,22 +88,32 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 	}
 
 	if (len(articlesGrouppedByTag["uncategorized"]) > 0) {
-		sort.Slice(articlesGrouppedByTag["uncategorized"], func(i, j int) bool {
-			nextArticlePublishedAt := *articles[j].PublishedAt
-			if nextArticlePublishedAt == nil {
+		uncategorizedArticles := articlesGrouppedByTag["uncategorized"]
+
+		sort.Slice(uncategorizedArticles, func(i, j int) bool {
+			if uncategorizedArticles[j].PublishedAt == nil {
 				return true
 			}
 
-			return articles[i].PublishedAt.After(nextArticlePublishedAt)
+			if uncategorizedArticles[i].PublishedAt == nil {
+				return false
+			}
+
+			nextArticlePublishedAt := *uncategorizedArticles[j].PublishedAt
+			return uncategorizedArticles[i].PublishedAt.After(nextArticlePublishedAt)
 		})
 
-		taggedArticles = append(articlesGrouppedByTag["uncategorized"], TaggedArticles{
-			Tag: &tag,
-			Articles: articles,
+		taggedArticles = append(taggedArticles, TaggedArticles{
+			Tag: nil,
+			Articles: uncategorizedArticles,
 		})
 	}
 
 	sort.Slice(taggedArticles, func(a, b int) bool {
+		if taggedArticles[a].Tag == nil {
+			return false
+		}
+
 		return taggedArticles[a].Tag.Name > taggedArticles[b].Tag.Name
 	})
 

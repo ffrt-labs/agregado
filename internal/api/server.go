@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/broker"
+	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
 )
@@ -18,15 +19,25 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func NewServer(broker *broker.Broker, db *storage.DB) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string) *Server {
 	r := chi.NewRouter()
 
 	httpServer := http.Server{
 		Handler: r,
 	}
 
+	emailParser := email.NewParser()
+	sourceRepo := storage.NewSourceRepo(db)
+	publisher, err := broker.NewPublisher(b)
+
+	if err != nil {
+          panic(err)
+    }
+
+    emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher)
+
 	s := &Server{
-		broker: broker,
+		broker: b,
 		db: db,
 		httpServer: &httpServer,
 	}
@@ -34,6 +45,7 @@ func NewServer(broker *broker.Broker, db *storage.DB) *Server {
 	r.Get("/health", s.healthHandler)
 	r.Get("/health/rabbit", s.rabbitHealthHandler)
 	r.Get("/health/db", s.dbHealthHandler)
+	r.Post("/webhook/email", emailHandler.HandleWebhook)
 
 	return s
 }

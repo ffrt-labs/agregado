@@ -1098,6 +1098,432 @@ UPDATE sources SET name = $1, updated_at = NOW() WHERE id = $2
 
 ---
 
+## Session 9: Email Integration (Phase 2.1-2.3)
+
+**Date:** 2026-02-11
+
+### Topics Covered
+
+#### 1. Webhook Secret Validation Pattern
+
+**The requirement:** Only process webhooks from trusted sources (Cloudflare Email Routing).
+
+**The solution:** Validate a shared secret in request headers:
+```go
+if r.Header.Get("X-Webhook-Secret") != h.secret {
+    http.Error(w, "Unauthorized", http.StatusUnauthorized)
+    return
+}
+```
+
+**Security considerations:**
+- Secret stored in environment variable (`WEBHOOK_SECRET`)
+- Validated BEFORE processing payload (fail fast)
+- Use 401 status code for invalid secrets
+- Return early to prevent further processing
+
+**Production improvements:**
+- Rotate secrets regularly
+- Use HMAC signatures instead of plain secrets (more secure)
+- Rate limit webhook endpoints to prevent brute force
+
+---
+
+#### 2. HTML to Plain Text Conversion
+
+**The library:** `github.com/jaytaylor/html2text`
+
+**Why needed?** Email newsletters come as HTML, but we want plain text for:
+- Storage efficiency (HTML tags add bulk)
+- Full-text search (don't want to index `<div>` tags)
+- Readable content in digest emails
+
+**Usage:**
+```go
+text, err := html2text.FromString(payload.Html)
+if err != nil || text == "" {
+    text = payload.Text // Fallback to plain text
+}
+```
+
+**Fallback strategy:**
+1. Try converting HTML to text
+2. If that fails or returns empty, use plain text field
+3. Handle emails that only provide one or the other
+
+---
+
+#### 3. Synthetic URLs for Newsletter Articles
+
+**The problem:** Database requires `external_url UNIQUE` for deduplication, but newsletters don't have URLs.
+
+**The solution:** Generate synthetic URLs with UUIDs:
+```go
+ExternalURL: fmt.Sprintf("newsletter:%s", uuid.New().String())
+// Produces: "newsletter:3f4a7c2b-9d1e-4f6a-8b3c-5e7f9a1b2c3d"
+```
+
+**Why this works:**
+- Guaranteed unique (UUID collision probability ~0)
+- Self-documenting prefix (`newsletter:`)
+- Satisfies NOT NULL and UNIQUE constraints
+- Easy to query (`WHERE external_url LIKE 'newsletter:%'`)
+
+**Alternative approaches:**
+- Use sender email + subject + timestamp (risk of duplicates)
+- Hash email content (expensive, still risks collisions)
+- UUID is simplest and most reliable
+
+---
+
+#### 4. Handler Struct Pattern for Dependency Injection
+
+**The problem:** Handlers need dependencies (config, database, publisher), but function signatures are fixed by the router.
+
+**Wrong approach - global variables:**
+```go
+var globalRepo *SourceRepo // ❌ Not testable, not thread-safe
+
+func HandleWebhook(w http.ResponseWriter, r *http.Request) {
+    globalRepo.Create(...) // Bad!
+}
+```
+
+**Right approach - handler struct with methods:**
+```go
+type Handler struct {
+    secret    string
+    parser    *Parser
+    sources   SourceRepository
+    publisher *broker.Publisher
+}
+
+func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+    h.sources.Create(...) // ✅ Access via h
+}
+```
+
+**Benefits:**
+- Dependencies injected at construction time
+- Each handler instance is isolated (testable)
+- No global state
+- Clear ownership (handler "has" dependencies)
+
+---
+
+#### 5. Package vs Variable Naming Conflicts
+
+**The situation:**
+```go
+import "github.com/.../broker"
+
+func NewServer(broker *broker.Broker, ...) {
+    //          ^^^^^^ variable name
+    //                 ^^^^^^ package name
+    pub, err := broker.NewPublisher(broker)
+    //          ^^^^^^ package       ^^^^^^ variable
+}
+```
+
+**Why this is valid but confusing:**
+- First `broker` = package name (refers to exported symbols)
+- Second `broker` = parameter name (refers to the value)
+- Go resolves by context
+
+**Better solution:** Rename parameter to avoid confusion:
+```go
+func NewServer(b *broker.Broker, ...) {
+    pub, err := broker.NewPublisher(b)
+    //          ^^^^^^ package        ^ variable (clear!)
+}
+```
+
+**Lesson:** Avoid naming variables the same as package names.
+
+---
+
+#### 6. Interface Signature Matching
+
+**The bug:**
+```go
+// Interface definition
+type SourceRepository interface {
+    Create(ctx, source) error  // Returns only error
+}
+
+// Actual implementation
+func (r *SourceRepo) Create(ctx, source) (*Source, error) {
+    // Returns source AND error
+}
+```
+
+**Problem:** Interface and implementation signatures don't match → compile error!
+
+**The fix:** Make interface match reality:
+```go
+type SourceRepository interface {
+    Create(ctx, source) (*Source, error)  // Now matches
+}
+```
+
+**Why return the created source?**
+- Saves a database round-trip (no need to re-fetch)
+- `INSERT ... RETURNING *` already gives us the full row
+- Caller can use it immediately
+
+**Updated handler code:**
+```go
+newSource, err := h.sources.Create(...)
+if err != nil { return err }
+
+// Use newSource directly, no re-fetch needed!
+article.SourceID = &newSource.ID
+```
+
+---
+
+#### 7. Auto-Creating Sources from Email Senders
+
+**The flow:**
+```go
+// 1. Try to find existing source
+source, err := h.sources.FindByEmailSender(ctx, senderEmail)
+
+// 2. If not found, create it
+if err != nil {
+    source, err = h.sources.Create(ctx, domain.Source{
+        Name:        senderEmail,
+        Type:        domain.Newsletter,
+        EmailSender: &senderEmail,
+        IsActive:    true,
+    })
+}
+
+// 3. Use source ID for article
+article.SourceID = &source.ID
+```
+
+**Why auto-create?**
+- User experience: forward email → automatically tracked
+- No manual source setup required
+- Sender email uniquely identifies the newsletter
+
+**Database pattern:**
+- `FindByEmailSender` queries `WHERE email_sender = $1`
+- If no rows → returns error
+- Create inserts new source with `email_sender` set
+- Future emails from same sender reuse the source
+
+---
+
+#### 8. SQL Placeholder Syntax: $1 vs &1
+
+**Wrong:**
+```sql
+SELECT * FROM sources WHERE email_sender = &1
+                                           ^^^ Wrong!
+```
+
+**Right:**
+```sql
+SELECT * FROM sources WHERE email_sender = $1
+                                           ^^^ PostgreSQL placeholder
+```
+
+**Different databases use different placeholders:**
+| Database | Placeholder | Example |
+|----------|-------------|---------|
+| PostgreSQL | `$1`, `$2`, `$3` | `WHERE id = $1` |
+| MySQL | `?` | `WHERE id = ?` |
+| SQLite | `?` or `$1` | Both work |
+
+**pgx uses PostgreSQL syntax** - numbered placeholders starting at `$1`.
+
+---
+
+#### 9. Context Propagation in HTTP Handlers
+
+**The pattern:**
+```go
+func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+    source, err := h.sources.FindByEmailSender(r.Context(), email)
+    //                                         ^^^^^^^^^^^ Request context
+}
+```
+
+**Why use `r.Context()`?**
+- Automatically cancelled if client disconnects
+- Carries request-scoped data (trace IDs, etc.)
+- Propagates timeouts/deadlines
+- Proper cancellation chain: client → handler → database
+
+**Don't use `context.Background()` in handlers:**
+- Loses cancellation signal from client
+- Can't enforce timeouts
+- Operations continue even if client gave up
+
+---
+
+#### 10. Field Visibility and Library Access
+
+**The bug:**
+```go
+type Webhook struct {
+    secret string  // ❌ Lowercase = unexported
+}
+```
+
+**Problem:** The `env` library uses reflection to set field values. It can only access **exported** (capitalized) fields.
+
+**The fix:**
+```go
+type Webhook struct {
+    Secret string  // ✅ Capitalized = exported
+}
+```
+
+**Rule:** Any field that needs to be:
+- Read/written by libraries (env, json, db)
+- Accessed from other packages
+
+MUST be capitalized.
+
+**Exception:** Methods and functions can access unexported fields within the same package.
+
+---
+
+#### 11. JSON Struct Tags for Wire Format
+
+**Why reuse domain entities?**
+```go
+type Payload struct {
+    From    string `json:"from"`
+    Subject string `json:"subject"`
+    Html    string `json:"html"`
+}
+```
+
+**Benefits of JSON tags:**
+- Controls JSON key names (snake_case, camelCase, etc.)
+- Allows Go naming conventions (PascalCase) while using any JSON format
+- `json:"-"` excludes fields from serialization
+
+**When to use separate DTOs instead:**
+- External API with fixed schema (can't change)
+- Wire format very different from domain model
+- Need different validation rules
+
+**Our case:** Cloudflare's payload → Go struct is straightforward, so we use structs with tags.
+
+---
+
+#### 12. Variable Shadowing with :=
+
+**The bug:**
+```go
+source, err := h.sources.FindByEmailSender(ctx, email)
+if err != nil {
+    err := h.sources.Create(ctx, source)  // ❌ New err variable in scope
+    if err != nil { return }
+}
+```
+
+**Problem:** `:=` inside the if block creates a NEW `err` variable. The outer `err` is shadowed and unused.
+
+**The fix:**
+```go
+if err != nil {
+    err = h.sources.Create(ctx, source)  // ✅ Reuses outer err
+    if err != nil { return }
+}
+```
+
+**When to use `:=` vs `=`:**
+- `:=` declares new variables (first use)
+- `=` assigns to existing variables (subsequent use)
+- Can mix: `x, err := foo()` (x new, err exists) - this works!
+
+---
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `internal/ingestion/email/webhook.go` | Webhook handler with secret validation |
+| `internal/ingestion/email/parser.go` | HTML-to-text parser for email content |
+| `internal/config/config.go` | Added Webhook config section |
+| `.env.example` | Added WEBHOOK_SECRET |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `internal/storage/source_repo.go` | Added FindByEmailSender method |
+| `internal/api/server.go` | Wire email handler with dependencies |
+| `cmd/agregado/main.go` | Pass webhook secret to server |
+
+### Design Patterns Used
+
+1. **Handler struct pattern** - Dependencies injected at construction, methods access via receiver
+2. **Consumer-side interfaces** - Email handler defines SourceRepository interface
+3. **Synthetic IDs** - UUIDs for newsletter articles without real URLs
+4. **Auto-creation pattern** - Find-or-create for newsletter sources
+5. **Fallback strategy** - HTML-to-text with plain text fallback
+6. **Context propagation** - Request context flows through all operations
+
+---
+
+### Key Learnings
+
+**Webhook security:**
+- Always validate requests before processing
+- Use environment variables for secrets
+- Return 401 for invalid secrets, 400 for malformed payloads
+
+**HTML email handling:**
+- Newsletters usually HTML-only
+- Use specialized libraries (html2text) for conversion
+- Always have plain text fallback
+
+**Synthetic URLs solve constraint problems:**
+- UUID guarantees uniqueness
+- Prefix documents the source (`newsletter:`)
+- Simpler than hashing content
+
+**Handler struct pattern is idiomatic Go:**
+- Constructor injects dependencies
+- Methods access via receiver
+- No global variables needed
+- Easy to test (pass mock dependencies)
+
+**Interface signatures must match exactly:**
+- Return types, parameter order, everything
+- Go structural typing checks at compile time
+- Update interface when implementation changes
+
+**Context propagation is critical:**
+- Use `r.Context()` in HTTP handlers
+- Pass context to all database/network calls
+- Enables cancellation and timeout propagation
+
+**Variable shadowing is subtle:**
+- `:=` always declares new variables
+- Easy to accidentally shadow with same name
+- Go vet warns about some cases
+- Pay attention in nested scopes (if/for blocks)
+
+**SQL placeholder syntax varies:**
+- PostgreSQL: `$1`, `$2`, `$3`
+- MySQL/SQLite: `?`
+- Know your database's syntax
+
+**Exported fields required for reflection:**
+- Libraries like `env`, `json`, `db` use reflection
+- Can only access capitalized (exported) fields
+- Compile error won't catch this - runtime failure!
+
+---
+
 ## Session 6: RSS Poller & Storage Worker (Phases 1.7-1.8)
 
 **Date:** 2026-02-06

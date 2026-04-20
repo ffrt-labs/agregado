@@ -29,11 +29,33 @@ type Pooler struct {
 	Interval time.Duration `env:"RSS_POLL_INTERVAL" envDefault:"15m"`
 }
 
+type Webhook struct {
+	Secret string `env:"WEBHOOK_SECRET" envDefault:"dev-secret-change-in-production"`
+}
+
+type Digest struct {
+	RecipientEmail 	string	`env:"DIGEST_RECIPIENT_EMAIL" envDefault:""`
+	Schedule 		string	`env:"DIGEST_SCHEDULE" envDefault:"0 8 * * *"`
+	MaxArticles 	int		`env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
+	LookbackHours 	int		`env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
+}
+
+type SMTP struct {
+	Host		string	`env:"SMTP_HOST" envDefault:"smtp.gmail.com"`
+	Port		int		`env:"SMTP_PORT" envDefault:"587"`
+	Username	string	`env:"SMTP_USERNAME" envDefault:""`
+	Password	string	`env:"SMTP_PASSWORD" envDefault:""`
+	FromName	string	`env:"SMTP_FROM_NAME" envDefault:"Agregado Digest"`
+}
+
 type Config struct {
 	Database
 	Queue
 	Http
 	Pooler
+	Webhook
+	Digest
+	SMTP
 }
 
 func Load() (*Config, error) {

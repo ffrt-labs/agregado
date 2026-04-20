@@ -7,7 +7,7 @@ dev-deps:
 	docker-compose up -d
 
 dev-deps-down:
-	docker-compose down
+	docker-compose down -v
 
 dev:
 	go run ./cmd/agregado

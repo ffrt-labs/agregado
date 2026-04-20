@@ -103,3 +103,17 @@ func (r *SourceRepo) Update(ctx context.Context, source domain.Source) error {
 
 	return err
 }
+
+func (r *SourceRepo) FindByEmailSender(ctx context.Context, email string) (*domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE email_sender=$1", email)
+	if err != nil {
+		return nil, err
+	}
+
+	source, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[domain.Source])
+	if err != nil {
+		return nil, err
+	}
+
+	return &source, nil
+}

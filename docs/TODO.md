@@ -106,25 +106,25 @@ Progress tracker for building Agregado. Check items as you complete them.
 ## Phase 2: Email Integration
 
 ### 2.1 Webhook Handler
-- [ ] Create `internal/ingestion/email/webhook.go`
-- [ ] Add `POST /webhook/email` endpoint
-- [ ] Validate webhook secret header
-- [ ] Parse Cloudflare Email Routing payload structure
+- [x] Create `internal/ingestion/email/webhook.go`
+- [x] Add `POST /webhook/email` endpoint
+- [x] Validate webhook secret header
+- [x] Parse Cloudflare Email Routing payload structure
 
 ### 2.2 Email Parsing
-- [ ] Create `internal/ingestion/email/parser.go`
-- [ ] Extract subject → title
-- [ ] Extract from → source identifier
-- [ ] Convert HTML body to text/markdown
-- [ ] Handle multipart emails
-- [ ] **Always** create main article from newsletter body
-- [ ] Check `source.extract_links` setting
-- [ ] If `extract_links=true`, trigger link extraction pipeline (Phase 2.4)
+- [x] Create `internal/ingestion/email/parser.go`
+- [x] Extract subject → title
+- [x] Extract from → source identifier
+- [x] Convert HTML body to text/markdown
+- [x] Handle multipart emails
+- [x] **Always** create main article from newsletter body
+- [ ] Check `source.extract_links` setting (DEFERRED to later)
+- [ ] If `extract_links=true`, trigger link extraction pipeline (Phase 2.4) (DEFERRED to later)
 
 ### 2.3 Newsletter Source Management
-- [ ] Auto-create source from new sender email
-- [ ] Link newsletters to sources by `email_sender` field
-- [ ] Publish parsed articles to RabbitMQ
+- [x] Auto-create source from new sender email
+- [x] Link newsletters to sources by `email_sender` field
+- [x] Publish parsed articles to RabbitMQ
 
 ### 2.4 Link Extraction Pipeline
 - [ ] Create migration `000004_add_extract_links.up.sql` and `.down.sql`
@@ -141,9 +141,11 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Publish each extracted article to RabbitMQ
 
 ### Phase 2 Verification
-- [ ] POST to webhook endpoint returns 200
-- [ ] Forwarded email creates article in database
-- [ ] Source auto-created for new sender
+- [x] POST to webhook endpoint returns 200
+- [x] Forwarded email creates article in database
+- [x] Source auto-created for new sender
+
+**Note:** Phase 2.4 (Link Extraction Pipeline) has been deferred for later implementation.
 
 ---
 

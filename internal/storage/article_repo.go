@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -87,4 +88,55 @@ func (r *ArticleRepo) MarkRead(ctx context.Context, id string) error {
 	)
 
 	return err
+}
+
+func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles WHERE ingested_at > $1 AND is_read = false", since)
+
+	if err != nil {
+		return nil, err
+	}
+
+	articles, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Article])
+
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(articles))
+	for i, a := range articles { ids[i] = a.ID}
+
+	rows, err = r.db.pool.Query(ctx, `
+		SELECT article_id, tags.id, tags.name, tags.slug, tags.color,
+  		tags.created_at, tags.updated_at FROM article_tags JOIN tags ON
+    	article_tags.tag_id = tags.ID  WHERE article_id = ANY($1)
+    `, ids)
+
+	if err != nil {
+		return nil, err
+	}
+
+	articleTags, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.ArticleTag])
+
+	if err != nil {
+		return nil, err
+	}
+
+	articleMap := make(map[string][]domain.Tag)
+	for _, a := range articleTags {
+		articleMap[a.ArticleID] = append(articleMap[a.ArticleID], domain.Tag{
+			ID: a.ID,
+			Name: a.Name,
+			Slug: a.Slug,
+			Color: a.Color,
+			CreatedAt: a.CreatedAt,
+			UpdatedAt: a.UpdatedAt,
+		})
+	}
+
+	for i := range articles {
+		articles[i].Tags = articleMap[articles[i].ID]
+	}
+
+	return articles, nil
 }

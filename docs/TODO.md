@@ -154,8 +154,8 @@ Progress tracker for building Agregado. Check items as you complete them.
 ### 3.1 Digest Query + Ranking
 - [x] Create `internal/digest/ranker.go` (existed with bugs — fixed: duration units, nil guards, type mismatch, uncategorized sort)
 - [x] **Group articles by tag first** (implemented in ranker — tagged + uncategorized groups, sorted by recency)
-- [ ] Add `FindUnreadSince` to `ArticleRepo` (two-query approach: articles + batch tag load)
-- [ ] Add `TagRepo` with `FindAll` method (satisfies `digest.TagQuerier`)
+- [x] Add `FindUnreadSince` to `ArticleRepo` (two-query approach: articles + batch tag load)
+- [x] Add `TagRepo` with `FindAll` method (satisfies `digest.TagQuerier`)
 - [ ] **Within tag, cluster by AI-detected topic** (Phase 5.5 — deferred)
 - [ ] Apply relevance scoring to filter low-value articles (Phase 5.5 — deferred)
 - [ ] Limit to configurable max articles (`maxArticles` field exists, not yet enforced)

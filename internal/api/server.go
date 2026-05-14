@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/broker"
+	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -17,9 +18,10 @@ type Server struct {
 	broker *broker.Broker
 	db *storage.DB
 	httpServer *http.Server
+	scheduler *digest.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler) *Server {
 	r := chi.NewRouter()
 
 	httpServer := http.Server{
@@ -40,12 +42,16 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string) *Server {
 		broker: b,
 		db: db,
 		httpServer: &httpServer,
+		scheduler: scheduler,
 	}
 
 	r.Get("/health", s.healthHandler)
 	r.Get("/health/rabbit", s.rabbitHealthHandler)
 	r.Get("/health/db", s.dbHealthHandler)
 	r.Post("/webhook/email", emailHandler.HandleWebhook)
+
+	r.Post("/api/digest/send", s.Send)
+	r.Post("/api/digest/preview", s.Preview)
 
 	return s
 }
@@ -108,4 +114,36 @@ func (s *Server) Start(ctx context.Context, port string) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) Send(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	err := s.scheduler.Send(ctx)
+
+	if err != nil{
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) Preview(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	preview, err := s.scheduler.Preview(ctx)
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status":"error", "detail": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, preview.HTML)
 }

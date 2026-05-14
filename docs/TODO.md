@@ -161,22 +161,22 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Limit to configurable max articles (`maxArticles` field exists, not yet enforced)
 
 ### 3.2 Email Generation
-- [ ] Create `internal/digest/generator.go`
-- [ ] Create HTML email template with **Tag → Topic → Articles** structure
-- [ ] Include AI-generated topic summaries in template
-- [ ] Create plain text fallback
-- [ ] Format article summaries and links
+- [x] Create `internal/digest/generator.go`
+- [x] Create HTML email template with **Tag → Articles** structure (topic clustering deferred to Phase 5.5)
+- [ ] Include AI-generated topic summaries in template (deferred to Phase 5.5)
+- [x] Create plain text fallback
+- [x] Format article summaries and links
 
 ### 3.3 SMTP Integration
-- [ ] Create `internal/digest/mailer.go`
-- [ ] Send emails via go-mail library
-- [ ] Log digest history to `digest_logs` table
+- [x] Create `internal/digest/mailer.go`
+- [x] Send emails via go-mail library
+- [ ] Log digest history to `digest_logs` table (deferred)
 
 ### 3.4 Scheduling
-- [ ] Add cron scheduler (robfig/cron)
-- [ ] Schedule digest at configured time
-- [ ] Add `POST /api/digest/send` for manual trigger
-- [ ] Add `POST /api/digest/preview` for preview
+- [x] Add cron scheduler (robfig/cron)
+- [x] Schedule digest at configured time
+- [x] Add `POST /api/digest/send` for manual trigger
+- [x] Add `POST /api/digest/preview` for preview
 
 ### Phase 3 Verification
 - [ ] Manual digest trigger sends email

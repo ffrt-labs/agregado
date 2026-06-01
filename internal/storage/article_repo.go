@@ -34,8 +34,8 @@ func (r *ArticleRepo) GetById(ctx context.Context, id string) (*domain.Article, 
 	return &article, nil
 }
 
-func (r *ArticleRepo) List(ctx context.Context) ([]domain.Article, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles")
+func (r *ArticleRepo) List(ctx context.Context, limit int, offset int) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles LIMIT $1 OFFSET $2", limit, offset)
 
 	if err != nil {
 		return nil, err
@@ -90,6 +90,17 @@ func (r *ArticleRepo) MarkRead(ctx context.Context, id string) error {
 	return err
 }
 
+func (r *ArticleRepo) MarkUnread(ctx context.Context, id string) error {
+	_, err := r.db.pool.Exec(
+		ctx,
+		"UPDATE articles SET is_read = $2, read_at = NULL WHERE id=$1",
+		id,
+		false,
+	)
+
+	return err
+}
+
 func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time) ([]domain.Article, error) {
 	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles WHERE ingested_at > $1 AND is_read = false", since)
 
@@ -136,6 +147,27 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time) ([]d
 
 	for i := range articles {
 		articles[i].Tags = articleMap[articles[i].ID]
+	}
+
+	return articles, nil
+}
+
+func (r *ArticleRepo) Search(ctx context.Context, query string, limit, offset int) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx,
+		"SELECT * FROM articles WHERE to_tsvector('english', title || ' ' || coalesce(summary, '')) @@ plainto_tsquery('english', $1) LIMIT $2 OFFSET $3",
+		query,
+		limit,
+		offset,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	articles, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Article])
+
+	if err != nil {
+		return nil, err
 	}
 
 	return articles, nil

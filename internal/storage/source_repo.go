@@ -17,8 +17,8 @@ func NewSourceRepo(db *DB) *SourceRepo {
 	}
 }
 
-func (r *SourceRepo) List(ctx context.Context) ([]domain.Source, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources")
+func (r *SourceRepo) List(ctx context.Context, limit int, offset int) ([]domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources LIMIT $1 OFFSET $2", limit, offset)
 
 	if err != nil {
 		return nil, err

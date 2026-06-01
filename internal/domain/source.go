@@ -16,7 +16,7 @@ type Source struct {
 	URL *string
 	EmailSender *string `db:"email_sender"`
 	Priority int
-	IsActive bool `db:"is_active"`
+	IsActive bool `db:"is_active" json:"is_active"`
 	LastFetchedAt *time.Time `db:"last_fetched_at"`
 	LastError *string `db:"last_error"`
 	ErrorCount int `db:"error_count"`

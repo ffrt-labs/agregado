@@ -12,6 +12,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/api"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
+	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/joho/godotenv"
@@ -58,22 +59,34 @@ func main() {
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
 
+	tagRepo := storage.NewTagRepo(db)
+	ranker := digest.NewRanker(articleRepo, tagRepo, cfg.Digest.MaxArticles)
+	generator, err := digest.NewDefaultGenerator()
+
+	if err != nil {
+		log.Fatal("Failed to create generator", err)
+	}
+	fmt.Printf("Generator created: %+v\n", generator)
+
+	mailer := digest.NewMailer(cfg.SMTP)
+	scheduler := digest.NewScheduler(ranker, generator, mailer, cfg.Digest)
+
 	parser := rss.NewParser()
 	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)
 
 	handler := storage.NewWorker(articleRepo)
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
+	go scheduler.Start(ctx)
 	consumer.Consume("articles.store", handler)
 
 	<-ctx.Done()
 
 	// Shutdown
-	shutdownCtx, shutdownCancel :=
-  	context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
   	defer shutdownCancel()
 
 	server.Shutdown(shutdownCtx)

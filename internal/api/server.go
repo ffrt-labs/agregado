@@ -12,6 +12,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type Server struct {
@@ -23,6 +24,11 @@ type Server struct {
 
 func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler) *Server {
 	r := chi.NewRouter()
+	r.Use(
+		middleware.RequestID,
+		middleware.Logger,
+		middleware.Recoverer,
+	)
 
 	httpServer := http.Server{
 		Handler: r,
@@ -30,6 +36,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 
 	emailParser := email.NewParser()
 	sourceRepo := storage.NewSourceRepo(db)
+	articleRepo := storage.NewArticleRepo(db)
 	publisher, err := broker.NewPublisher(b)
 
 	if err != nil {
@@ -37,6 +44,8 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     }
 
     emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher)
+    sourcesHandler := NewSourceHandler(sourceRepo)
+    articlesHandler := NewArticleHandler(articleRepo)
 
 	s := &Server{
 		broker: b,
@@ -52,6 +61,22 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 
 	r.Post("/api/digest/send", s.Send)
 	r.Post("/api/digest/preview", s.Preview)
+
+	r.Route("/api/sources", func(r chi.Router) {
+		r.Get("/", sourcesHandler.List)
+		r.Post("/", sourcesHandler.Create)
+		r.Put("/{id}", sourcesHandler.Update)
+		r.Delete("/{id}", sourcesHandler.Delete)
+	})
+
+	r.Route("/api/articles", func(r chi.Router) {
+		r.Get("/", articlesHandler.List)
+		r.Post("/{id}/read", articlesHandler.MarkRead)
+		r.Delete("/{id}/read", articlesHandler.MarkUnread)
+		r.Get("/search", articlesHandler.Search)
+	})
+
+	r.Get("/articles", articlesHandler.ListPage)
 
 	return s
 }
@@ -73,9 +98,7 @@ func (s *Server) rabbitHealthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	json.NewEncoder(w).Encode(map[string]string{"status":"error", "detail":err.Error()})
+	writeError(w, http.StatusServiceUnavailable, err.Error())
 }
 
 func (s *Server) dbHealthHandler(w http.ResponseWriter, r *http.Request) {
@@ -91,9 +114,7 @@ func (s *Server) dbHealthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	json.NewEncoder(w).Encode(map[string]string{"status":"error", "detail": err.Error()})
+	writeError(w, http.StatusServiceUnavailable, err.Error())
 }
 
 func (s *Server) Start(ctx context.Context, port string) error {
@@ -137,9 +158,8 @@ func (s *Server) Preview(w http.ResponseWriter, r *http.Request) {
 	preview, err := s.scheduler.Preview(ctx)
 
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status":"error", "detail": err.Error()})
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+
 		return
 	}
 

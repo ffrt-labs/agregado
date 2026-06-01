@@ -179,8 +179,8 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Add `POST /api/digest/preview` for preview
 
 ### Phase 3 Verification
-- [ ] Manual digest trigger sends email
-- [ ] Email contains correct articles
+- [x] Manual digest trigger sends email
+- [x] Email contains correct articles
 - [ ] Scheduled digest fires at configured time
 
 ---
@@ -188,23 +188,23 @@ Progress tracker for building Agregado. Check items as you complete them.
 ## Phase 4: Web UI
 
 ### 4.1 API Layer
-- [ ] Set up Chi router with middleware
-- [ ] Add JSON error response format
-- [ ] Implement pagination helpers
-- [ ] Create source handlers (CRUD)
-- [ ] Create article handlers (list, read/unread)
-- [ ] Create search handler
+- [x] Set up Chi router with middleware
+- [x] Add JSON error response format
+- [x] Implement pagination helpers
+- [x] Create source handlers (CRUD)
+- [x] Create article handlers (list, read/unread)
+- [x] Create search handler
 
 ### 4.2 Templates Setup
-- [ ] Create base layout template
-- [ ] Set up template rendering helper
-- [ ] Add HTMX library
-- [ ] Add minimal CSS (or Tailwind)
+- [x] Create base layout template
+- [x] Set up template rendering helper
+- [x] Add HTMX library
+- [ ] Add minimal CSS
 
 ### 4.3 Article Views
-- [ ] Article list page with HTMX pagination
+- [x] Article list page with HTMX pagination
 - [ ] Article detail page
-- [ ] Read/unread toggle (HTMX partial)
+- [x] Read/unread toggle (HTMX partial)
 - [ ] Filter by source dropdown
 - [ ] Date range filter
 

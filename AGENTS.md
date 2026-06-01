@@ -15,24 +15,21 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** 3.1 — Digest Ranker + Storage (`internal/digest/`, `internal/storage/`)
+**Active phase:** Phase 3 Verification → Phase 4 (Web UI)
 **Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
 
 ### Completed
-- 1.1 Project setup (docker-compose, Makefile, .env)
-- 1.2 DB migrations (`migrations/000001_*`, `000002_add_tags`)
-- 1.3 Config (`internal/config/config.go` — env struct via caarlos0/env)
-- 1.4 Domain entities (`internal/domain/` — Article, Source, Tag)
-- 1.4c Nullable source_id (`migrations/000003_*` — removes `manual` type, makes `source_id` nullable on articles)
-- 1.5 RabbitMQ broker (`internal/broker/` — connection w/ backoff, publisher, consumer, DLX/DLQ)
-- 1.6 PostgreSQL storage (`internal/storage/` — pgxpool, SourceRepo, ArticleRepo w/ ON CONFLICT dedup, `db` struct tags on domain types)
-- Test harness: `cmd/test-broker/main.go` exercises full pub/sub loop
+- Phases 1.1–1.10: Full foundation (config, domain, broker, storage, rss poller, health API, main wiring)
+- Phase 2: Email ingestion via webhook (Cloudflare Email Routing, HTML→text parsing, auto-source creation)
+- Phase 3.1: Digest ranker + storage (tag grouping, FindUnreadSince, TagRepo)
+- Phase 3.2: Digest generator (HTML template, plain text fallback)
+- Phase 3.3: SMTP mailer (go-mail)
+- Phase 3.4: Scheduling (robfig/cron, `/api/digest/send`, `/api/digest/preview`)
+- Refactored `internal/api/errors.go` — extracted `writeError` helper
 
-### Next (Phase 1.7 → 1.10)
-- **1.7** `internal/ingestion/rss/` — gofeed parser, periodic poller, publish to exchange
-- **1.8** `internal/storage/worker.go` — consume `articles.store`, persist via repo, ACK/NACK
-- **1.9** `internal/api/server.go` — chi HTTP server, `/health`, `/health/rabbit`, `/health/db`
-- **1.10** Wire everything in `cmd/agregado/main.go` — graceful shutdown (SIGINT/SIGTERM)
+### Next
+- Phase 3 Verification: smoke-test the full digest pipeline end-to-end
+- Phase 4: Web UI (Chi API layer, HTMX templates, article/source views)
 
 ### Key library choices (from PRD §4)
 | Purpose | Library |
@@ -107,7 +104,32 @@ This includes:
 
 Documentation maintenance is housekeeping, not a learning opportunity.
 
+### End-of-Phase Study Recommendation
+
+**At the end of every completed phase**, always offer a specific study topic recommendation based on the user's performance during that phase. The recommendation should:
+- Be tied to a concrete mistake or pattern observed during the session (not generic advice)
+- Name a specific book, chapter, search term, or resource
+- Be scoped to 15–30 minutes of focused reading
+
+Do this unprompted whenever the last TODO checkbox in a phase is checked off.
+
 ### Plan Mode
 
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.
 - At the end of each plan, give me a list of unresolved questions to answer, if any.
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`felipeafreitas/agregado`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

@@ -18,19 +18,32 @@ func NewMailer(cfg config.SMTP) *Mailer {
 
 func(m *Mailer) Send(ctx context.Context, to string, email DigestEmail) error {
 	msg := mail.NewMsg()
-	msg.FromFormat(m.config.FromName, m.config.Username)
+	msg.FromFormat(m.config.FromName, m.config.FromMail)
 	msg.To(to)
 	msg.Subject(email.Subject)
 	msg.SetBodyString(mail.TypeTextHTML, email.HTML)
 	msg.AddAlternativeString(mail.TypeTextPlain, email.Text)
 
-	c, err := mail.NewClient(
-		m.config.Host,
-		mail.WithPort(m.config.Port),
-		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-		mail.WithUsername(m.config.Username),
-		mail.WithPassword(m.config.Password),
-	)
+	var c *mail.Client
+	var err error
+
+	if m.config.Password != "" {
+		c, err = mail.NewClient(
+			m.config.Host,
+			mail.WithPort(m.config.Port),
+			mail.WithTLSPortPolicy(mail.NoTLS),
+			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithUsername(m.config.Username),
+			mail.WithPassword(m.config.Password),
+		)
+	} else {
+		c, err = mail.NewClient(
+			m.config.Host,
+			mail.WithPort(m.config.Port),
+			mail.WithTLSPortPolicy(mail.NoTLS),
+		)
+	}
+
 
 	if err != nil {
 		return err

@@ -46,6 +46,7 @@ type SMTP struct {
 	Username	string	`env:"SMTP_USERNAME" envDefault:""`
 	Password	string	`env:"SMTP_PASSWORD" envDefault:""`
 	FromName	string	`env:"SMTP_FROM_NAME" envDefault:"Agregado Digest"`
+	FromMail	string	`env:"SMTP_FROM_MAIL" envDefault:""`
 }
 
 type Config struct {

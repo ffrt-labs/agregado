@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -60,7 +61,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Post("/webhook/email", emailHandler.HandleWebhook)
 
 	r.Post("/api/digest/send", s.Send)
-	r.Post("/api/digest/preview", s.Preview)
+	r.Get("/api/digest/preview", s.Preview)
 
 	r.Route("/api/sources", func(r chi.Router) {
 		r.Get("/", sourcesHandler.List)
@@ -146,6 +147,7 @@ func (s *Server) Send(w http.ResponseWriter, r *http.Request) {
 	err := s.scheduler.Send(ctx)
 
 	if err != nil{
+		log.Println("digest send error:", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}

@@ -1,0 +1,17 @@
+{{ define "article-list" }}
+    <ul id="article-list">
+        {{ range .Articles }}
+        <li
+            hx-post="/api/articles/{{ .ID }}/read"
+            hx-swap="none"
+        >
+            <a
+                href="{{ .ExternalURL }}"
+                target="_blank"
+            >
+                {{ .Title }} - {{ .PublishedAt }}
+            </a>
+        </li>
+        {{ end }}
+    </ul>
+{{ end }}

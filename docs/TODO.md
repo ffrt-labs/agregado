@@ -216,9 +216,9 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Manual refresh button
 
 ### 4.5 Search
-- [ ] Search input with HTMX
-- [ ] PostgreSQL full-text search query
-- [ ] Display search results
+- [x] Search input with HTMX
+- [x] PostgreSQL full-text search query
+- [x] Display search results
 
 ### 4.6 Blocklist Management
 - [ ] Add `GET /api/preferences/blocklist` endpoint

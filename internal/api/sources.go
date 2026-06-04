@@ -13,6 +13,10 @@ type SourceHandler struct {
 	sources 	SourceRepository
 }
 
+type SourcesPageData struct {
+	Sources		[]domain.Source
+}
+
 type SourceRepository interface {
 	List(ctx context.Context, limit int, offset int) ([]domain.Source, error)
 	Create(ctx context.Context, source domain.Source) (*domain.Source, error)
@@ -91,4 +95,16 @@ func (s *SourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *SourceHandler) ListPage(w http.ResponseWriter, r *http.Request) {
+	limit, offset := ParsePagination(r)
+	sources, err := s.sources.List(r.Context(), limit, offset)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	render(w, "sources.html", SourcesPageData{ Sources: sources })
 }

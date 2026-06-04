@@ -209,9 +209,9 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Date range filter
 
 ### 4.4 Source Management
-- [ ] Source list page
-- [ ] Add source form (validates feed URL)
-- [ ] Delete source with confirmation
+- [x] Source list page
+- [x] Add source form (validates feed URL)
+- [x] Delete source with confirmation
 - [ ] Show source status (last fetch, errors)
 - [ ] Manual refresh button
 

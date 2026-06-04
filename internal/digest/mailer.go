@@ -31,7 +31,8 @@ func(m *Mailer) Send(ctx context.Context, to string, email DigestEmail) error {
 		c, err = mail.NewClient(
 			m.config.Host,
 			mail.WithPort(m.config.Port),
-			mail.WithTLSPortPolicy(mail.NoTLS),
+			// mail.WithTLSPortPolicy(mail.NoTLS),
+			mail.WithTLSPortPolicy(mail.TLSMandatory),
 			mail.WithSMTPAuth(mail.SMTPAuthPlain),
 			mail.WithUsername(m.config.Username),
 			mail.WithPassword(m.config.Password),
@@ -40,7 +41,8 @@ func(m *Mailer) Send(ctx context.Context, to string, email DigestEmail) error {
 		c, err = mail.NewClient(
 			m.config.Host,
 			mail.WithPort(m.config.Port),
-			mail.WithTLSPortPolicy(mail.NoTLS),
+			// mail.WithTLSPortPolicy(mail.NoTLS),
+			mail.WithTLSPortPolicy(mail.TLSMandatory),
 		)
 	}
 

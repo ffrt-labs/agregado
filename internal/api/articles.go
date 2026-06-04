@@ -100,3 +100,29 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 
 	render(w, "articles.html", ArticlesPageData{ Articles: articles })
 }
+
+func (a *ArticleHandler) SearchPage(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	limit, offset := ParsePagination(r)
+
+	if query == "" {
+		articles, err := a.articles.List(r.Context(), limit, offset)
+
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		renderPartial(w, "article_list.html", "article-list",ArticlesPageData{ Articles: articles})
+		return
+	}
+
+	articles, err := a.articles.Search(r.Context(), query, limit, offset)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	renderPartial(w, "article_list.html", "article-list",ArticlesPageData{ Articles: articles })
+}

@@ -77,6 +77,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	})
 
 	r.Get("/articles", articlesHandler.ListPage)
+	r.Get("/articles/search", articlesHandler.SearchPage)
 	r.Get("/sources", sourcesHandler.ListPage)
 
 	return s

@@ -1,0 +1,51 @@
+{{ define "content" }}
+<h1>Sources</h1>
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Name</th>
+            <th scope="col">FeedURL</th>
+            <th scope="col">Type</th>
+            <th scope="col">Delete</th>
+        </tr>
+    </thead>
+    <tbody>
+    {{ range .Sources }}
+        <tr>
+            <th>{{ .Name }}</th>
+            <td>{{ .URL }}</td>
+            <td>{{ .Type }}</td>
+            <td>
+                <button
+                    hx-delete="/api/sources/{{ .ID }}"
+                    hx-swap="none"
+                    hx-on::after-request="window.location.href='/sources'"
+                >
+                    Delete
+                </button>
+            </td>
+        </tr>
+    {{ end }}
+    </tbody>
+</table>
+<form
+    hx-ext="json-enc"
+    hx-post="/api/sources"
+    hx-swap="none"
+    hx-on::after-request="window.location.href='/sources'"
+>
+    <div>
+        <label for="name">Name</label>
+        <input name="name" id="name">
+    </div>
+    <div>
+        <label for="url">Feed URL</label>
+        <input name="url" id="url">
+    </div>
+    <div>
+        <label for="type">Type</label>
+        <input name="type" id="type">
+    </div>
+    <button type="submit">Submit</button>
+</form>
+{{ end }}

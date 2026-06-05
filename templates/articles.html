@@ -1,25 +1,33 @@
 {{ define "content" }}
-<h1>Articles</h1>
-<input
-    hx-get="/articles/search"
-    hx-trigger="keyup changed delay:300ms"
-    hx-target="#article-list"
-    hx-swap="outerHTML"
-    name="q"
->
-<ul id="article-list">
-    {{ range .Articles }}
-    <li
-        hx-post="/api/articles/{{ .ID }}/read"
-        hx-swap="none"
+    <h1>Articles</h1>
+    <input
+        hx-get="/articles/search"
+        hx-trigger="keyup changed delay:300ms"
+        hx-target="#article-list"
+        hx-swap="outerHTML"
+        name="q"
     >
-        <a
-            href="{{ .ExternalURL }}"
-            target="_blank"
+    <ul id="article-list">
+        {{ range .Articles }}
+        <li
+            hx-post="/api/articles/{{ .ID }}/read"
+            hx-swap="none"
         >
-            {{ .Title }} - {{ .PublishedAt }}
-        </a>
-    </li>
-    {{ end }}
-</ul>
+            <a
+                href="{{ .ExternalURL }}"
+                target="_blank"
+            >
+                {{ .Title }} - {{ .PublishedAt }}
+            </a>
+        </li>
+        {{ end }}
+    </ul>
+    <div>
+        {{ if .HasPrev }}
+            <a href="/articles?offset={{ .PrevOffset }}">Previous</a>
+        {{ end }}
+        {{ if .HasMore }}
+            <a href="/articles?offset={{ .NextOffset }}">Next</a>
+        {{ end }}
+    </div>
 {{ end }}

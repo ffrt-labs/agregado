@@ -15,6 +15,10 @@ type ArticleHandler struct {
 
 type ArticlesPageData struct {
 	Articles	[]domain.Article
+	HasPrev		bool
+	HasMore		bool
+	PrevOffset	int
+	NextOffset	int
 }
 
 type ArticleRepository interface {
@@ -91,14 +95,33 @@ func (a *ArticleHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 	limit, offset := ParsePagination(r)
-	articles, err := a.articles.List(r.Context(), limit, offset)
+	articles, err := a.articles.List(r.Context(), limit + 1, offset)
 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	render(w, "articles.html", ArticlesPageData{ Articles: articles })
+	hasMore := false
+	if len(articles) > limit {
+		hasMore = true
+	}
+
+	if hasMore {
+		articles = articles[:limit]
+	}
+
+	render(
+		w,
+		"articles.html",
+		ArticlesPageData{
+			Articles: articles,
+			HasPrev: offset > 0,
+			HasMore: hasMore,
+			PrevOffset: offset - limit,
+			NextOffset: offset + limit,
+		},
+	)
 }
 
 func (a *ArticleHandler) SearchPage(w http.ResponseWriter, r *http.Request) {

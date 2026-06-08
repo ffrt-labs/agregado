@@ -6,6 +6,9 @@
             <th scope="col">Name</th>
             <th scope="col">FeedURL</th>
             <th scope="col">Type</th>
+            <th scope="col">Last Fetched</th>
+            <th scope="col">Errors</th>
+            <th scope="col">Last Error</th>
             <th scope="col">Delete</th>
         </tr>
     </thead>
@@ -15,6 +18,9 @@
             <th>{{ .Name }}</th>
             <td>{{ .URL }}</td>
             <td>{{ .Type }}</td>
+            <td>{{ if .LastFetchedAt }}{{ .LastFetchedAt }}{{ else }}Never{{ end }}</td>
+            <td>{{ .ErrorCount }}</td>
+            <td>{{ if .LastError }}{{ .LastError }}{{ else }} - {{ end }}</td>
             <td>
                 <button
                     hx-delete="/api/sources/{{ .ID }}"

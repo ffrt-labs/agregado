@@ -212,7 +212,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Source list page
 - [x] Add source form (validates feed URL)
 - [x] Delete source with confirmation
-- [ ] Show source status (last fetch, errors)
+- [x] Show source status (last fetch, errors)
 - [ ] Manual refresh button
 
 ### 4.5 Search

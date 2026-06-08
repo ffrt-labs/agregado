@@ -213,7 +213,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Add source form (validates feed URL)
 - [x] Delete source with confirmation
 - [x] Show source status (last fetch, errors)
-- [ ] Manual refresh button
+- [x] Manual refresh button
 
 ### 4.5 Search
 - [x] Search input with HTMX

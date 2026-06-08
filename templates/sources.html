@@ -9,6 +9,7 @@
             <th scope="col">Last Fetched</th>
             <th scope="col">Errors</th>
             <th scope="col">Last Error</th>
+            <th scope="col">Refresh</th>
             <th scope="col">Delete</th>
         </tr>
     </thead>
@@ -21,6 +22,15 @@
             <td>{{ if .LastFetchedAt }}{{ .LastFetchedAt }}{{ else }}Never{{ end }}</td>
             <td>{{ .ErrorCount }}</td>
             <td>{{ if .LastError }}{{ .LastError }}{{ else }} - {{ end }}</td>
+            <td>
+                <button
+                    hx-post="/api/sources/{{ .ID }}/refresh"
+                    hx-swap="none"
+                    hx-on::after-request="window.location.href='/sources'"
+                >
+                    Refresh
+                </button>
+            </td>
             <td>
                 <button
                     hx-delete="/api/sources/{{ .ID }}"

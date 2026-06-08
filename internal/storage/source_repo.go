@@ -117,3 +117,17 @@ func (r *SourceRepo) FindByEmailSender(ctx context.Context, email string) (*doma
 
 	return &source, nil
 }
+
+func (r *SourceRepo) FindByID(ctx context.Context, id string) (*domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE id=$1", id)
+	if err != nil {
+		return nil, err
+	}
+
+	source, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[domain.Source])
+	if err != nil {
+		return nil, err
+	}
+
+	return &source, nil
+}

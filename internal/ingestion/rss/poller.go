@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+	"errors"
 
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -13,6 +14,7 @@ import (
 type SourceLister interface {
 	ListActive(ctx context.Context) ([]domain.Source, error)
 	Update(ctx context.Context, source domain.Source) error
+	FindByID(ctx context.Context, id string) (*domain.Source, error)
 }
 
 type Poller struct {
@@ -59,76 +61,94 @@ func (p *Poller) poll(ctx context.Context) {
 			continue
 		}
 
-		feed, err := p.parser.Parse(*source.URL)
-		if err != nil {
-			errMsg := err.Error()
-			source.LastError = &errMsg
-			source.ErrorCount++
-			p.sources.Update(ctx, source)
-
-			continue
-		}
-
-		for _, item := range feed.Items {
-			if item.PublishedParsed != nil && source.LastFetchedAt != nil {
-				if item.PublishedParsed.Before(*source.LastFetchedAt) {
-					continue
-				}
-			}
-
-			id := source.ID
-
-			var authorNamesArray []string
-			if len(item.Authors) > 0 {
-				for _, author := range item.Authors {
-					authorName := author.Name
-					authorNamesArray = append(authorNamesArray, authorName)
-				}
-			} else if item.Author != nil && item.Author.Name != "" {
-				authorNamesArray = append(authorNamesArray, item.Author.Name)
-			}
-
-			var author *string
-			if len(authorNamesArray) > 0 {
-				authorsString := strings.Join(authorNamesArray, ", ")
-				author = &authorsString
-			}
-
-			var summary *string
-		  	if item.Description != "" {
-		    	summary = &item.Description
-			}
-
-		  	var content *string
-			if item.Content != "" {
-		    	content = &item.Content
-			}
-
-			article := &domain.Article{
-				SourceID: &id,
-				ExternalURL: item.Link,
-				Title: item.Title,
-				Author: author,
-				Summary: summary,
-				Content: content,
-				PublishedAt: item.PublishedParsed,
-			}
-
-			body, err := json.Marshal(article)
-			if err != nil {
-				continue
-			}
-
-			err = p.pub.Publish("articles.ingest", "rss", body)
-			if err != nil {
-				continue
-			}
-		}
-
-		source.LastError = nil
-		source.ErrorCount = 0
-		now := time.Now()
-		source.LastFetchedAt = &now
-		p.sources.Update(ctx, source)
+		p.pollSource(ctx, source)
 	}
+}
+
+func (p *Poller) pollSource(ctx context.Context, source domain.Source) {
+	feed, err := p.parser.Parse(*source.URL)
+	if err != nil {
+		errMsg := err.Error()
+		source.LastError = &errMsg
+		source.ErrorCount++
+		p.sources.Update(ctx, source)
+
+		return
+	}
+
+	for _, item := range feed.Items {
+		if item.PublishedParsed != nil && source.LastFetchedAt != nil {
+			if item.PublishedParsed.Before(*source.LastFetchedAt) {
+				continue
+			}
+		}
+
+		id := source.ID
+
+		var authorNamesArray []string
+		if len(item.Authors) > 0 {
+			for _, author := range item.Authors {
+				authorName := author.Name
+				authorNamesArray = append(authorNamesArray, authorName)
+			}
+		} else if item.Author != nil && item.Author.Name != "" {
+			authorNamesArray = append(authorNamesArray, item.Author.Name)
+		}
+
+		var author *string
+		if len(authorNamesArray) > 0 {
+			authorsString := strings.Join(authorNamesArray, ", ")
+			author = &authorsString
+		}
+
+		var summary *string
+	  	if item.Description != "" {
+	    	summary = &item.Description
+		}
+
+	  	var content *string
+		if item.Content != "" {
+	    	content = &item.Content
+		}
+
+		article := &domain.Article{
+			SourceID: &id,
+			ExternalURL: item.Link,
+			Title: item.Title,
+			Author: author,
+			Summary: summary,
+			Content: content,
+			PublishedAt: item.PublishedParsed,
+		}
+
+		body, err := json.Marshal(article)
+		if err != nil {
+			return
+		}
+
+		err = p.pub.Publish("articles.ingest", "rss", body)
+		if err != nil {
+			return
+		}
+	}
+
+	source.LastError = nil
+	source.ErrorCount = 0
+	now := time.Now()
+	source.LastFetchedAt = &now
+	p.sources.Update(ctx, source)
+}
+
+func (p *Poller) RefreshSource(ctx context.Context, id string) error {
+	source, err := p.sources.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if source.Type != domain.Rss {
+		return errors.New("only rss sources can be refreshed")
+	}
+
+	p.pollSource(ctx, *source)
+	return nil
 }

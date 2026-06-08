@@ -76,7 +76,7 @@ func main() {
 
 	handler := storage.NewWorker(articleRepo)
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, poller)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)

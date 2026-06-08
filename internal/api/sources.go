@@ -10,7 +10,8 @@ import (
 )
 
 type SourceHandler struct {
-	sources 	SourceRepository
+	sources 		SourceRepository
+	sourceRefresher	SourceRefresher
 }
 
 type SourcesPageData struct {
@@ -24,9 +25,14 @@ type SourceRepository interface {
 	Update(ctx context.Context, source domain.Source) error
 }
 
-func NewSourceHandler(sourceRepo SourceRepository) *SourceHandler {
+type SourceRefresher interface {
+	RefreshSource(ctx context.Context, id string) error
+}
+
+func NewSourceHandler(sourceRepo SourceRepository, sourceRefresher SourceRefresher) *SourceHandler {
 	return &SourceHandler{
 		sources: sourceRepo,
+		sourceRefresher: sourceRefresher,
 	}
 }
 
@@ -107,4 +113,16 @@ func (s *SourceHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render(w, "sources.html", SourcesPageData{ Sources: sources })
+}
+
+func (s *SourceHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	err := s.sourceRefresher.RefreshSource(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

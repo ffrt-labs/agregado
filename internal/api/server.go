@@ -11,6 +11,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
+	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -23,7 +24,7 @@ type Server struct {
 	scheduler *digest.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, pooler *rss.Poller) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -45,7 +46,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     }
 
     emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher)
-    sourcesHandler := NewSourceHandler(sourceRepo)
+    sourcesHandler := NewSourceHandler(sourceRepo, pooler)
     articlesHandler := NewArticleHandler(articleRepo)
 
 	s := &Server{
@@ -80,6 +81,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/articles", articlesHandler.ListPage)
 	r.Get("/articles/search", articlesHandler.SearchPage)
 	r.Get("/sources", sourcesHandler.ListPage)
+	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)
 
 	return s
 }

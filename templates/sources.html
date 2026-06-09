@@ -14,33 +14,37 @@
         </tr>
     </thead>
     <tbody>
-    {{ range .Sources }}
-        <tr>
-            <th>{{ .Name }}</th>
-            <td>{{ .URL }}</td>
-            <td>{{ .Type }}</td>
-            <td>{{ if .LastFetchedAt }}{{ .LastFetchedAt }}{{ else }}Never{{ end }}</td>
-            <td>{{ .ErrorCount }}</td>
-            <td>{{ if .LastError }}{{ .LastError }}{{ else }} - {{ end }}</td>
-            <td>
-                <button
-                    hx-post="/api/sources/{{ .ID }}/refresh"
-                    hx-swap="none"
-                    hx-on::after-request="window.location.href='/sources'"
-                >
-                    Refresh
-                </button>
-            </td>
-            <td>
-                <button
-                    hx-delete="/api/sources/{{ .ID }}"
-                    hx-swap="none"
-                    hx-on::after-request="window.location.href='/sources'"
-                >
-                    Delete
-                </button>
-            </td>
-        </tr>
+    {{ if .Sources }}
+        {{ range .Sources }}
+            <tr>
+                <th>{{ .Name }}</th>
+                <td>{{ .URL }}</td>
+                <td>{{ .Type }}</td>
+                <td>{{ if .LastFetchedAt }}{{ .LastFetchedAt }}{{ else }}Never{{ end }}</td>
+                <td>{{ .ErrorCount }}</td>
+                <td>{{ if .LastError }}{{ .LastError }}{{ else }} - {{ end }}</td>
+                <td>
+                    <button
+                        hx-post="/api/sources/{{ .ID }}/refresh"
+                        hx-swap="none"
+                        hx-on::after-request="window.location.href='/sources'"
+                    >
+                        Refresh
+                    </button>
+                </td>
+                <td>
+                    <button
+                        hx-delete="/api/sources/{{ .ID }}"
+                        hx-swap="none"
+                        hx-on::after-request="window.location.href='/sources'"
+                    >
+                        Delete
+                    </button>
+                </td>
+            </tr>
+        {{ end }}
+    {{ else }}
+        <tr><td colspan="7">No sources yet. Add one below</td></tr>
     {{ end }}
     </tbody>
 </table>

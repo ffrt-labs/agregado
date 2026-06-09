@@ -30,21 +30,25 @@
             id="search"
         >
     </div>
-    <ul id="article-list">
-        {{ range .Articles }}
-        <li
-            hx-post="/api/articles/{{ .ID }}/read"
-            hx-swap="none"
-        >
-            <a
-                href="{{ .ExternalURL }}"
-                target="_blank"
+    {{ if .Articles }}
+        <ul id="article-list">
+            {{ range .Articles }}
+            <li
+                hx-post="/api/articles/{{ .ID }}/read"
+                hx-swap="none"
             >
-                {{ .Title }} - {{ .PublishedAt }}
-            </a>
-        </li>
-        {{ end }}
-    </ul>
+                <a
+                    href="{{ .ExternalURL }}"
+                    target="_blank"
+                >
+                    {{ .Title }} - {{ .PublishedAt }}
+                </a>
+            </li>
+            {{ end }}
+        </ul>
+    {{ else }}
+        <p>No articles found</p>
+    {{ end }}
     <div>
         {{ if .HasPrev }}
             <a href="/articles?source_id={{ .SelectedSource }}&offset={{ .PrevOffset }}">Previous</a>

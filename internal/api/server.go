@@ -47,7 +47,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 
     emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher)
     sourcesHandler := NewSourceHandler(sourceRepo, pooler)
-    articlesHandler := NewArticleHandler(articleRepo)
+    articlesHandler := NewArticleHandler(articleRepo, sourceRepo)
 
 	s := &Server{
 		broker: b,

@@ -9,28 +9,38 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-type ArticleHandler struct {
-	articles	ArticleRepository
+type SourceLister interface {
+	List(ctx context.Context, limit, offset int) ([]domain.Source, error)
 }
 
+type ArticleHandler struct {
+	articles	ArticleRepository
+	sources		SourceLister
+}
+
+
 type ArticlesPageData struct {
-	Articles	[]domain.Article
-	HasPrev		bool
-	HasMore		bool
-	PrevOffset	int
-	NextOffset	int
+	Articles		[]domain.Article
+	HasPrev			bool
+	HasMore			bool
+	PrevOffset		int
+	NextOffset		int
+	Sources			[]domain.Source
+	SelectedSource	string
 }
 
 type ArticleRepository interface {
 	List(ctx context.Context, limit int, offset int) ([]domain.Article, error)
+	ListBySource(ctx context.Context, source string, limit, offset int) ([]domain.Article, error)
 	MarkRead(ctx context.Context, id string) error
 	MarkUnread(ctx context.Context, id string) error
 	Search(ctx context.Context, query string, limit int, offset int) ([]domain.Article, error)
 }
 
-func NewArticleHandler (articleRepo ArticleRepository) *ArticleHandler {
+func NewArticleHandler (articleRepo ArticleRepository, sourceLister SourceLister) *ArticleHandler {
 	return &ArticleHandler{
 		articles: articleRepo,
+		sources: sourceLister,
 	}
 }
 
@@ -95,7 +105,21 @@ func (a *ArticleHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 	limit, offset := ParsePagination(r)
-	articles, err := a.articles.List(r.Context(), limit + 1, offset)
+	sources, err := a.sources.List(r.Context(), 100, 0)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sourceID := r.URL.Query().Get("source_id")
+	var articles []domain.Article
+
+	if sourceID != "" {
+		articles, err = a.articles.ListBySource(r.Context(), sourceID, limit + 1, offset)
+	} else {
+		articles, err = a.articles.List(r.Context(), limit + 1, offset)
+	}
 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -120,6 +144,8 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 			HasMore: hasMore,
 			PrevOffset: offset - limit,
 			NextOffset: offset + limit,
+			Sources: sources,
+			SelectedSource: sourceID,
 		},
 	)
 }

@@ -1,12 +1,35 @@
 {{ define "content" }}
     <h1>Articles</h1>
-    <input
-        hx-get="/articles/search"
-        hx-trigger="keyup changed delay:300ms"
-        hx-target="#article-list"
-        hx-swap="outerHTML"
-        name="q"
+    <form
+        method="GET"
+        action="/articles"
+
     >
+        <select
+            name="source_id"
+            onchange="this.form.submit()"
+        >
+            <option value="">
+                All sources
+            </option>
+            {{ range .Sources }}
+            <option value="{{ .ID }}" {{ if eq $.SelectedSource .ID }}selected{{ end }}>
+                {{ .Name }}
+            </option>
+            {{ end }}
+        </select>
+    </form>
+    <div>
+        <label for="search">Search</label>
+        <input
+            hx-get="/articles/search"
+            hx-trigger="keyup changed delay:300ms"
+            hx-target="#article-list"
+            hx-swap="outerHTML"
+            name="q"
+            id="search"
+        >
+    </div>
     <ul id="article-list">
         {{ range .Articles }}
         <li

@@ -34,8 +34,24 @@ func (r *ArticleRepo) GetById(ctx context.Context, id string) (*domain.Article, 
 	return &article, nil
 }
 
-func (r *ArticleRepo) List(ctx context.Context, limit int, offset int) ([]domain.Article, error) {
+func (r *ArticleRepo) List(ctx context.Context, limit, offset int) ([]domain.Article, error) {
 	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles LIMIT $1 OFFSET $2", limit, offset)
+
+	if err != nil {
+		return nil, err
+	}
+
+	articles, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Article])
+
+	if err != nil {
+		return nil, err
+	}
+
+	return articles, nil
+}
+
+func (r *ArticleRepo) ListBySource(ctx context.Context, id string, limit, offset int) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles WHERE source_id = $1 LIMIT $2 OFFSET $3", id, limit, offset)
 
 	if err != nil {
 		return nil, err

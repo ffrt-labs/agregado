@@ -47,10 +47,10 @@
     </ul>
     <div>
         {{ if .HasPrev }}
-            <a href="/articles?offset={{ .PrevOffset }}">Previous</a>
+            <a href="/articles?source_id={{ .SelectedSource }}&offset={{ .PrevOffset }}">Previous</a>
         {{ end }}
         {{ if .HasMore }}
-            <a href="/articles?offset={{ .NextOffset }}">Next</a>
+            <a href="/articles?source_id={{ .SelectedSource }}&offset={{ .NextOffset }}">Next</a>
         {{ end }}
     </div>
 {{ end }}

@@ -205,7 +205,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Article list page with HTMX pagination
 - [ ] Article detail page
 - [x] Read/unread toggle (HTMX partial)
-- [ ] Filter by source dropdown
+- [x] Filter by source dropdown
 - [ ] Date range filter
 
 ### 4.4 Source Management

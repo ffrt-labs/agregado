@@ -140,10 +140,25 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Set `parent_article_id` linking child articles to newsletter
 - [ ] Publish each extracted article to RabbitMQ
 
+### 2.5 Cloudflare Worker (Email Bridge)
+> The Cloudflare Worker is the glue between Email Routing and the Go webhook. Email Routing can't POST to webhooks directly — the Worker parses the raw email and forwards it.
+
+- [ ] Install Wrangler CLI: `npm install -g wrangler`
+- [ ] Authenticate: `wrangler login`
+- [ ] Initialize Worker project: `wrangler init email-worker` (JavaScript, Hello World)
+- [ ] Install postal-mime: `npm install postal-mime` (inside `email-worker/`)
+- [x] Write Worker script (`src/index.js`) — email event handler → parse → POST to webhook
+- [x] Set Worker secrets via wrangler: `WEBHOOK_URL`, `WEBHOOK_SECRET`
+- [x] Deploy Worker: `wrangler deploy`
+- [x] Create Email Routing rule in Cloudflare dashboard pointing to the Worker
+- [x] Make app publicly accessible (ngrok for local dev, or deploy)
+- [x] End-to-end test: send email to routing address → verify article created in DB
+
 ### Phase 2 Verification
 - [x] POST to webhook endpoint returns 200
 - [x] Forwarded email creates article in database
 - [x] Source auto-created for new sender
+- [x] Real email sent via Cloudflare → article appears in UI
 
 **Note:** Phase 2.4 (Link Extraction Pipeline) has been deferred for later implementation.
 

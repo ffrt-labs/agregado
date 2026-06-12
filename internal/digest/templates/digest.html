@@ -1,8 +1,19 @@
 
-<h1>Your Daily Digest - {{.Date.Format "January 2, 2006"}}</h1>
+<h1>Your Daily Digest - {{ .Date.Format "January 2, 2006" }}</h1>
 {{range .Groups}}
-    <h2>{{if .Tag}}{{.Tag.Name}}{{else}}Uncategorized{{end}}</h2>
-    {{range .Articles}}
-    <h3><a href="{{.ExternalURL}}">{{.Title}}</a></h3>
+    <h2>
+        {{ if .Tag }}
+            {{.Tag.Name}}
+        {{else}}
+            Uncategorized
+        {{end}}
+    </h2>
+    {{ if .Summary}}
+        <p><em>{{.Summary}}</em></p>
     {{end}}
-{{end}}
+    {{ range .Articles }}
+        <h3>
+            <a href="{{.ExternalURL}}">{{ .Title }}</a>
+        </h3>
+    {{ end }}
+{{ end }}

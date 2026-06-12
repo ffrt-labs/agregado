@@ -49,6 +49,13 @@ type SMTP struct {
 	FromMail	string	`env:"SMTP_FROM_MAIL" envDefault:""`
 }
 
+type AI struct {
+	Provider			string	`env:"AI_PROVIDER" envDefault:"cloudflare"`
+	CloudflareAccountID	string	`env:"CLOUDFLARE_ACCOUNT_ID"`
+	CloudflareAPIToken	string	`env:"CLOUDFLARE_API_TOKEN"`
+	Model				string	`env:"AI_MODEL" envDefault:"@cf/google/gemma-4-26b-a4b-it"`
+}
+
 type Config struct {
 	Database
 	Queue
@@ -57,6 +64,7 @@ type Config struct {
 	Webhook
 	Digest
 	SMTP
+	AI
 }
 
 func Load() (*Config, error) {

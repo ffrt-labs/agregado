@@ -1,11 +1,15 @@
 package digest
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"html/template"
+	"log"
 	"strings"
 	"time"
+
+	"github.com/felipeafreitas/agregado/internal/ai"
 )
 
 //go:embed templates/digest.html
@@ -18,7 +22,8 @@ type DigestEmail struct {
 }
 
 type Generator struct {
-	generator *template.Template
+	generator 	*template.Template
+	provider	ai.Provider
 }
 
 type templateData struct {
@@ -26,21 +31,34 @@ type templateData struct {
 	Groups []TaggedArticles
 }
 
-func NewGenerator(templateSrc string) (*Generator, error) {
+func NewGenerator(templateSrc string, provider ai.Provider) (*Generator, error) {
 	t, err := template.New("digest").Parse(templateSrc)
 
 	if (err != nil) {
 		return nil, err
 	}
 
-	return &Generator{ generator: t }, nil
+	return &Generator{
+		generator: t,
+		provider: provider,
+	}, nil
 }
 
-func NewDefaultGenerator() (*Generator, error) {
-	return NewGenerator(digestTemplate)
+func NewDefaultGenerator(provider ai.Provider) (*Generator, error) {
+	return NewGenerator(digestTemplate, provider)
 }
 
-func (g *Generator) Generate(articles []TaggedArticles) (*DigestEmail, error) {
+func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*DigestEmail, error) {
+	for i, group := range articles {
+		summary, err := g.provider.Summarize(ctx, group.Articles)
+
+		if err != nil {
+			log.Printf("summarize failed for group: %v", err)
+		} else {
+			articles[i].Summary = summary
+		}
+	}
+
 	data := templateData{
 		Date: time.Now(),
 		Groups: articles,

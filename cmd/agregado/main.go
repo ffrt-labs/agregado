@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/api"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
@@ -61,7 +62,8 @@ func main() {
 
 	tagRepo := storage.NewTagRepo(db)
 	ranker := digest.NewRanker(articleRepo, tagRepo, cfg.Digest.MaxArticles)
-	generator, err := digest.NewDefaultGenerator()
+	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model)
+	generator, err := digest.NewDefaultGenerator(provider)
 
 	if err != nil {
 		log.Fatal("Failed to create generator", err)

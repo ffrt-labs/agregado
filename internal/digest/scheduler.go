@@ -29,7 +29,7 @@ func (s *Scheduler) sendDigest(ctx context.Context) error {
 		return err
 	}
 
-	digestedEmail, err := s.generator.Generate(articles)
+	digestedEmail, err := s.generator.Generate(ctx, articles)
 	if err != nil {
 		return err
 	}
@@ -57,5 +57,5 @@ func (s *Scheduler) Preview(ctx context.Context) (*DigestEmail, error) {
 		return nil, err
 	}
 
-	return s.generator.Generate(articles)
+	return s.generator.Generate(ctx, articles)
 }

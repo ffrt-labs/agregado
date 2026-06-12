@@ -23,8 +23,9 @@ type Ranker struct {
 }
 
 type TaggedArticles struct {
-	Tag *domain.Tag
-	Articles []domain.Article
+	Tag 		*domain.Tag
+	Articles 	[]domain.Article
+	Summary		string
 }
 
 func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int) *Ranker {

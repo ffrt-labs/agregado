@@ -231,8 +231,9 @@ Daily Digest
 - Query articles from last 24 hours
 - **Group by Tag first** (existing categorization)
 - **Within each tag, AI clusters by specific topic** (e.g., "AI Model Releases", "Cloud Infrastructure")
-- Apply relevance scoring to filter low-value articles
-- Rank by: recency, source priority, relevance score
+- Filter articles with `relevance_score >= DIGEST_MIN_SCORE` (default 3); unscored articles (null) pass through
+- Sort by relevance score DESC, then published_at DESC; cap at `DIGEST_CAP` articles (default 20)
+- Per article: title link (direct), 👍 and 👎 feedback links (HMAC-signed, separate from title)
 - Generate HTML email with topic groupings and AI-generated topic summaries
 - Send via SMTP (configurable provider)
 - Track digest history (avoid re-sending same articles)
@@ -600,10 +601,10 @@ GET    /health/rabbit            - RabbitMQ connection status
 
 ### AI Infrastructure
 
-**Processing Strategy:** Batch at digest time (not on ingestion)
-- More efficient — process all articles at once
-- Simpler architecture — no real-time AI pipeline
-- Allows human review window before digest
+**Processing Strategy:** At ingest time (per article), not batch at digest time.
+- Score is a stable property of the article — compute once, reuse across digest runs
+- Distributes AI load throughout the day
+- Enables querying "top articles" from the web UI at any time
 
 **Ollama Container:**
 ```yaml
@@ -641,9 +642,35 @@ ollama:
 ### Relevance Scoring
 
 **Scoring Factors:**
-1. **Source priority** — Existing `sources.priority` field (1-10)
-2. **Keyword blocklist** — Filter out articles matching blocked terms
-3. **AI relevance** — (Post-MVP) Based on reading history patterns
+1. **AI quality + global importance** — LLM rates each article 1–5 at ingest time using its own knowledge of what's globally significant. No external trend API needed.
+2. **Topic weights** — `topic_weights` table (topic slug → float 0.1–2.0) biases the AI prompt toward user interests. Starts neutral (1.0 for all topics); adjusted by feedback over time.
+3. **Digest cap** — configurable `DIGEST_CAP` (default 20) and `DIGEST_MIN_SCORE` (default 3) filter and limit the digest.
+
+**Relevance Score Storage:**
+```sql
+ALTER TABLE articles ADD COLUMN relevance_score SMALLINT;  -- 1-5, nullable = not yet scored
+```
+
+**Topic Weights:**
+```sql
+CREATE TABLE topic_weights (
+  topic VARCHAR(100) PRIMARY KEY,
+  weight FLOAT NOT NULL DEFAULT 1.0,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+**Feedback Loop:**
+```sql
+CREATE TABLE article_feedback (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  article_id UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+  vote VARCHAR(4) NOT NULL CHECK (vote IN ('up', 'down')),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+Each digest email includes per-article 👍/👎 links (HMAC-signed, separate from article link). Clicking feedback: inserts a row in `article_feedback`, fetches the article's tags, and upserts `topic_weights` (up → +0.1, down → -0.1, clamped 0.1–2.0).
 
 **Blocklist Storage:**
 ```sql

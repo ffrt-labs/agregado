@@ -285,22 +285,24 @@ Progress tracker for building Agregado. Check items as you complete them.
 ## Phase 5.5: AI Infrastructure
 
 **Note:** AI processing runs at digest time (batch), not on article ingestion.
+**Provider:** Cloudflare Workers AI (swappable via `ai.Provider` interface — Ollama planned as alternative).
 
-### 5.5.1 Ollama Setup
-- [ ] Add Ollama service to `docker-compose.yml`
-- [ ] Pull recommended models (Phi-3-mini for categorization, Mistral-7B for summarization)
-- [ ] Verify Ollama responds on `http://localhost:11434`
+### 5.5.1 AI Client Layer
+- [x] Create `internal/ai/provider.go` — swappable `Provider` interface (`Summarize`, `Categorize`)
+- [x] Create `internal/ai/cloudflare.go` — Cloudflare Workers AI HTTP client
+- [x] Add AI config to `internal/config/config.go` (provider, account ID, token, model)
 
-### 5.5.2 AI Client Layer
-- [ ] Create `internal/ai/client.go` — provider interface
-- [ ] Create `internal/ai/ollama.go` — Ollama HTTP client
-- [ ] Add AI config to `internal/config/config.go` (model names, endpoint, timeout)
-
-### 5.5.3 AI Features
-- [ ] Create `internal/ai/categorizer.go` — batch assign tags to articles
-- [ ] Create `internal/ai/summarizer.go` — generate topic summaries
+### 5.5.2 AI Features
+- [x] Per-tag group summarization in digest generator (soft failure — AI error never blocks digest)
+- [x] Integrate summaries into digest HTML template
+- [ ] `Categorize` integration — auto-assign tags to untagged articles at digest time
 - [ ] Create `internal/ai/relevance.go` — score article relevance using blocklist
 - [ ] Integrate blocklist from preferences table (`key='blocklist'`)
+
+### 5.5.3 Ollama Alternative (Future)
+- [ ] Add Ollama service to `docker-compose.yml`
+- [ ] Create `internal/ai/ollama.go` — implement `Provider` interface for local Ollama
+- [ ] Switch provider via `AI_PROVIDER=ollama` env var
 
 ### 5.5.4 Digest Integration
 - [ ] Modify digest generator to call AI categorizer before grouping
@@ -312,6 +314,64 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] AI client can communicate with Ollama
 - [ ] Batch categorization works with sample articles
 - [ ] Topic summaries appear in digest preview
+
+---
+
+## Phase 5.6: AI Relevance Scoring & Feedback Loop
+
+**Goal:** Surface only the most valuable articles in each digest using per-article AI scoring, cap the digest size, and close the loop with thumbs up/down feedback that improves future scoring over time.
+
+**Design decisions:** See `docs/ai-relevance-feedback-plan.md` for full rationale.
+
+### 5.6.1 DB Schema
+- [x] Create migration `000004_relevance_score.up.sql` — add `relevance_score SMALLINT` (nullable) to `articles`
+- [x] Create migration `000005_topic_weights.up.sql` — add `topic_weights` table (topic slug, weight float, updated_at)
+- [x] Create migration `000006_article_feedback.up.sql` — add `article_feedback` table (id, article_id FK, vote `up|down`, created_at)
+- [x] Create migration `000007_extract_links.up.sql` — add `extract_links BOOLEAN DEFAULT true` to `sources` and `parent_article_id UUID` to `articles`
+- [x] Run all migrations and verify tables exist
+
+### 5.6.2 AI Scoring at Ingest
+- [ ] Add `Score(ctx, title, content string, topicWeights map[string]float64) (int, error)` to `internal/ai/provider.go`
+- [ ] Implement `Score` in `internal/ai/cloudflare.go` (prompt: rate 1–5 for quality + global importance, return integer only)
+- [ ] Add `UpdateRelevanceScore(ctx, id, score)` to `internal/storage/article_repo.go`
+- [ ] Wire `Score` call into RSS poller after `Create`
+- [ ] Wire `Score` call into email webhook handler after article save
+- [ ] For newsletter articles: also call `Summarize` to populate `summary` field
+
+### 5.6.3 Newsletter Link Extraction
+- [ ] Create `internal/newsletter/extractor.go` — `ExtractLinks(html string) []string` using goquery
+  - Filter: `http/https` only; skip URLs containing `unsubscribe`, `pixel`, `mailto:`, social share links
+- [ ] Create fetch helper in same package — `FetchArticle(ctx, url) (title, content string, err error)` using go-readability
+- [ ] Wire extraction into email webhook handler: after saving newsletter article, extract links → fetch → create child Articles with `parent_article_id` set → score each
+
+### 5.6.4 Ranker Update
+- [ ] Add `DigestCap int` (`DIGEST_CAP`, default `20`) and `MinRelevanceScore int` (`DIGEST_MIN_SCORE`, default `3`) to `internal/config/config.go` `Digest` struct
+- [ ] Update `GetDigestArticles` in `internal/digest/ranker.go`:
+  - Filter: `relevance_score >= MinRelevanceScore OR relevance_score IS NULL`
+  - Sort: score DESC NULLS LAST, published_at DESC
+  - Limit: DigestCap
+
+### 5.6.5 Feedback Endpoint
+- [ ] Create `internal/storage/feedback_repo.go` — `Create(ctx, articleID, vote)` inserting into `article_feedback`
+- [ ] Create `internal/storage/topic_weights_repo.go` — `Upsert(ctx, topic string, delta float64)` (clamp weight 0.1–2.0)
+- [ ] Add `GET /api/feedback` endpoint to `internal/api/server.go`:
+  - Params: `article_id`, `vote` (`up|down`), `token`
+  - Validate HMAC-SHA256 token (signed with `WEBHOOK_SECRET`, message = `article_id:vote`)
+  - Insert feedback row
+  - Fetch article tags → upsert topic_weights (up: +0.1, down: -0.1)
+  - Return HTML confirmation page
+
+### 5.6.6 Digest Template — Feedback Links
+- [ ] Add a `DigestArticle` wrapper struct (or extend `domain.Article`) with `UpToken` and `DownToken` string fields
+- [ ] Generate HMAC tokens per article in `internal/digest/generator.go` before template rendering
+- [ ] Update `internal/digest/templates/digest.html` — add per-article: relevance score badge, 👍 link, 👎 link (separate from article title link)
+
+### Phase 5.6 Verification
+- [ ] Insert article with `relevance_score = 1` → confirm excluded from `/api/digest/preview`
+- [ ] POST newsletter email → confirm newsletter article saved + child articles created from extracted links
+- [ ] `/api/digest/preview` returns ≤ DigestCap articles, all score ≥ MinRelevanceScore (or unscored)
+- [ ] Click 👍 feedback URL → `article_feedback` row created, `topic_weights` upserted
+- [ ] Confirm topic weight used in subsequent `Score` prompt
 
 ---
 

@@ -1,0 +1,82 @@
+name: Deploy to local server
+
+on:
+   push:
+      branches: ['main']
+
+env:
+  DATABASE_HOST: ${{ secrets.DATABASE_HOST }}
+  DATABASE_PORT: ${{ secrets.DATABASE_PORT }}
+  DATABASE_USER: ${{ secrets.DATABASE_USER }}
+  DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+  DATABASE_DB: ${{ vars.DATABASE_DB }}
+
+  RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}
+  RABBITMQ_PASS: ${{ secrets.RABBITMQ_PASS }}
+  RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}
+  RABBITMQ_PORT: ${{ secrets.RABBITMQ_PORT }}
+
+  HTTP_PORT: ${{ vars.HTTP_PORT }}
+
+  RSS_POLL_INTERVAL: ${{ vars.RSS_POLL_INTERVAL }}
+
+  WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+
+  DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
+  DIGEST_SCHEDULE: ${{ vars.DIGEST_SCHEDULE }}
+  DIGEST_MAX_ARTICLES: ${{ vars.DIGEST_MAX_ARTICLES }}
+  DIGEST_LOOKBACK_HOURS: ${{ vars.DIGEST_LOOKBACK_HOURS }}
+
+  SMTP_HOST: ${{ vars.SMTP_HOST }}
+  SMTP_PORT: ${{ vars.SMTP_PORT }}
+  SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+  SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+  SMTP_FROM_NAME: ${{ vars.SMTP_FROM_NAME }}
+  SMTP_FROM_MAIL: ${{ secrets.SMTP_FROM_MAIL }}
+
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  AI_MODEL: ${{ secrets.AI_MODEL }}
+
+jobs:
+  deploy:
+    name: Deployment
+    runs-on: self-hosted
+    steps:
+      - name: Setup PATH
+        run: echo "/usr/bin" >> $GITHUB_PATH
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build POSTGRESQL_URL
+        run: echo "POSTGRESQL_URL=postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@localhost:5432/${DATABASE_DB}?sslmode=disable" >> $GITHUB_ENV
+
+      - name: Debug
+        run: |
+          echo $PATH
+          ls -la /usr/bin/docker || echo "not at /usr/bin/docker"
+          ls -la /bin/docker || echo "not at /bin/docker"
+
+      - name: Build Agregado image
+        run: /usr/bin/docker compose build
+
+      - name: Start database
+        run: docker compose up -d db
+
+      - name: Wait for DB
+        run: until docker inspect --format='{{.State.Health.Status}}'
+          agregado-db | grep -q healthy; do sleep 1; done
+
+      - name: Migrate DB
+        run: |
+          docker run --rm \
+              --network host \
+              -v $(pwd)/migrations:/migrations \
+              migrate/migrate \
+              -path=/migrations \
+              -database=$POSTGRESQL_URL \
+              up
+
+      - name: Start service
+        run: docker compose up -d

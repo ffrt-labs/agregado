@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -66,10 +67,10 @@ func (r *ArticleRepo) ListBySource(ctx context.Context, id string, limit, offset
 	return articles, nil
 }
 
-func (r *ArticleRepo) Create(ctx context.Context, article domain.Article) error {
-	_, err := r.db.pool.Exec(
+func (r *ArticleRepo) Create(ctx context.Context, article domain.Article) (string, error) {
+	row := r.db.pool.QueryRow(
 		ctx,
-		"INSERT INTO articles(source_id, external_url, title, author, summary, content, content_hash, published_at, word_count, estimated_read_minutes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (external_url) DO NOTHING",
+		"INSERT INTO articles(source_id, external_url, title, author, summary, content, content_hash, published_at, word_count, estimated_read_minutes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (external_url) DO NOTHING RETURNING id",
 		article.SourceID,
 		article.ExternalURL,
 		article.Title,
@@ -82,7 +83,17 @@ func (r *ArticleRepo) Create(ctx context.Context, article domain.Article) error 
 		article.EstimatedReadMinutes,
 	)
 
-	return err
+	var id string
+	err := row.Scan(&id)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	return id, nil
 }
 
 func (r *ArticleRepo) Delete(ctx context.Context, id string) error {
@@ -187,4 +198,15 @@ func (r *ArticleRepo) Search(ctx context.Context, query string, limit, offset in
 	}
 
 	return articles, nil
+}
+
+func (r *ArticleRepo) UpdateRelevanceScore(ctx context.Context, id string, score int) error {
+	_, err := r.db.pool.Exec(
+		ctx,
+		"UPDATE articles SET relevance_score = $2 WHERE id = $1",
+		id,
+		score,
+	)
+
+	return err
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -107,4 +108,31 @@ func (p *CloudflareProvider) Categorize(ctx context.Context, title, content stri
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, content[:min(len(content), 500)])
 
 	return p.complete(ctx, systemPrompt, userPrompt)
+}
+
+func (p *CloudflareProvider) Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error) {
+	systemPrompt := "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer."
+
+	var weights strings.Builder
+	for topic, w := range topicWeights {
+		fmt.Fprintf(&weights, "- %s: %.1f\n", topic, w)
+	}
+
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s\n\nTopic interest weights (1.0 = neutral, higher = more interested): %s", title, content[:min(len(content), 500)], weights)
+
+	result, err := p.complete(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return 0, err
+	}
+
+	score, err := strconv.Atoi(strings.TrimSpace(result))
+	if err != nil {
+		return 0, err
+	}
+
+	if score < 1 || score > 5 {
+      return 0, fmt.Errorf("score out of range: %d", score)
+  	}
+
+	return score, nil
 }

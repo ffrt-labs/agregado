@@ -41,6 +41,7 @@ services:
       - "8025:8025"
 
   agregado:
+    profiles: ["prod"]
     build:
       context: .
       network: host

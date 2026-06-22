@@ -76,7 +76,9 @@ func main() {
 	parser := rss.NewParser()
 	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)
 
-	handler := storage.NewWorker(articleRepo)
+
+
+	handler := storage.NewWorker(articleRepo, provider, articleRepo)
 
 	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, poller)
 

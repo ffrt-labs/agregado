@@ -79,4 +79,4 @@ jobs:
               up
 
       - name: Start service
-        run: docker compose up -d
+        run: docker compose --profile prod up -d

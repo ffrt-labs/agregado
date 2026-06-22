@@ -1,16 +1,25 @@
 {{ define "article-list" }}
-    <ul id="article-list">
+    <ul class="feed" id="article-list">
         {{ range .Articles }}
         <li
+            class="item{{ if .IsRead }} is-read{{ end }}"
             hx-post="/api/articles/{{ .ID }}/read"
+            hx-trigger="click"
             hx-swap="none"
+            hx-on:click="this.classList.add('is-read')"
         >
-            <a
-                href="{{ .ExternalURL }}"
-                target="_blank"
-            >
-                {{ .Title }} - {{ .PublishedAt }}
-            </a>
+            <div class="item-body">
+                <div class="item-meta">
+                    {{ if .Author }}<span class="src">{{ .Author }}</span>{{ end }}
+                    {{ if .PublishedAt }}<span>&middot;</span><span>{{ .PublishedAt.Format "Jan 2" }}</span>{{ end }}
+                    {{ if .IsRead }}<span class="read-tag">&check; read</span>{{ end }}
+                </div>
+                <a class="item-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
+                {{ if .Summary }}<p class="item-excerpt">{{ .Summary }}</p>{{ end }}
+            </div>
+            <div class="item-side">
+                {{ if .EstimatedReadMinutes }}<span class="readtime">{{ .EstimatedReadMinutes }} min</span>{{ end }}
+            </div>
         </li>
         {{ end }}
     </ul>

@@ -1,71 +1,82 @@
 {{ define "content" }}
-<h1>Sources</h1>
-<table>
-    <thead>
-        <tr>
-            <th scope="col">Name</th>
-            <th scope="col">FeedURL</th>
-            <th scope="col">Type</th>
-            <th scope="col">Last Fetched</th>
-            <th scope="col">Errors</th>
-            <th scope="col">Last Error</th>
-            <th scope="col">Refresh</th>
-            <th scope="col">Delete</th>
-        </tr>
-    </thead>
-    <tbody>
-    {{ if .Sources }}
-        {{ range .Sources }}
-            <tr>
-                <th>{{ .Name }}</th>
-                <td>{{ .URL }}</td>
-                <td>{{ .Type }}</td>
-                <td>{{ if .LastFetchedAt }}{{ .LastFetchedAt }}{{ else }}Never{{ end }}</td>
-                <td>{{ .ErrorCount }}</td>
-                <td>{{ if .LastError }}{{ .LastError }}{{ else }} - {{ end }}</td>
-                <td>
-                    <button
-                        hx-post="/api/sources/{{ .ID }}/refresh"
-                        hx-swap="none"
-                        hx-on::after-request="window.location.href='/sources'"
-                    >
-                        Refresh
-                    </button>
-                </td>
-                <td>
-                    <button
-                        hx-delete="/api/sources/{{ .ID }}"
-                        hx-swap="none"
-                        hx-on::after-request="window.location.href='/sources'"
-                    >
-                        Delete
-                    </button>
-                </td>
-            </tr>
-        {{ end }}
-    {{ else }}
-        <tr><td colspan="7">No sources yet. Add one below</td></tr>
-    {{ end }}
-    </tbody>
-</table>
-<form
-    hx-ext="json-enc"
-    hx-post="/api/sources"
-    hx-swap="none"
-    hx-on::after-request="window.location.href='/sources'"
->
-    <div>
-        <label for="name">Name</label>
-        <input name="name" id="name">
+    <div class="page">
+        <div class="page-head">
+            <div class="eyebrow">Ingestion</div>
+            <h1 class="page-title">Sources</h1>
+            <p class="page-sub">{{ len .Sources }} feed{{ if ne (len .Sources) 1 }}s{{ end }}</p>
+        </div>
+
+        <form
+            class="src-form"
+            hx-ext="json-enc"
+            hx-post="/api/sources"
+            hx-swap="none"
+            hx-on::after-request="window.location.href='/sources'"
+        >
+            <div class="field grow">
+                <span class="field-label">Name</span>
+                <input name="name" placeholder="Stratechery">
+            </div>
+            <div class="field grow2">
+                <span class="field-label">Feed URL</span>
+                <input name="url" placeholder="https://&hellip;/feed.xml">
+            </div>
+            <div class="field">
+                <span class="field-label">Type</span>
+                <select name="type">
+                    <option value="rss">rss</option>
+                    <option value="newsletter">newsletter</option>
+                </select>
+            </div>
+            <button class="btn-primary" type="submit">Add source</button>
+        </form>
+
+        <div class="src-table">
+            <div class="src-head">
+                <div class="col-name">Source</div>
+                <div class="col-fetch">Last fetch</div>
+                <div class="col-health">Health</div>
+                <div class="col-ops">Actions</div>
+            </div>
+            {{ if .Sources }}
+                {{ range .Sources }}
+                <div class="src-row">
+                    <div class="col-name">
+                        <div class="src-name">
+                            <b>{{ .Name }}</b>
+                            <span class="pill{{ if eq .Type "newsletter" }} email{{ end }}">{{ .Type }}</span>
+                        </div>
+                        <div class="src-url">{{ if .URL }}{{ .URL }}{{ else if .EmailSender }}{{ .EmailSender }}{{ else }}&mdash;{{ end }}</div>
+                    </div>
+                    <div class="col-fetch">{{ if .LastFetchedAt }}{{ .LastFetchedAt.Format "Jan 2, 15:04" }}{{ else }}Never{{ end }}</div>
+                    <div class="col-health">
+                        {{ if eq .ErrorCount 0 }}
+                        <div class="health"><span class="hdot"></span>healthy</div>
+                        {{ else }}
+                        <div class="health err" title="{{ if .LastError }}{{ .LastError }}{{ end }}"><span class="hdot"></span>{{ .ErrorCount }} errors</div>
+                        {{ end }}
+                    </div>
+                    <div class="col-ops">
+                        <button
+                            class="icon-btn"
+                            title="Refresh"
+                            hx-post="/api/sources/{{ .ID }}/refresh"
+                            hx-swap="none"
+                            hx-on::after-request="window.location.href='/sources'"
+                        >&#8635;</button>
+                        <button
+                            class="icon-btn danger"
+                            title="Delete"
+                            hx-delete="/api/sources/{{ .ID }}"
+                            hx-swap="none"
+                            hx-on::after-request="window.location.href='/sources'"
+                        >&times;</button>
+                    </div>
+                </div>
+                {{ end }}
+            {{ else }}
+                <div class="src-row"><div class="col-name" style="color:var(--faint)">No sources yet. Add one above.</div></div>
+            {{ end }}
+        </div>
     </div>
-    <div>
-        <label for="url">Feed URL</label>
-        <input name="url" id="url">
-    </div>
-    <div>
-        <label for="type">Type</label>
-        <input name="type" id="type">
-    </div>
-    <button type="submit">Submit</button>
-</form>
 {{ end }}

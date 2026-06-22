@@ -1,60 +1,67 @@
 {{ define "content" }}
-    <h1>Articles</h1>
-    <form
-        method="GET"
-        action="/articles"
+    <div class="page">
+        <div class="page-head">
+            <div class="eyebrow">The Feed</div>
+            <h1 class="page-title">Articles</h1>
+            <p class="page-sub">{{ len .Articles }} article{{ if ne (len .Articles) 1 }}s{{ end }}{{ if .SelectedSource }} &middot; filtered{{ end }}</p>
+        </div>
 
-    >
-        <select
-            name="source_id"
-            onchange="this.form.submit()"
-        >
-            <option value="">
-                All sources
-            </option>
-            {{ range .Sources }}
-            <option value="{{ .ID }}" {{ if eq $.SelectedSource .ID }}selected{{ end }}>
-                {{ .Name }}
-            </option>
-            {{ end }}
-        </select>
-    </form>
-    <div>
-        <label for="search">Search</label>
-        <input
-            hx-get="/articles/search"
-            hx-trigger="keyup changed delay:300ms"
-            hx-target="#article-list"
-            hx-swap="outerHTML"
-            name="q"
-            id="search"
-        >
-    </div>
-    {{ if .Articles }}
-        <ul id="article-list">
+        <div class="toolbar">
+            <input
+                class="search"
+                type="search"
+                name="q"
+                placeholder="Search titles, summaries&hellip;"
+                hx-get="/articles/search"
+                hx-trigger="keyup changed delay:300ms"
+                hx-target="#article-list"
+                hx-swap="outerHTML"
+            >
+            <form class="filter-form" method="GET" action="/articles">
+                <select class="select" name="source_id" onchange="this.form.submit()">
+                    <option value="">All sources</option>
+                    {{ range .Sources }}
+                    <option value="{{ .ID }}" {{ if eq $.SelectedSource .ID }}selected{{ end }}>{{ .Name }}</option>
+                    {{ end }}
+                </select>
+            </form>
+        </div>
+
+        {{ if .Articles }}
+        <ul class="feed" id="article-list">
             {{ range .Articles }}
             <li
+                class="item{{ if .IsRead }} is-read{{ end }}"
                 hx-post="/api/articles/{{ .ID }}/read"
+                hx-trigger="click"
                 hx-swap="none"
+                hx-on:click="this.classList.add('is-read')"
             >
-                <a
-                    href="{{ .ExternalURL }}"
-                    target="_blank"
-                >
-                    {{ .Title }} - {{ .PublishedAt }}
-                </a>
+                <div class="item-body">
+                    <div class="item-meta">
+                        {{ if .Author }}<span class="src">{{ .Author }}</span>{{ end }}
+                        {{ if .PublishedAt }}<span>&middot;</span><span>{{ .PublishedAt.Format "Jan 2" }}</span>{{ end }}
+                        {{ if .IsRead }}<span class="read-tag">&check; read</span>{{ end }}
+                    </div>
+                    <a class="item-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
+                    {{ if .Summary }}<p class="item-excerpt">{{ .Summary }}</p>{{ end }}
+                </div>
+                <div class="item-side">
+                    {{ if .EstimatedReadMinutes }}<span class="readtime">{{ .EstimatedReadMinutes }} min</span>{{ end }}
+                </div>
             </li>
             {{ end }}
         </ul>
-    {{ else }}
-        <p>No articles found</p>
-    {{ end }}
-    <div>
-        {{ if .HasPrev }}
-            <a href="/articles?source_id={{ .SelectedSource }}&offset={{ .PrevOffset }}">Previous</a>
+        {{ else }}
+        <div class="empty">
+            <h2>Nothing here</h2>
+            <p>No articles match your filters.</p>
+        </div>
         {{ end }}
-        {{ if .HasMore }}
-            <a href="/articles?source_id={{ .SelectedSource }}&offset={{ .NextOffset }}">Next</a>
-        {{ end }}
+
+        <div class="pagination">
+            {{ if .HasPrev }}<a href="/articles?source_id={{ .SelectedSource }}&amp;offset={{ .PrevOffset }}">&larr; Previous</a>{{ end }}
+            {{ if .HasMore }}<a href="/articles?source_id={{ .SelectedSource }}&amp;offset={{ .NextOffset }}">Next &rarr;</a>{{ end }}
+        </div>
     </div>
 {{ end }}

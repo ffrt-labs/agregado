@@ -9,7 +9,7 @@ import (
 )
 
 type ArticleQuerier interface {
-	FindUnreadSince(ctx context.Context, since time.Time) ([]domain.Article, error)
+	FindUnreadSince(ctx context.Context, since time.Time, minScore, limit int) ([]domain.Article, error)
 }
 
 type TagQuerier interface {
@@ -17,9 +17,10 @@ type TagQuerier interface {
 }
 
 type Ranker struct {
-	articles ArticleQuerier
-	tags TagQuerier
-	maxArticles int
+	articles 			ArticleQuerier
+	tags 				TagQuerier
+	maxArticles 		int
+	minRelevanceScore 	int
 }
 
 type TaggedArticles struct {
@@ -28,18 +29,19 @@ type TaggedArticles struct {
 	Summary		string
 }
 
-func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int) *Ranker {
+func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int, minRelevanceScore int) *Ranker {
 	return &Ranker{
-		articles:articles,
-		tags:tags,
+		articles: articles,
+		tags: tags,
 		maxArticles: maxArticles,
+		minRelevanceScore: minRelevanceScore,
 	}
 }
 
 func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]TaggedArticles, error) {
 	since := time.Now().Add(-time.Duration(lookbackHours) * time.Hour)
 
-	articles, err := r.articles.FindUnreadSince(ctx, since)
+	articles, err := r.articles.FindUnreadSince(ctx, since, r.minRelevanceScore, r.maxArticles)
 	if err != nil {
 		return nil, err
 	}

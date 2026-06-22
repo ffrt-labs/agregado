@@ -34,10 +34,11 @@ type Webhook struct {
 }
 
 type Digest struct {
-	RecipientEmail 	string	`env:"DIGEST_RECIPIENT_EMAIL" envDefault:""`
-	Schedule 		string	`env:"DIGEST_SCHEDULE" envDefault:"0 8 * * *"`
-	MaxArticles 	int		`env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
-	LookbackHours 	int		`env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
+	RecipientEmail 		string	`env:"DIGEST_RECIPIENT_EMAIL" envDefault:""`
+	Schedule 			string	`env:"DIGEST_SCHEDULE" envDefault:"0 8 * * *"`
+	MaxArticles 		int		`env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
+	LookbackHours 		int		`env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
+	MinRelevanceScore 	int 	`env:"DIGEST_MIN_SCORE" envDefault:"3"`
 }
 
 type SMTP struct {

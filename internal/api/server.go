@@ -39,6 +39,8 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	emailParser := email.NewParser()
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
+	feedbackRepo := storage.NewFeedbackRepo(db)
+	weightsRepo := storage.NewTopicWeightsRepo(db)
 	publisher, err := broker.NewPublisher(b)
 
 	if err != nil {
@@ -48,6 +50,12 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher)
     sourcesHandler := NewSourceHandler(sourceRepo, pooler)
     articlesHandler := NewArticleHandler(articleRepo, sourceRepo)
+    feedbackHandler := NewFeedbackHandler(
+    	webhookSecret,
+     	feedbackRepo,
+     	weightsRepo,
+      	articleRepo,
+    )
 
 	s := &Server{
 		broker: b,
@@ -82,6 +90,8 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/articles/search", articlesHandler.SearchPage)
 	r.Get("/sources", sourcesHandler.ListPage)
 	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)
+
+	r.Get("/api/feedback", feedbackHandler.Handle)
 
 	return s
 }

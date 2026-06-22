@@ -61,9 +61,14 @@ func main() {
 	articleRepo := storage.NewArticleRepo(db)
 
 	tagRepo := storage.NewTagRepo(db)
-	ranker := digest.NewRanker(articleRepo, tagRepo, cfg.Digest.MaxArticles)
+	ranker := digest.NewRanker(
+		articleRepo,
+		tagRepo,
+		cfg.Digest.MaxArticles,
+  		cfg.Digest.MinRelevanceScore,
+	)
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model)
-	generator, err := digest.NewDefaultGenerator(provider)
+	generator, err := digest.NewDefaultGenerator(provider, cfg.Webhook.Secret)
 
 	if err != nil {
 		log.Fatal("Failed to create generator", err)

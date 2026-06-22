@@ -15,5 +15,9 @@
         <h3>
             <a href="{{.ExternalURL}}">{{ .Title }}</a>
         </h3>
+        <p>
+            <a href="/api/feedback?article_id={{.ID}}&vote=up&token={{.UpToken}}">👍</a>
+            <a href="/api/feedback?article_id={{.ID}}&vote=down&token={{.DownToken}}">👎</a>
+        </p>
     {{ end }}
 {{ end }}

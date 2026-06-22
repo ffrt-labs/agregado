@@ -128,8 +128,21 @@ func (r *ArticleRepo) MarkUnread(ctx context.Context, id string) error {
 	return err
 }
 
-func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time) ([]domain.Article, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles WHERE ingested_at > $1 AND is_read = false", since)
+func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minScore, limit int) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(
+		ctx,
+		`
+		SELECT * FROM articles
+		WHERE ingested_at > $1
+			AND is_read = false
+			AND (relevance_score >= $2 OR relevance_score IS NULL)
+		ORDER BY relevance_score DESC NULLS LAST, published_at DESC
+		LIMIT $3
+		`,
+		since,
+		minScore,
+		limit,
+	)
 
 	if err != nil {
 		return nil, err

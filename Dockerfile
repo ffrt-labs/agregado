@@ -10,6 +10,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/agregado ./cmd/agregado
 
 FROM debian:bookworm-slim
 
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY --from=builder /bin/agregado .
 COPY --from=builder /app/templates ./templates/

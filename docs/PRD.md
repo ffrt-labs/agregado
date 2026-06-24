@@ -157,30 +157,39 @@ Every newsletter is processed as BOTH:
 
 This handles the spectrum from essay-style newsletters (Stratechery, where links are references) to link-aggregation newsletters (TLDR, where links ARE the content).
 
-**Configuration:**
+**Per-Source Configuration (toggleable in UI):**
+
+| Field | Type | Default | Behavior |
+|-------|------|---------|----------|
+| `extract_links` | `BOOLEAN` | `true` | If true, extract links from newsletter HTML and create child articles |
+| `summarize` | `BOOLEAN` | `true` | If true, call AI summarizer on newsletter body and store result in `articles.summary` |
+
 ```sql
--- Add to sources table
-ALTER TABLE sources ADD COLUMN extract_links BOOLEAN DEFAULT true;
+-- Actual migrations applied
+ALTER TABLE sources ADD COLUMN extract_links BOOLEAN NOT NULL DEFAULT true;  -- migration 000007
+ALTER TABLE sources ADD COLUMN summarize     BOOLEAN NOT NULL DEFAULT true;  -- migration 000008
 
 -- Link child articles to their parent newsletter
 ALTER TABLE articles ADD COLUMN parent_article_id UUID REFERENCES articles(id);
 ```
 
 **Examples:**
-| Newsletter | `extract_links` | Rationale |
-|------------|-----------------|-----------|
-| Stratechery | `false` | Essay-style; links are references, not recommendations |
-| TLDR | `true` | Links ARE the main content |
-| Morning Brew | `true` | Both editorial and links have value |
+| Newsletter | `extract_links` | `summarize` | Rationale |
+|------------|-----------------|-------------|-----------|
+| Stratechery | `false` | `true` | Essay-style; links are references; body IS the content worth summarizing |
+| TLDR | `true` | `false` | Links are the content; newsletter body is just scaffolding |
+| Morning Brew | `true` | `true` | Both body summary and extracted links have value |
 
 **Acceptance Criteria:**
 - Webhook endpoint receives POST from Cloudflare Email Routing
 - Parse email: subject → title, body → content, from → source
 - Handle HTML emails (convert to readable text/markdown)
 - **Always** create main article from newsletter body
+- If `source.summarize = true`, call AI on newsletter body → store in `articles.summary`
 - If `source.extract_links = true`, trigger link extraction pipeline
 - Publish parsed articles to RabbitMQ
 - Verify webhook authenticity (shared secret)
+- Both toggles editable per-source in the Sources UI (newsletter sources only)
 
 #### F3.1: Link Extraction Pipeline
 **User Story:** As a user, links from my newsletters are automatically fetched and stored as separate articles.
@@ -233,6 +242,7 @@ Daily Digest
 - **Within each tag, AI clusters by specific topic** (e.g., "AI Model Releases", "Cloud Infrastructure")
 - Filter articles with `relevance_score >= DIGEST_MIN_SCORE` (default 3); unscored articles (null) pass through
 - Sort by relevance score DESC, then published_at DESC; cap at `DIGEST_CAP` articles (default 20)
+- **Digest overview**: AI-generated 2–3 sentence introduction at top of email summarising the day's main topics (derived from per-group summaries; omitted gracefully if AI fails)
 - Per article: title link (direct), 👍 and 👎 feedback links (HMAC-signed, separate from title)
 - Generate HTML email with topic groupings and AI-generated topic summaries
 - Send via SMTP (configurable provider)

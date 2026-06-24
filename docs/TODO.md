@@ -118,27 +118,32 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Convert HTML body to text/markdown
 - [x] Handle multipart emails
 - [x] **Always** create main article from newsletter body
-- [ ] Check `source.extract_links` setting (DEFERRED to later)
-- [ ] If `extract_links=true`, trigger link extraction pipeline (Phase 2.4) (DEFERRED to later)
+- [ ] If `source.summarize = true`, call `provider.Summarize` on newsletter body → store in `articles.summary`
+- [ ] If `source.extract_links = true`, trigger link extraction pipeline (Phase 2.4)
 
 ### 2.3 Newsletter Source Management
 - [x] Auto-create source from new sender email
 - [x] Link newsletters to sources by `email_sender` field
 - [x] Publish parsed articles to RabbitMQ
 
-### 2.4 Link Extraction Pipeline
-- [ ] Create migration `000004_add_extract_links.up.sql` and `.down.sql`
-  - Add `extract_links BOOLEAN DEFAULT true` to sources
-  - Add `parent_article_id UUID REFERENCES articles(id)` to articles
-- [ ] Create `internal/ingestion/email/link_extractor.go`
-  - Parse HTML for `<a href>` links using goquery
-  - Filter out navigation/unsubscribe/social links (heuristics)
-- [ ] Create `internal/ingestion/email/article_fetcher.go`
-  - Fetch URL content with timeout (10s)
-  - Extract article content using go-readability
-  - Handle errors gracefully (skip inaccessible URLs)
-- [ ] Set `parent_article_id` linking child articles to newsletter
-- [ ] Publish each extracted article to RabbitMQ
+### 2.4 Newsletter Source Toggles
+- [x] Create migration `000008_source_summarize.up.sql` — add `summarize BOOLEAN NOT NULL DEFAULT true` to `sources`
+- [x] Update `internal/domain/source.go` — change `ExtractLinks` tag from `json:"-"` to `json:"extract_links"`; add `Summarize bool \`db:"summarize" json:"summarize"\``
+- [x] Update `source_repo.go` Create (INSERT) — add `extract_links, summarize` as `$7, $8`
+- [x] Update `source_repo.go` Update (UPDATE SET) — add `extract_links=$12, summarize=$13`
+- [x] Add `GetByID(ctx, id) (*domain.Source, error)` to `SourceRepo` and `SourceRepository` interface
+- [x] Add `PATCH /api/sources/{id}` handler (`SourcePatch` struct with `*bool` fields, fetch+merge+update pattern)
+- [x] Wire `PATCH` route in `internal/api/server.go`
+- [x] Wire `provider ai.Provider` into `email.NewHandler(...)` in webhook handler + `main.go`
+- [x] Implement `source.Summarize` check in webhook handler → set `article.Summary` before publish (summary stored by worker on INSERT)
+- [x] Add `UpdateSummary(ctx, id, summary string) error` to `ArticleRepo`
+- [x] Update `templates/sources.html` — add `extract_links` and `summarize` checkbox toggles for newsletter sources (HTMX PATCH on change)
+
+### 2.5 Link Extraction Pipeline
+- [ ] Create `internal/newsletter/extractor.go` — `ExtractLinks(html string) []string` using goquery
+  - Filter: `http/https` only; skip URLs containing `unsubscribe`, `pixel`, `mailto:`, social share links
+- [ ] Add `FetchArticle(ctx, url) (title, content string, err error)` using go-readability
+- [ ] Wire extraction into email webhook: after saving newsletter article, check `source.ExtractLinks` → extract → fetch → create child Articles with `parent_article_id` → publish to RabbitMQ
 
 ### 2.5 Cloudflare Worker (Email Bridge)
 > The Cloudflare Worker is the glue between Email Routing and the Go webhook. Email Routing can't POST to webhooks directly — the Worker parses the raw email and forwards it.
@@ -179,6 +184,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Create `internal/digest/generator.go`
 - [x] Create HTML email template with **Tag → Articles** structure (topic clustering deferred to Phase 5.5)
 - [ ] Include AI-generated topic summaries in template (deferred to Phase 5.5)
+- [x] Add digest-level overview: after group summaries are computed, call `provider.Digest(ctx, summaries)` → add `Overview string` to `templateData` → render at top of template (omit if AI fails)
 - [x] Create plain text fallback
 - [x] Format article summaries and links
 
@@ -229,6 +235,8 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Delete source with confirmation
 - [x] Show source status (last fetch, errors)
 - [x] Manual refresh button
+- [x] `extract_links` toggle checkbox (newsletter sources only, HTMX PATCH)
+- [x] `summarize` toggle checkbox (newsletter sources only, HTMX PATCH)
 
 ### 4.5 Search
 - [x] Search input with HTMX
@@ -291,6 +299,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Create `internal/ai/provider.go` — swappable `Provider` interface (`Summarize`, `Categorize`)
 - [x] Create `internal/ai/cloudflare.go` — Cloudflare Workers AI HTTP client
 - [x] Add AI config to `internal/config/config.go` (provider, account ID, token, model)
+- [x] Add `Digest(ctx context.Context, topicSummaries []string) (string, error)` to `Provider` interface + implement in Cloudflare provider (prompt: 2-sentence intro from the topic summaries)
 
 ### 5.5.2 AI Features
 - [x] Per-tag group summarization in digest generator (soft failure — AI error never blocks digest)

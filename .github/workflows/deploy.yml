@@ -59,7 +59,7 @@ jobs:
           ls -la /bin/docker || echo "not at /bin/docker"
 
       - name: Build Agregado image
-        run: /usr/bin/docker compose build
+        run: /usr/bin/docker compose --profile prod build --no-cache
 
       - name: Start database
         run: docker compose up -d db
@@ -79,4 +79,4 @@ jobs:
               up
 
       - name: Start service
-        run: docker compose --profile prod up -d
+        run: docker compose --profile prod up -d --force-recreate agregado

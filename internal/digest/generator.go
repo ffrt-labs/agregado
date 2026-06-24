@@ -44,8 +44,9 @@ type digestGroup struct {
 }
 
 type templateData struct {
-	Date   time.Time
-	Groups []digestGroup
+	Date     time.Time
+	Overview string
+	Groups   []digestGroup
 }
 
 func NewGenerator(templateSrc string, provider ai.Provider, secret string) (*Generator, error) {
@@ -81,6 +82,22 @@ func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*D
 		}
 	}
 
+	var summaries []string
+	for _, group := range articles {
+		if group.Summary != "" {
+			summaries = append(summaries, group.Summary)
+		}
+	}
+
+	var overview string
+	if len(summaries) > 0 {
+		if s, err := g.provider.Digest(ctx, summaries); err == nil {
+			overview = s
+		} else {
+			log.Printf("digest overview failed: %v", err)
+		}
+	}
+
 	groups := make([]digestGroup, len(articles))
 	for i, group := range articles {
 		digestArticles := make([]DigestArticle, len(group.Articles))
@@ -99,8 +116,9 @@ func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*D
 	}
 
 	data := templateData{
-		Date:   time.Now(),
-		Groups: groups,
+		Date:     time.Now(),
+		Overview: overview,
+		Groups:   groups,
 	}
 
 	var html strings.Builder
@@ -109,6 +127,9 @@ func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*D
 	}
 
 	var text strings.Builder
+	if data.Overview != "" {
+		text.WriteString(data.Overview + "\n\n")
+	}
 	for _, group := range data.Groups {
 		tagName := "Uncategorized"
 		if group.Tag != nil {

@@ -103,6 +103,13 @@ func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Ar
 	return p.complete(ctx, systemPrompt, userPrompt)
 }
 
+func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {
+	systemPrompt := "You are a news digest assistant. Write a 2-sentence introduction for a daily digest email. Mention the main themes and why they matter. Be concise and direct. No bullet points."
+	userPrompt := "Topic summaries:\n" + strings.Join(topicSummaries, "\n") + "\n\nIntroduction:"
+
+	return p.complete(ctx, systemPrompt, userPrompt)
+}
+
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {
 	systemPrompt := "You are a content classifier. Given an article title and content, return exactly one category slug from this list: tech, business, personal, politics, economy, science, health, entertainment. Return only the slug — no explanation, no punctuation."
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, content[:min(len(content), 500)])

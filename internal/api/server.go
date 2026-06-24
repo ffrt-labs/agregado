@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
@@ -24,7 +25,7 @@ type Server struct {
 	scheduler *digest.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, pooler *rss.Poller) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, pooler *rss.Poller, provider ai.Provider) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -47,7 +48,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
           panic(err)
     }
 
-    emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher)
+    emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
     sourcesHandler := NewSourceHandler(sourceRepo, pooler)
     articlesHandler := NewArticleHandler(articleRepo, sourceRepo)
     feedbackHandler := NewFeedbackHandler(
@@ -77,6 +78,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		r.Post("/", sourcesHandler.Create)
 		r.Put("/{id}", sourcesHandler.Update)
 		r.Delete("/{id}", sourcesHandler.Delete)
+		r.Patch("/{id}", sourcesHandler.Patch)
 	})
 
 	r.Route("/api/articles", func(r chi.Router) {

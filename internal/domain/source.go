@@ -23,5 +23,6 @@ type Source struct {
 	DefaultTagID 	*string `db:"default_tag_id"`
 	CreatedAt 		time.Time `db:"created_at"`
 	UpdatedAt 		time.Time `db:"updated_at"`
-	ExtractLinks	bool `db:"extract_links" json:"-"`
+	ExtractLinks	bool `db:"extract_links" json:"extract_links"`
+	Summarize		bool `db:"summarize" json:"summarize"`
 }

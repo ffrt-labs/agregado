@@ -223,3 +223,14 @@ func (r *ArticleRepo) UpdateRelevanceScore(ctx context.Context, id string, score
 
 	return err
 }
+
+func (r *ArticleRepo) UpdateSummary(ctx context.Context, id string, summary string) error {
+	_, err := r.db.pool.Exec(
+		ctx,
+		"UPDATE articles SET summary = $2 WHERE id = $1",
+		id,
+		summary,
+	)
+
+	return err
+}

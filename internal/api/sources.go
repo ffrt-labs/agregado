@@ -18,11 +18,17 @@ type SourcesPageData struct {
 	Sources		[]domain.Source
 }
 
+type SourcePatch struct {
+	ExtractLinks	*bool	`json:"extract_links"`
+	Summarize		*bool	`json:"summarize"`
+}
+
 type SourceRepository interface {
 	List(ctx context.Context, limit int, offset int) ([]domain.Source, error)
 	Create(ctx context.Context, source domain.Source) (*domain.Source, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, source domain.Source) error
+	FindByID(ctx context.Context, id string) (*domain.Source, error)
 }
 
 type SourceRefresher interface {
@@ -123,6 +129,39 @@ func (s *SourceHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *SourceHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var patch SourcePatch
+
+ 	err := json.NewDecoder(r.Body).Decode(&patch)
+  	if err != nil {
+ 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+   }
+
+   source, err := s.sources.FindByID(r.Context(), id)
+   if err != nil {
+ 		writeError(w, http.StatusNotFound, err.Error())
+		return
+   }
+
+   if patch.Summarize != nil {
+   		source.Summarize = *patch.Summarize
+   }
+
+   if patch.ExtractLinks != nil {
+   		source.ExtractLinks = *patch.ExtractLinks
+   }
+
+   err = s.sources.Update(r.Context(), *source)
+   if err != nil {
+ 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+   }
 
 	w.WriteHeader(http.StatusNoContent)
 }

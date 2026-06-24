@@ -52,13 +52,15 @@ func (r *SourceRepo) ListActive(ctx context.Context) ([]domain.Source, error) {
 func (r *SourceRepo) Create(ctx context.Context, source domain.Source) (*domain.Source, error) {
 	row, err := r.db.pool.Query(
 		ctx,
-		"INSERT INTO sources(name, type, url, email_sender, priority, is_active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+		"INSERT INTO sources(name, type, url, email_sender, priority, is_active, extract_links, summarize) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
 		source.Name,
 		source.Type,
 		source.URL,
 		source.EmailSender,
 		source.Priority,
 		source.IsActive,
+		source.ExtractLinks,
+		source.Summarize,
 	)
 
 	if err != nil {
@@ -87,7 +89,7 @@ func (r *SourceRepo) Delete(ctx context.Context, id string) error {
 func (r *SourceRepo) Update(ctx context.Context, source domain.Source) error {
 	_, err := r.db.pool.Exec(
 		ctx,
-		"UPDATE sources SET name = $2, type = $3, url = $4, email_sender = $5, priority = $6, is_active = $7, last_fetched_at = $8, last_error = $9, error_count = $10, default_tag_id = $11, updated_at = NOW() WHERE id=$1",
+		"UPDATE sources SET name = $2, type = $3, url = $4, email_sender = $5, priority = $6, is_active = $7, last_fetched_at = $8, last_error = $9, error_count = $10, default_tag_id = $11, extract_links = $12, summarize = $13, updated_at = NOW() WHERE id=$1",
 		source.ID,
 		source.Name,
 		source.Type,
@@ -99,6 +101,8 @@ func (r *SourceRepo) Update(ctx context.Context, source domain.Source) error {
 		source.LastError,
 		source.ErrorCount,
 		source.DefaultTagID,
+		source.ExtractLinks,
+		source.Summarize,
 	)
 
 	return err

@@ -159,6 +159,13 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Make app publicly accessible (ngrok for local dev, or deploy)
 - [x] End-to-end test: send email to routing address → verify article created in DB
 
+### 2.6 Auto-Confirm Newsletter Subscriptions
+- [ ] Add `IsConfirmationEmail(subject, body string) bool` helper — heuristic check (subject/body keywords: "confirm", "verify", "activate")
+- [ ] Add `ExtractConfirmationLink(htmlBody string) (string, bool)` — use goquery to find the most prominent link near confirmation language
+- [ ] In `internal/ingestion/email/webhook.go`, after parsing the email: if `IsConfirmationEmail`, call `ExtractConfirmationLink` → HTTP GET with 10s timeout → log result
+- [ ] Continue normal article processing regardless of confirmation outcome
+- [ ] Write unit tests for detection heuristics with sample confirmation emails from common senders
+
 ### Phase 2 Verification
 - [x] POST to webhook endpoint returns 200
 - [x] Forwarded email creates article in database

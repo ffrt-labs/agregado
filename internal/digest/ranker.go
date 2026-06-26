@@ -2,7 +2,9 @@ package digest
 
 import (
 	"context"
+	"log"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -16,11 +18,16 @@ type TagQuerier interface {
 	FindAll(ctx context.Context) ([]domain.Tag, error)
 }
 
+type Categorizer interface {
+	Categorize(ctx context.Context, title, content string) (string, error)
+}
+
 type Ranker struct {
-	articles 			ArticleQuerier
-	tags 				TagQuerier
-	maxArticles 		int
-	minRelevanceScore 	int
+	articles           ArticleQuerier
+	tags               TagQuerier
+	maxArticles        int
+	minRelevanceScore  int
+	categorizer        Categorizer // optional; nil = skip AI categorization
 }
 
 type TaggedArticles struct {
@@ -29,12 +36,13 @@ type TaggedArticles struct {
 	Summary		string
 }
 
-func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int, minRelevanceScore int) *Ranker {
+func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int, minRelevanceScore int, categorizer Categorizer) *Ranker {
 	return &Ranker{
-		articles: articles,
-		tags: tags,
-		maxArticles: maxArticles,
+		articles:          articles,
+		tags:              tags,
+		maxArticles:       maxArticles,
 		minRelevanceScore: minRelevanceScore,
+		categorizer:       categorizer,
 	}
 }
 
@@ -49,6 +57,32 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 	tags, err := r.tags.FindAll(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if r.categorizer != nil {
+		slugToTag := make(map[string]domain.Tag, len(tags))
+		for _, t := range tags {
+			slugToTag[t.Slug] = t
+		}
+		for i, article := range articles {
+			if len(article.Tags) > 0 {
+				continue
+			}
+			text := ""
+			if article.Content != nil {
+				text = *article.Content
+			} else if article.Summary != nil {
+				text = *article.Summary
+			}
+			slug, err := r.categorizer.Categorize(ctx, article.Title, text)
+			if err != nil {
+				log.Printf("categorize %q: %v", article.Title, err)
+				continue
+			}
+			if tag, ok := slugToTag[strings.TrimSpace(strings.ToLower(slug))]; ok {
+				articles[i].Tags = []domain.Tag{tag}
+			}
+		}
 	}
 
 	articlesGrouppedByTag := make(map[string][]domain.Article)

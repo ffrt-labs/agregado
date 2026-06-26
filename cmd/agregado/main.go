@@ -60,14 +60,16 @@ func main() {
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
 
+	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model)
+
 	tagRepo := storage.NewTagRepo(db)
 	ranker := digest.NewRanker(
 		articleRepo,
 		tagRepo,
 		cfg.Digest.MaxArticles,
-  		cfg.Digest.MinRelevanceScore,
+		cfg.Digest.MinRelevanceScore,
+		provider,
 	)
-	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model)
 	generator, err := digest.NewDefaultGenerator(provider, cfg.Webhook.Secret)
 
 	if err != nil {

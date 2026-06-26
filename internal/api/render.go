@@ -2,6 +2,7 @@ package api
 
 import (
 	"html/template"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -51,7 +52,9 @@ func render(w http.ResponseWriter, filename string, data any) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	tmpl.ExecuteTemplate(w, "layout.html", data)
+	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+		log.Printf("template execute error (%s): %v", filename, err)
+	}
 }
 
 func renderPartial(w http.ResponseWriter, filename string, name string, data any) {

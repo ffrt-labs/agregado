@@ -51,6 +51,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
     sourcesHandler := NewSourceHandler(sourceRepo, pooler)
     articlesHandler := NewArticleHandler(articleRepo, sourceRepo)
+    digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo)
     feedbackHandler := NewFeedbackHandler(
     	webhookSecret,
      	feedbackRepo,
@@ -65,6 +66,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		scheduler: scheduler,
 	}
 
+	r.Get("/", digestHandler.HomePage)
 	r.Get("/health", s.healthHandler)
 	r.Get("/health/rabbit", s.rabbitHealthHandler)
 	r.Get("/health/db", s.dbHealthHandler)

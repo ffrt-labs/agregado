@@ -21,6 +21,7 @@
                     <span class="ln"></span>
                     <span class="ct">{{ len .Items }} stor{{ if eq (len .Items) 1 }}y{{ else }}ies{{ end }}</span>
                 </div>
+                {{ if .Summary }}<p class="digest-group-summary">{{ .Summary }}</p>{{ end }}
                 {{ range .Items }}
                 <article class="digest-item">
                     <div class="meta">

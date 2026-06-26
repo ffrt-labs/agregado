@@ -2,16 +2,22 @@ package digest
 
 import (
 	"context"
+	"log"
+	"sync"
+	"time"
 
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/robfig/cron/v3"
 )
 
 type Scheduler struct {
-	ranker 		*Ranker
-	generator 	*Generator
-	mailer 		*Mailer
-	config		config.Digest
+	ranker      *Ranker
+	generator   *Generator
+	mailer      *Mailer
+	config      config.Digest
+	mu          sync.Mutex
+	cached      *ComputedDigest
+	cachedDate  string
 }
 
 func NewScheduler(ranker *Ranker, generator *Generator, mailer *Mailer, config config.Digest) *Scheduler {
@@ -23,20 +29,45 @@ func NewScheduler(ranker *Ranker, generator *Generator, mailer *Mailer, config c
 	}
 }
 
+func (s *Scheduler) Today(ctx context.Context) (ComputedDigest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	today := time.Now().Format("2006-01-02")
+	if s.cached != nil && s.cachedDate == today {
+		return *s.cached, nil
+	}
+
+	// Use a background context so AI calls aren't cancelled if the triggering
+	// HTTP request ends before the compute finishes.
+	computeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	articles, err := s.ranker.GetDigestArticles(computeCtx, s.config.LookbackHours)
+	if err != nil {
+		return ComputedDigest{}, err
+	}
+
+	log.Printf("digest: computing for %d groups", len(articles))
+	computed := s.generator.Compute(computeCtx, articles)
+	log.Printf("digest: computed overview=%q groups=%d", computed.Overview != "", len(computed.Groups))
+	s.cached = &computed
+	s.cachedDate = today
+	return computed, nil
+}
+
 func (s *Scheduler) sendDigest(ctx context.Context) error {
-	articles, err := s.ranker.GetDigestArticles(ctx, s.config.LookbackHours)
+	computed, err := s.Today(ctx)
 	if err != nil {
 		return err
 	}
 
-	digestedEmail, err := s.generator.Generate(ctx, articles)
+	digestedEmail, err := s.generator.Render(computed)
 	if err != nil {
 		return err
 	}
 
-	err = s.mailer.Send(ctx, s.config.RecipientEmail, *digestedEmail)
-
-	return err
+	return s.mailer.Send(ctx, s.config.RecipientEmail, *digestedEmail)
 }
 
 func (s *Scheduler) Send(ctx context.Context) error {
@@ -52,10 +83,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) Preview(ctx context.Context) (*DigestEmail, error) {
-	articles, err := s.ranker.GetDigestArticles(ctx, s.config.LookbackHours)
+	computed, err := s.Today(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	return s.generator.Generate(ctx, articles)
+	return s.generator.Render(computed)
 }

@@ -49,6 +49,12 @@ type templateData struct {
 	Groups   []digestGroup
 }
 
+type ComputedDigest struct {
+	Date     time.Time
+	Overview string
+	Groups   []TaggedArticles
+}
+
 func NewGenerator(templateSrc string, provider ai.Provider, secret string) (*Generator, error) {
 	t, err := template.New("digest").Parse(templateSrc)
 	if err != nil {
@@ -72,7 +78,7 @@ func (g *Generator) tokenFor(articleID, vote string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*DigestEmail, error) {
+func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles) ComputedDigest {
 	for i, group := range articles {
 		summary, err := g.provider.Summarize(ctx, group.Articles)
 		if err != nil {
@@ -98,8 +104,16 @@ func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*D
 		}
 	}
 
-	groups := make([]digestGroup, len(articles))
-	for i, group := range articles {
+	return ComputedDigest{
+		Date:     time.Now(),
+		Overview: overview,
+		Groups:   articles,
+	}
+}
+
+func (g *Generator) Render(c ComputedDigest) (*DigestEmail, error) {
+	groups := make([]digestGroup, len(c.Groups))
+	for i, group := range c.Groups {
 		digestArticles := make([]DigestArticle, len(group.Articles))
 		for j, a := range group.Articles {
 			digestArticles[j] = DigestArticle{
@@ -116,8 +130,8 @@ func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*D
 	}
 
 	data := templateData{
-		Date:     time.Now(),
-		Overview: overview,
+		Date:     c.Date,
+		Overview: c.Overview,
 		Groups:   groups,
 	}
 
@@ -142,8 +156,12 @@ func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*D
 	}
 
 	return &DigestEmail{
-		Subject: fmt.Sprintf("Your Daily Digest - %s", data.Date.Format("January 2, 2006")),
+		Subject: fmt.Sprintf("Your Daily Digest - %s", c.Date.Format("January 2, 2006")),
 		HTML:    html.String(),
 		Text:    text.String(),
 	}, nil
+}
+
+func (g *Generator) Generate(ctx context.Context, articles []TaggedArticles) (*DigestEmail, error) {
+	return g.Render(g.Compute(ctx, articles))
 }

@@ -15,8 +15,9 @@ type SourceHandler struct {
 }
 
 type SourcesPageData struct {
-	Sources	[]domain.Source
-	Nav	NavData
+	Sources          []domain.Source
+	ErrorSourceCount int
+	Nav              NavData
 }
 
 type SourcePatch struct {
@@ -119,9 +120,17 @@ func (s *SourceHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var errCount int
+	for _, s := range sources {
+		if s.ErrorCount > 0 {
+			errCount++
+		}
+	}
+
 	render(w, "sources.html", SourcesPageData{
-		Sources: sources,
-		Nav:     NavData{SourceCount: len(sources)},
+		Sources:          sources,
+		ErrorSourceCount: errCount,
+		Nav:              NavData{SourceCount: len(sources)},
 	})
 }
 

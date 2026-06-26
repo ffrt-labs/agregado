@@ -2766,3 +2766,85 @@ sort.Slice(taggedArticles, func(a, b int) bool {
 - `append` is type-strict: element type must exactly match slice element type
 
 ---
+
+## Session 11: Docker Multi-Stage Build & TLS Certificates
+
+**Date:** 2026-06-24
+
+### Topics Covered
+
+#### 1. Multi-Stage Docker Builds and the CA Certificates Gap
+
+**What happened:** The RSS poller failed with `x509: certificate signed by unknown authority` when fetching `https://hnrss.org/frontpage`, even though the same request works fine outside Docker.
+
+**Why multi-stage builds create this problem:**
+
+```dockerfile
+FROM golang:1.25 AS builder    # Full Go image — includes CA certificates
+...
+FROM debian:bookworm-slim      # Stripped runtime image — no CA certs by default
+```
+
+The build stage (`golang:1.25`) is a full OS image with `/etc/ssl/certs/` populated. The runtime stage (`debian:bookworm-slim`) is deliberately minimal and **ships without the `ca-certificates` package**. Go's TLS stack reads the system CA bundle at runtime — if it's missing, every HTTPS connection fails with x509 verification errors.
+
+**The fix:** Install `ca-certificates` in the runtime stage:
+
+```dockerfile
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+```
+
+**Why `rm -rf /var/lib/apt/lists/*`?**
+- `apt-get update` downloads package index files (~50MB)
+- Those indexes are only needed during installation, not at runtime
+- Deleting them keeps the final image lean
+
+---
+
+#### 2. Where Go Finds Root CAs
+
+Go's `crypto/tls` package calls into the OS's certificate store at runtime:
+
+| OS | Location |
+|----|----------|
+| Linux (Debian/Ubuntu) | `/etc/ssl/certs/ca-certificates.crt` |
+| Alpine Linux | `/etc/ssl/certs/ca-certificates.crt` (from `ca-certificates` package) |
+| macOS | System Keychain (via cgo) |
+
+When you compile with `CGO_ENABLED=0` (as this project does for static binaries), Go uses a pure-Go TLS implementation that still reads the file from disk. No file → no trusted roots → every HTTPS connection fails.
+
+**Alternative for `scratch` or Alpine images:** Copy certs from the builder stage instead of running `apt-get`:
+
+```dockerfile
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+```
+
+---
+
+#### 3. Debugging x509 Errors
+
+The pattern `tls: failed to verify certificate: x509: certificate signed by unknown authority` almost always means one of:
+
+1. **Missing CA bundle** (our case) — runtime image has no trusted root CAs
+2. **Self-signed certificate** — server uses a cert not signed by a public CA
+3. **Expired certificate** — root CA in the bundle is outdated
+
+In a containerized environment, always suspect (1) first when the request works outside the container but fails inside.
+
+---
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `Dockerfile` | Added `ca-certificates` installation in runtime stage |
+
+### Key Learnings
+
+- Multi-stage builds inherit **nothing** from the build stage except what you explicitly `COPY`
+- `debian:bookworm-slim` omits `ca-certificates` by default — always add it for HTTPS workloads
+- Clean up `apt` indexes in the same `RUN` layer to avoid bloating the image
+- `CGO_ENABLED=0` (static binary) still needs the OS CA bundle on disk
+
+---

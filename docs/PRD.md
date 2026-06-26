@@ -258,7 +258,29 @@ Daily Digest
 - Filter by date range
 - Search by title/content (basic PostgreSQL full-text search)
 - Mark as read/unread
+- Sort by relevance score or recency (`?sort=relevant|recent`)
+- Star/bookmark articles from the list view
 - Mobile-responsive layout
+
+#### F5.1: Daily Digest Home Page (web view)
+**User Story:** As a user, opening the app shows me today's digest — the same curated view I'd get in email, rendered in the browser.
+
+**Acceptance Criteria:**
+- `GET /` renders a digest-style page (not the raw article list)
+- Shows articles ingested since midnight, grouped by tag
+- Displays AI overview paragraph if available
+- Uses the `.digest-*` layout already defined in `layout.html`
+- Sidebar stat "cleared the bar" reflects today's article count
+
+#### F5.2: Bookmarks
+**User Story:** As a user, I can star articles to save them for later reading, and paste arbitrary URLs to bookmark external content.
+
+**Acceptance Criteria:**
+- Star button on every article row toggles `is_saved` on the article
+- `GET /bookmarks` renders a reading-list page of all saved articles
+- Form at top of bookmarks page accepts a URL, fetches title/summary, saves as article with `is_saved = true`
+- Remove button un-saves the article (does not delete it)
+- `is_saved BOOLEAN DEFAULT false` column on `articles` table
 
 #### F6: Source Management UI
 **User Story:** As a user, I can manage my RSS feeds and see their status.

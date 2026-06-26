@@ -215,12 +215,19 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Create source handlers (CRUD)
 - [x] Create article handlers (list, read/unread)
 - [x] Create search handler
+- [ ] `POST /api/articles/{id}/bookmark` — toggle `is_saved` on article (star button in list)
+- [ ] `POST /api/bookmarks` — save arbitrary URL as article (fetch title/summary)
+- [ ] `DELETE /api/bookmarks/{id}` — remove bookmark
+- [ ] `GET /api/bookmarks` — list saved articles
 
 ### 4.2 Templates Setup
 - [x] Create base layout template
 - [x] Set up template rendering helper
 - [x] Add HTMX library
-- [ ] Add minimal CSS
+- [x] Add minimal CSS
+- [x] Register `add`, `dots`, `scoreLabel` template functions in rendering helper (used in `articles.html`)
+- [x] Build and populate `Nav` struct (ArticleCount, SourceCount, BookmarkCount, ClearedCount) for sidebar on every page render
+- [x] Add `.toggle` CSS class to `layout.html` (used by newsletter toggle checkboxes in `sources.html`)
 
 ### 4.3 Article Views
 - [x] Article list page with HTMX pagination
@@ -228,6 +235,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Read/unread toggle (HTMX partial)
 - [x] Filter by source dropdown
 - [ ] Date range filter
+- [ ] Sort by `?sort=relevant|recent` — wire `Sort` param in `ListPage` handler and pass to template
 
 ### 4.4 Source Management
 - [x] Source list page
@@ -255,11 +263,25 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Error messages
 - [ ] Empty states
 
+### 4.8 Bookmarks
+- [ ] Add `is_saved BOOLEAN DEFAULT false` column to `articles` (migration)
+- [ ] Add `IsSaved bool` to `domain.Article`
+- [ ] `GET /bookmarks` page — renders `bookmarks.html` with saved articles
+- [ ] Bookmark list query in `ArticleRepo` (`FindSaved`)
+- [ ] Bookmark item needs `.SourceName`, `.SavedAt`, `.IsManual` — define a `BookmarkView` struct or add fields
+
+### 4.9 Daily Digest Home Page
+- [ ] Create `templates/home.html` — renders today's digest as a web page (uses `.digest-*` CSS classes already in `layout.html`)
+- [ ] `GET /` route — query today's top articles, render home template
+- [ ] Handler fetches articles since midnight, groups by tag (reuse ranker), passes to template
+
 ### Phase 4 Verification
 - [ ] Can browse articles in browser
 - [ ] Can add/remove sources
 - [ ] Search returns relevant results
 - [ ] Works on mobile viewport
+- [ ] Bookmarks save and render correctly
+- [ ] Sidebar counts reflect real data
 
 ---
 

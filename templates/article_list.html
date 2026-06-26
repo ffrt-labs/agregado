@@ -1,24 +1,34 @@
 {{ define "article-list" }}
     <ul class="feed" id="article-list">
-        {{ range .Articles }}
-        <li
-            class="item{{ if .IsRead }} is-read{{ end }}"
-            hx-post="/api/articles/{{ .ID }}/read"
-            hx-trigger="click"
-            hx-swap="none"
-            hx-on:click="this.classList.add('is-read')"
-        >
+        {{ range $i, $a := .Articles }}
+        <li class="item{{ if $a.IsRead }} is-read{{ end }}">
+            <div class="item-num">{{ printf "%02d" (add $i 1) }}</div>
             <div class="item-body">
                 <div class="item-meta">
-                    {{ if .Author }}<span class="src">{{ .Author }}</span>{{ end }}
-                    {{ if .PublishedAt }}<span>&middot;</span><span>{{ .PublishedAt.Format "Jan 2" }}</span>{{ end }}
-                    {{ if .IsRead }}<span class="read-tag">&check; read</span>{{ end }}
+                    {{ if $a.Author }}<span class="src">{{ $a.Author }}</span>{{ end }}
+                    {{ if $a.PublishedAt }}<span class="sep">&middot;</span><span class="when">{{ $a.PublishedAt.Format "Jan 2" }}</span>{{ end }}
+                    {{ if $a.IsRead }}<span class="read-tag">&check; read</span>{{ end }}
                 </div>
-                <a class="item-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
-                {{ if .Summary }}<p class="item-excerpt">{{ .Summary }}</p>{{ end }}
+                <a class="item-title" href="{{ $a.ExternalURL }}" target="_blank" rel="noopener"
+                   hx-post="/api/articles/{{ $a.ID }}/read" hx-trigger="click" hx-swap="none"
+                   hx-on:click="this.closest('.item').classList.add('is-read')">{{ $a.Title }}</a>
+                {{ if $a.Summary }}<p class="item-excerpt">{{ $a.Summary }}</p>{{ end }}
             </div>
             <div class="item-side">
-                {{ if .EstimatedReadMinutes }}<span class="readtime">{{ .EstimatedReadMinutes }} min</span>{{ end }}
+                {{ if $a.RelevanceScore }}
+                <div class="score s{{ $a.RelevanceScore }}">
+                    <div class="dots">{{ dots $a.RelevanceScore }}</div>
+                    <div class="slabel">{{ scoreLabel $a.RelevanceScore }}</div>
+                </div>
+                {{ end }}
+                <div class="row-ops">
+                    <button class="star{{ if $a.IsSaved }} on{{ end }}" title="Bookmark"
+                            hx-post="/api/articles/{{ $a.ID }}/bookmark" hx-swap="none"
+                            hx-on:click="this.classList.toggle('on'); this.textContent = this.classList.contains('on') ? '\u2605' : '\u2606'">{{ if $a.IsSaved }}&starf;{{ else }}&star;{{ end }}</button>
+                    <button class="sqbtn read-toggle"
+                            hx-post="/api/articles/{{ $a.ID }}/read" hx-swap="none"
+                            hx-on:click="this.closest('.item').classList.toggle('is-read')">Mark read</button>
+                </div>
             </div>
         </li>
         {{ end }}

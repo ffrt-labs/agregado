@@ -3,21 +3,25 @@
         <div class="page-head">
             <div class="eyebrow">The Feed</div>
             <h1 class="page-title">Articles</h1>
-            <p class="page-sub">{{ len .Articles }} article{{ if ne (len .Articles) 1 }}s{{ end }}{{ if .SelectedSource }} &middot; filtered{{ end }}</p>
+            <p class="page-sub">{{ len .Articles }} of {{ .Nav.ArticleCount }} article{{ if ne .Nav.ArticleCount 1 }}s{{ end }}{{ if .SelectedSource }} &middot; filtered{{ end }}</p>
         </div>
 
         <div class="toolbar">
-            <input
-                class="search"
-                type="search"
-                name="q"
-                placeholder="Search titles, summaries&hellip;"
-                hx-get="/articles/search"
-                hx-trigger="keyup changed delay:300ms"
-                hx-target="#article-list"
-                hx-swap="outerHTML"
-            >
+            <div class="search-wrap">
+                <span class="ico">&#8981;</span>
+                <input
+                    class="search"
+                    type="search"
+                    name="q"
+                    placeholder="Search titles, sources&hellip;"
+                    hx-get="/articles/search"
+                    hx-trigger="keyup changed delay:300ms"
+                    hx-target="#article-list"
+                    hx-swap="outerHTML"
+                >
+            </div>
             <form class="filter-form" method="GET" action="/articles">
+                <input type="hidden" name="sort" value="{{ .Sort }}">
                 <select class="select" name="source_id" onchange="this.form.submit()">
                     <option value="">All sources</option>
                     {{ range .Sources }}
@@ -25,29 +29,43 @@
                     {{ end }}
                 </select>
             </form>
+            <div class="segmented">
+                <a href="/articles?source_id={{ .SelectedSource }}&amp;sort=relevant" class="{{ if ne .Sort "recent" }}on{{ end }}">Relevant</a>
+                <a href="/articles?source_id={{ .SelectedSource }}&amp;sort=recent" class="{{ if eq .Sort "recent" }}on{{ end }}">Recent</a>
+            </div>
         </div>
 
         {{ if .Articles }}
         <ul class="feed" id="article-list">
-            {{ range .Articles }}
-            <li
-                class="item{{ if .IsRead }} is-read{{ end }}"
-                hx-post="/api/articles/{{ .ID }}/read"
-                hx-trigger="click"
-                hx-swap="none"
-                hx-on:click="this.classList.add('is-read')"
-            >
+            {{ range $i, $a := .Articles }}
+            <li class="item{{ if $a.IsRead }} is-read{{ end }}">
+                <div class="item-num">{{ printf "%02d" (add $i 1) }}</div>
                 <div class="item-body">
                     <div class="item-meta">
-                        {{ if .Author }}<span class="src">{{ .Author }}</span>{{ end }}
-                        {{ if .PublishedAt }}<span>&middot;</span><span>{{ .PublishedAt.Format "Jan 2" }}</span>{{ end }}
-                        {{ if .IsRead }}<span class="read-tag">&check; read</span>{{ end }}
+                        {{ if $a.Author }}<span class="src">{{ $a.Author }}</span>{{ end }}
+                        {{ if $a.PublishedAt }}<span class="sep">&middot;</span><span class="when">{{ $a.PublishedAt.Format "Jan 2" }}</span>{{ end }}
+                        {{ if $a.IsRead }}<span class="read-tag">&check; read</span>{{ end }}
                     </div>
-                    <a class="item-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
-                    {{ if .Summary }}<p class="item-excerpt">{{ .Summary }}</p>{{ end }}
+                    <a class="item-title" href="{{ $a.ExternalURL }}" target="_blank" rel="noopener"
+                       hx-post="/api/articles/{{ $a.ID }}/read" hx-trigger="click" hx-swap="none"
+                       hx-on:click="this.closest('.item').classList.add('is-read')">{{ $a.Title }}</a>
+                    {{ if $a.Summary }}<p class="item-excerpt">{{ $a.Summary }}</p>{{ end }}
                 </div>
                 <div class="item-side">
-                    {{ if .EstimatedReadMinutes }}<span class="readtime">{{ .EstimatedReadMinutes }} min</span>{{ end }}
+                    {{ if $a.RelevanceScore }}
+                    <div class="score s{{ $a.RelevanceScore }}">
+                        <div class="dots">{{ dots $a.RelevanceScore }}</div>
+                        <div class="slabel">{{ scoreLabel $a.RelevanceScore }}</div>
+                    </div>
+                    {{ end }}
+                    <div class="row-ops">
+                        <button class="star{{ if $a.IsSaved }} on{{ end }}" title="Bookmark"
+                                hx-post="/api/articles/{{ $a.ID }}/bookmark" hx-swap="none"
+                                hx-on:click="this.classList.toggle('on'); this.textContent = this.classList.contains('on') ? '\u2605' : '\u2606'">{{ if $a.IsSaved }}&starf;{{ else }}&star;{{ end }}</button>
+                        <button class="sqbtn read-toggle"
+                                hx-post="/api/articles/{{ $a.ID }}/read" hx-swap="none"
+                                hx-on:click="this.closest('.item').classList.toggle('is-read')">Mark read</button>
+                    </div>
                 </div>
             </li>
             {{ end }}
@@ -58,10 +76,5 @@
             <p>No articles match your filters.</p>
         </div>
         {{ end }}
-
-        <div class="pagination">
-            {{ if .HasPrev }}<a href="/articles?source_id={{ .SelectedSource }}&amp;offset={{ .PrevOffset }}">&larr; Previous</a>{{ end }}
-            {{ if .HasMore }}<a href="/articles?source_id={{ .SelectedSource }}&amp;offset={{ .NextOffset }}">Next &rarr;</a>{{ end }}
-        </div>
     </div>
 {{ end }}

@@ -1,0 +1,60 @@
+{{ define "content" }}
+    <section class="digest">
+        <div class="digest-col">
+
+            <div class="digest-deliver">
+                <span class="live"></span>
+                <span>Delivered to your inbox &middot; {{ .DeliveryTime }}</span>
+                <span class="date">{{ .Date }}</span>
+            </div>
+
+            <div class="digest-kicker">Agregado &middot; Daily Digest</div>
+            <h1 class="digest-h1">{{ .Greeting }}</h1>
+            <p class="digest-count">{{ .Nav.ClearedCount }} of {{ .Nav.ArticleCount }} stories cleared the bar this morning.</p>
+
+            {{ if .Intro }}<p class="digest-intro">{{ .Intro }}</p>{{ end }}
+
+            {{ range .Groups }}
+            <div>
+                <div class="topic-rule">
+                    <span class="name">{{ .Topic }}</span>
+                    <span class="ln"></span>
+                    <span class="ct">{{ len .Items }} stor{{ if eq (len .Items) 1 }}y{{ else }}ies{{ end }}</span>
+                </div>
+                {{ range .Items }}
+                <article class="digest-item">
+                    <div class="meta">
+                        <span class="num">{{ printf "%02d" .Position }}</span>
+                        <span class="src">{{ .SourceName }}</span>
+                        {{ if .PublishedAt }}<span class="sep">&middot;</span><span class="when">{{ .PublishedAt.Format "Jan 2" }}</span>{{ end }}
+                        {{ if .EstimatedReadMinutes }}<span class="sep">&middot;</span><span class="when">{{ .EstimatedReadMinutes }} min read</span>{{ end }}
+                        {{ if .RelevanceScore }}<span class="dots s{{ .RelevanceScore }}">{{ dots .RelevanceScore }}</span>{{ end }}
+                    </div>
+                    <a class="title" href="{{ .ExternalURL }}" target="_blank" rel="noopener"
+                       hx-post="/api/articles/{{ .ID }}/read" hx-trigger="click" hx-swap="none">{{ .Title }}</a>
+                    {{ if .Summary }}<p class="excerpt">{{ .Summary }}</p>{{ end }}
+                    <div class="acts">
+                        <button class="fb up" hx-ext="json-enc" hx-post="/api/articles/{{ .ID }}/feedback"
+                                hx-vals='{"direction":"up"}' hx-swap="none"
+                                hx-on::after-request="this.closest('.acts').querySelector('.confirm').textContent='boosting this topic'">&#9650; More like this</button>
+                        <button class="fb down" hx-ext="json-enc" hx-post="/api/articles/{{ .ID }}/feedback"
+                                hx-vals='{"direction":"down"}' hx-swap="none"
+                                hx-on::after-request="this.closest('.acts').querySelector('.confirm').textContent='muting this topic'">&#9660; Less</button>
+                        <span class="confirm" style="font-size:10px; color:var(--faint); letter-spacing:.03em"></span>
+                        <button class="fb save{{ if .IsSaved }} on{{ end }}" title="Bookmark"
+                                hx-post="/api/articles/{{ .ID }}/bookmark" hx-swap="none"
+                                hx-on:click="this.classList.toggle('on'); this.textContent = this.classList.contains('on') ? '\u2605 Saved' : '\u2606 Save'">{{ if .IsSaved }}&starf; Saved{{ else }}&star; Save{{ end }}</button>
+                    </div>
+                </article>
+                {{ end }}
+            </div>
+            {{ end }}
+
+            <div class="digest-foot">
+                <a class="browse" href="/articles">Browse all {{ .Nav.ArticleCount }} articles &rarr;</a>
+                <div class="fine">Your feedback retunes tomorrow's digest.<br>Manage sources &middot; Adjust frequency</div>
+            </div>
+
+        </div>
+    </section>
+{{ end }}

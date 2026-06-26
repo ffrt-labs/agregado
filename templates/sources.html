@@ -3,7 +3,7 @@
         <div class="page-head">
             <div class="eyebrow">Ingestion</div>
             <h1 class="page-title">Sources</h1>
-            <p class="page-sub">{{ len .Sources }} feed{{ if ne (len .Sources) 1 }}s{{ end }}</p>
+            <p class="page-sub">{{ len .Sources }} feed{{ if ne (len .Sources) 1 }}s{{ end }}{{ if .ErrorSourceCount }} &middot; {{ .ErrorSourceCount }} reporting errors{{ end }}</p>
         </div>
 
         <form
@@ -57,26 +57,6 @@
                         {{ end }}
                     </div>
                     <div class="col-ops">
-                        {{ if eq .Type "newsletter" }}
-                        <label class="toggle" title="Extract links from newsletter body">
-                            <input type="checkbox" {{ if .ExtractLinks }}checked{{ end }}
-                                hx-patch="/api/sources/{{ .ID }}"
-                                hx-ext="json-enc"
-                                hx-trigger="change"
-                                hx-swap="none"
-                                name="extract_links">
-                            Links
-                        </label>
-                        <label class="toggle" title="AI-summarize newsletter body">
-                            <input type="checkbox" {{ if .Summarize }}checked{{ end }}
-                                hx-patch="/api/sources/{{ .ID }}"
-                                hx-ext="json-enc"
-                                hx-trigger="change"
-                                hx-swap="none"
-                                name="summarize">
-                            Summarize
-                        </label>
-                        {{ end }}
                         <button
                             class="icon-btn"
                             title="Refresh"

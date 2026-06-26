@@ -1,0 +1,50 @@
+{{ define "content" }}
+    <div class="page narrow">
+        <div class="page-head">
+            <div class="eyebrow">Reading List</div>
+            <h1 class="page-title">Bookmarks</h1>
+            <p class="page-sub">{{ if .Bookmarks }}{{ len .Bookmarks }} link{{ if ne (len .Bookmarks) 1 }}s{{ end }} saved for later{{ else }}No saved links yet{{ end }}</p>
+        </div>
+
+        <form class="add-link"
+              hx-ext="json-enc"
+              hx-post="/api/bookmarks"
+              hx-swap="none"
+              hx-on::after-request="window.location.href='/bookmarks'">
+            <div class="wrap">
+                <span class="plus">+</span>
+                <input name="url" placeholder="Paste a link to save for later&hellip;">
+            </div>
+            <button class="btn-primary" type="submit" style="border-radius:9px; padding:12px 22px">Save link</button>
+        </form>
+
+        {{ if .Bookmarks }}
+        <div class="bm-list">
+            {{ range .Bookmarks }}
+            <div class="bm">
+                <div class="bm-body">
+                    <div class="bm-meta">
+                        <span class="src">{{ .SourceName }}</span>
+                        <span class="sep">&middot;</span>
+                        <span class="when">{{ if .SavedAt }}saved {{ .SavedAt.Format "Jan 2" }}{{ else }}saved{{ end }}</span>
+                        {{ if .IsManual }}<span class="pill link">link</span>{{ end }}
+                    </div>
+                    <a class="bm-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
+                    {{ if .Summary }}<p class="bm-excerpt">{{ .Summary }}</p>{{ end }}
+                </div>
+                <button class="bm-remove" title="Remove bookmark"
+                        hx-delete="/api/bookmarks/{{ .ID }}"
+                        hx-swap="none"
+                        hx-on::after-request="window.location.href='/bookmarks'">&starf;</button>
+            </div>
+            {{ end }}
+        </div>
+        {{ else }}
+        <div class="empty card">
+            <div class="glyph">&star;</div>
+            <h2>Nothing saved yet</h2>
+            <p>Tap the star on any article and it lands here,<br>ready for a quieter moment.</p>
+        </div>
+        {{ end }}
+    </div>
+{{ end }}

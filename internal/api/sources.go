@@ -15,7 +15,8 @@ type SourceHandler struct {
 }
 
 type SourcesPageData struct {
-	Sources		[]domain.Source
+	Sources	[]domain.Source
+	Nav	NavData
 }
 
 type SourcePatch struct {
@@ -118,7 +119,10 @@ func (s *SourceHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	render(w, "sources.html", SourcesPageData{ Sources: sources })
+	render(w, "sources.html", SourcesPageData{
+		Sources: sources,
+		Nav:     NavData{SourceCount: len(sources)},
+	})
 }
 
 func (s *SourceHandler) Refresh(w http.ResponseWriter, r *http.Request) {

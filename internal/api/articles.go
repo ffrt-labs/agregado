@@ -27,6 +27,8 @@ type ArticlesPageData struct {
 	NextOffset		int
 	Sources			[]domain.Source
 	SelectedSource	string
+	Sort			string
+	Nav			NavData
 }
 
 type ArticleRepository interface {
@@ -35,6 +37,7 @@ type ArticleRepository interface {
 	MarkRead(ctx context.Context, id string) error
 	MarkUnread(ctx context.Context, id string) error
 	Search(ctx context.Context, query string, limit int, offset int) ([]domain.Article, error)
+	Count(ctx context.Context) (int, error)
 }
 
 func NewArticleHandler (articleRepo ArticleRepository, sourceLister SourceLister) *ArticleHandler {
@@ -135,6 +138,8 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 		articles = articles[:limit]
 	}
 
+	articleCount, _ := a.articles.Count(r.Context())
+
 	render(
 		w,
 		"articles.html",
@@ -146,6 +151,11 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 			NextOffset: offset + limit,
 			Sources: sources,
 			SelectedSource: sourceID,
+			Sort: r.URL.Query().Get("sort"),
+			Nav: NavData{
+				ArticleCount: articleCount,
+				SourceCount:  len(sources),
+			},
 		},
 	)
 }

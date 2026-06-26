@@ -35,6 +35,12 @@ func (r *ArticleRepo) GetById(ctx context.Context, id string) (*domain.Article, 
 	return &article, nil
 }
 
+func (r *ArticleRepo) Count(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.pool.QueryRow(ctx, "SELECT COUNT(*) FROM articles").Scan(&count)
+	return count, err
+}
+
 func (r *ArticleRepo) List(ctx context.Context, limit, offset int) ([]domain.Article, error) {
 	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles LIMIT $1 OFFSET $2", limit, offset)
 

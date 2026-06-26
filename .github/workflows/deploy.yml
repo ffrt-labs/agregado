@@ -36,6 +36,7 @@ env:
 
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
   AI_MODEL: ${{ secrets.AI_MODEL }}
 
 jobs:
@@ -79,4 +80,4 @@ jobs:
               up
 
       - name: Start service
-        run: docker compose --profile prod up -d --force-recreate agregado
+        run: docker compose --profile prod up -d --force-recreate agregado cloudflared

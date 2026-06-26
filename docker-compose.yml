@@ -40,6 +40,14 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["prod"]
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+
   agregado:
     profiles: ["prod"]
     build:

@@ -217,6 +217,33 @@ When a newsletter source has `extract_links = true`, the system extracts links f
 - Log failures but don't block newsletter processing
 - Set reasonable timeout (10s per link)
 
+#### F3.2: Auto-Confirm Newsletter Subscriptions
+**User Story:** As a user, when I subscribe to a newsletter using my Cloudflare email address, confirmation emails are automatically handled without me leaving the app.
+
+**Description:**
+Many newsletters require clicking a confirmation link before they start sending. Since subscription emails arrive at the Cloudflare-routed address and are forwarded to the webhook, the app can detect and auto-confirm them.
+
+**Process:**
+1. Incoming email arrives at webhook
+2. Detect if it is a confirmation email (subject or body contains "confirm", "verify", "activate", "subscription")
+3. Extract the confirmation link from the HTML body (look for prominent CTA links near confirmation keywords)
+4. Make an HTTP GET to the confirmation URL
+5. Log the attempt and result; process the email normally regardless of outcome
+
+**Detection Heuristics:**
+- Subject contains: `confirm`, `verify`, `activate`, `please confirm`, `subscription`
+- Body contains a single prominent link near confirmation language
+- Sender is not a known newsletter source (first-time sender)
+
+**Error Handling:**
+- If confirmation request fails (timeout, 4xx, 5xx), log and continue — do not block email processing
+- If no confirmation link is found, treat the email as a normal article
+- Set reasonable timeout (10s)
+
+**Non-goals:**
+- Multi-step confirmation flows (e.g. requiring form submission)
+- Storing confirmation state per source
+
 #### F4: Daily Digest Email
 **User Story:** As a user, I receive a daily email with top articles from the last 24 hours, organized by topic.
 

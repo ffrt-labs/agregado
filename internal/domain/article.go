@@ -14,7 +14,8 @@ type Article struct {
 	PublishedAt 			*time.Time `db:"published_at" json:"published_at"`
 	IngestedAt 				time.Time `db:"ingested_at" json:"-"`
 	IsRead 					bool `db:"is_read" json:"-"`
-	IsSaved 				bool `db:"-" json:"-"`
+	IsSaved 				bool `db:"is_saved" json:"-"`
+	SavedAt 				*time.Time `db:"saved_at" json:"-"`
 	ReadAt 					*time.Time `db:"read_at" json:"-"`
 	WordCount 				*int `db:"word_count" json:"-"`
 	EstimatedReadMinutes 	*int `db:"estimated_read_minutes" json:"-"`

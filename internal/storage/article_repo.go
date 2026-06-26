@@ -240,3 +240,42 @@ func (r *ArticleRepo) UpdateSummary(ctx context.Context, id string, summary stri
 
 	return err
 }
+
+func (r *ArticleRepo) FindSaved(ctx context.Context) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx,
+		"SELECT * FROM articles WHERE is_saved = true ORDER BY saved_at DESC NULLS LAST",
+	)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByName[domain.Article])
+}
+
+func (r *ArticleRepo) ToggleBookmark(ctx context.Context, id string) error {
+	_, err := r.db.pool.Exec(ctx, `
+		UPDATE articles
+		SET is_saved = NOT is_saved,
+		    saved_at = CASE WHEN is_saved = false THEN NOW() ELSE NULL END
+		WHERE id = $1`,
+		id,
+	)
+	return err
+}
+
+func (r *ArticleRepo) Unsave(ctx context.Context, id string) error {
+	_, err := r.db.pool.Exec(ctx,
+		"UPDATE articles SET is_saved = false, saved_at = NULL WHERE id = $1",
+		id,
+	)
+	return err
+}
+
+func (r *ArticleRepo) SaveExternalURL(ctx context.Context, url string) error {
+	_, err := r.db.pool.Exec(ctx, `
+		INSERT INTO articles(external_url, title, is_saved, saved_at)
+		VALUES ($1, $1, true, NOW())
+		ON CONFLICT (external_url) DO UPDATE SET is_saved = true, saved_at = NOW()`,
+		url,
+	)
+	return err
+}

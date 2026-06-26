@@ -58,6 +58,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
      	weightsRepo,
       	articleRepo,
     )
+    bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo)
 
 	s := &Server{
 		broker: b,
@@ -94,6 +95,11 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/articles/search", articlesHandler.SearchPage)
 	r.Get("/sources", sourcesHandler.ListPage)
 	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)
+
+	r.Get("/bookmarks", bookmarkHandler.ListPage)
+	r.Post("/api/articles/{id}/bookmark", bookmarkHandler.Toggle)
+	r.Delete("/api/bookmarks/{id}", bookmarkHandler.Remove)
+	r.Post("/api/bookmarks", bookmarkHandler.SaveLink)
 
 	r.Get("/api/feedback", feedbackHandler.Handle)
 

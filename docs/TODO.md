@@ -160,6 +160,7 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] End-to-end test: send email to routing address → verify article created in DB
 
 ### 2.6 Auto-Confirm Newsletter Subscriptions
+- [x] **Temporary stopgap:** `email-worker` forwards a copy of every incoming email to `FORWARD_EMAIL` (worker secret) so confirmation links can be clicked manually. Forward is best-effort (logged, never bounces ingestion). Proper auto-confirm below still pending.
 - [ ] Add `IsConfirmationEmail(subject, body string) bool` helper — heuristic check (subject/body keywords: "confirm", "verify", "activate")
 - [ ] Add `ExtractConfirmationLink(htmlBody string) (string, bool)` — use goquery to find the most prominent link near confirmation language
 - [ ] In `internal/ingestion/email/webhook.go`, after parsing the email: if `IsConfirmationEmail`, call `ExtractConfirmationLink` → HTTP GET with 10s timeout → log result

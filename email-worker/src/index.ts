@@ -58,5 +58,17 @@ export default {
 		} catch (err) {
 			throw new Error(`Webhook failed: ${err}`)
 		}
+
+		// Temporary subscription-confirm helper: forward a copy of every incoming
+		// email to a secondary inbox so confirmation links can be clicked manually.
+		// Best-effort only — a forward failure must NOT bounce/retry the message,
+		// so unlike the webhook above we log and swallow rather than re-throw.
+		if (env.FORWARD_EMAIL) {
+			try {
+				await message.forward(env.FORWARD_EMAIL)
+			} catch (err) {
+				console.error(`Forward to ${env.FORWARD_EMAIL} failed: ${err}`)
+			}
+		}
 	}
 } satisfies ExportedHandler<Env>;

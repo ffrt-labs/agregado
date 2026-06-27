@@ -253,6 +253,10 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Manual refresh button
 - [x] `extract_links` toggle checkbox (newsletter sources only, HTMX PATCH)
 - [x] `summarize` toggle checkbox (newsletter sources only, HTMX PATCH)
+- [x] Migration `000010_source_last_email_received` — add nullable `last_email_received_at` to `sources`
+- [x] Add `LastEmailReceivedAt *time.Time` to `domain.Source`
+- [x] Add `TouchEmailReceived(ctx, id)` to `SourceRepo`; webhook stamps it (best-effort) after publish
+- [x] Type-aware "Last activity" column in `sources.html` (RSS → last fetch, newsletter → last email received)
 
 ### 4.5 Search
 - [x] Search input with HTMX

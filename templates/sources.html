@@ -34,7 +34,7 @@
         <div class="src-table">
             <div class="src-head">
                 <div class="col-name">Source</div>
-                <div class="col-fetch">Last fetch</div>
+                <div class="col-fetch">Last activity</div>
                 <div class="col-health">Health</div>
                 <div class="col-ops">Actions</div>
             </div>
@@ -48,7 +48,7 @@
                         </div>
                         <div class="src-url">{{ if .URL }}{{ .URL }}{{ else if .EmailSender }}{{ .EmailSender }}{{ else }}&mdash;{{ end }}</div>
                     </div>
-                    <div class="col-fetch">{{ if .LastFetchedAt }}{{ .LastFetchedAt.Format "Jan 2, 15:04" }}{{ else }}Never{{ end }}</div>
+                    <div class="col-fetch">{{ if eq .Type "newsletter" }}{{ if .LastEmailReceivedAt }}{{ .LastEmailReceivedAt.Format "Jan 2, 15:04" }}{{ else }}Never{{ end }}{{ else }}{{ if .LastFetchedAt }}{{ .LastFetchedAt.Format "Jan 2, 15:04" }}{{ else }}Never{{ end }}{{ end }}</div>
                     <div class="col-health">
                         {{ if eq .ErrorCount 0 }}
                         <div class="health"><span class="hdot"></span>healthy</div>

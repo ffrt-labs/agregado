@@ -18,6 +18,7 @@ type Source struct {
 	Priority 		int
 	IsActive 		bool `db:"is_active" json:"is_active"`
 	LastFetchedAt	*time.Time `db:"last_fetched_at"`
+	LastEmailReceivedAt	*time.Time `db:"last_email_received_at"`
 	LastError 		*string `db:"last_error"`
 	ErrorCount 		int `db:"error_count"`
 	DefaultTagID 	*string `db:"default_tag_id"`

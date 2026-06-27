@@ -10,6 +10,7 @@ import (
 
 type DigestScheduler interface {
 	Today(ctx context.Context) (digest.ComputedDigest, error)
+	Refresh(ctx context.Context) (digest.ComputedDigest, error)
 }
 
 type DigestArticleCounter interface {
@@ -112,6 +113,18 @@ func (h *DigestHandler) HomePage(w http.ResponseWriter, r *http.Request) {
 		Groups:       groups,
 		Nav: h.nav.Build(ctx),
 	})
+}
+
+// Refresh forces a digest recompute (bypassing the daily cache) and warms the
+// cache with the fresh result. The client reloads afterward to render it.
+// Testing aid — the regenerate button on the home page.
+func (h *DigestHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.scheduler.Refresh(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func timeGreeting() string {

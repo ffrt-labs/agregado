@@ -34,13 +34,27 @@ func (s *Scheduler) Today(ctx context.Context) (ComputedDigest, error) {
 	defer s.mu.Unlock()
 
 	today := time.Now().Format("2006-01-02")
-	// TOGGLE: in-memory daily cache disabled for testing — uncomment to re-enable.
-	// if s.cached != nil && s.cachedDate == today {
-	// 	return *s.cached, nil
-	// }
+	if s.cached != nil && s.cachedDate == today {
+		return *s.cached, nil
+	}
 
-	// Use a background context so AI calls aren't cancelled if the triggering
-	// HTTP request ends before the compute finishes.
+	return s.computeLocked(today)
+}
+
+// Refresh forces a full recompute regardless of the cache and stores the fresh
+// result. Used by the manual "regenerate" action; ordinary reads go through Today.
+func (s *Scheduler) Refresh(ctx context.Context) (ComputedDigest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	today := time.Now().Format("2006-01-02")
+	return s.computeLocked(today)
+}
+
+// computeLocked runs the full digest pipeline and caches the result. Callers
+// must hold s.mu. It uses a background context so AI calls aren't cancelled if
+// the triggering HTTP request ends before the compute finishes.
+func (s *Scheduler) computeLocked(today string) (ComputedDigest, error) {
 	computeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -51,7 +65,7 @@ func (s *Scheduler) Today(ctx context.Context) (ComputedDigest, error) {
 
 	log.Printf("digest: computing for %d groups", len(articles))
 	computed := s.generator.Compute(computeCtx, articles)
-	log.Printf("digest: computed overview=%q groups=%d", computed.Overview != "", len(computed.Groups))
+	log.Printf("digest: computed overview=%t groups=%d", computed.Overview != "", len(computed.Groups))
 	s.cached = &computed
 	s.cachedDate = today
 	return computed, nil

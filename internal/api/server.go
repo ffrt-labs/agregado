@@ -77,6 +77,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 
 	r.Post("/api/digest/send", s.Send)
 	r.Get("/api/digest/preview", s.Preview)
+	r.Post("/api/digest/refresh", digestHandler.Refresh)
 
 	r.Route("/api/sources", func(r chi.Router) {
 		r.Get("/", sourcesHandler.List)

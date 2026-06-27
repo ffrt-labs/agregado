@@ -2848,3 +2848,142 @@ In a containerized environment, always suspect (1) first when the request works 
 - `CGO_ENABLED=0` (static binary) still needs the OS CA bundle on disk
 
 ---
+
+## Session 12: Debugging Production — Cloudflare Tunnel & Container Networking
+
+**Date:** 2026-06-27
+
+**Context:** In production, the app could neither receive newsletter emails (captured by the Cloudflare Worker) nor send digest emails. This session is a *debugging* session — the bug was never in the Go code; every failure was a config/wiring gap at a boundary between components. Classic "never worked in prod" signature.
+
+### The Debugging Method: Evidence at Each Boundary
+
+**Iron law:** No fixes without root-cause investigation first. In a multi-component system, **gather evidence at each component boundary** to find *where* it breaks, instead of guessing.
+
+The inbound email path crosses many boundaries, each a place to probe:
+```
+Cloudflare Worker  →  public DNS/edge  →  Cloudflare Tunnel  →  cloudflared container
+   →  agregado container :8080  →  secret check  →  RabbitMQ publish  →  consumer  →  DB
+```
+
+Every step was diagnosed by reading **the actual signal at that boundary** (an HTTP status code, a log line, a `docker ps` status) — not by assumption. The HTTP status alone localizes the break: `401` = secret, `404` = wrong path/route, `502`/`connection refused` = origin unreachable, `200` = that hop is fine.
+
+---
+
+#### 1. Config Propagation Chain (silent empty-string trap)
+
+Env vars travel through **four** links before reaching the app, and any empty link silently passes `""` downstream:
+```
+GitHub secrets/vars → workflow `env:` block → runner shell → docker compose ${VAR} interpolation → container
+```
+
+**Key asymmetry that fingerprints a config gap:** `caarlos0/env` fields marked `required` (DB, RabbitMQ creds) crash the app on boot if missing. Fields with `envDefault` or optional (`WEBHOOK_SECRET`, `SMTP_PASSWORD`, `DIGEST_RECIPIENT_EMAIL`) let the app boot *and misbehave silently*. So "app runs but won't ingest/send" points straight at the optional vars.
+
+**Verify what the container actually sees** (source of truth, not what you *think* you set):
+```bash
+docker exec <container> env | grep -E 'WEBHOOK_SECRET|SMTP_|...'
+```
+
+---
+
+#### 2. Docker Compose Profiles & Service Selection
+
+A newly-added `cloudflared` service didn't start in CI. Two reasons, both about *selection*, not correctness:
+
+- **`docker compose up <name>` starts only the named services + their `depends_on`.** The deploy named only `agregado`, so `cloudflared` (not named, not a dependency) was skipped. Fix: name it — `up -d agregado cloudflared`.
+- **Profiles are an opt-in filter.** A service with `profiles: ["prod"]` runs *only* under `--profile prod`. `make dev-deps` runs `docker-compose up` with **no** profile, so prod-only services are intentionally excluded. (That's correct, not a bug — dev doesn't need a tunnel.)
+
+| Command | Profile | Services that come up |
+|---|---|---|
+| `make dev-deps` → `docker-compose up -d` | none | db, adminer, rabbitmq, mailpit |
+| CI deploy → `docker compose --profile prod up -d agregado cloudflared` | prod | agregado **+ cloudflared** |
+
+---
+
+#### 3. Container Networking — `localhost` Means *This Container*
+
+The single most important networking concept of the session. Each container has its **own network namespace**, so `localhost`/`127.0.0.1` refers to the container *making the call*, not its siblings or the host.
+
+This same mistake appeared **three times** at different layers:
+1. The Cloudflare Worker (runs on Cloudflare's edge) configured to POST to `localhost`/`192.168.1.142` — neither reachable from off-site.
+2. cloudflared's origin Service set to `http://localhost:8080` → `dial tcp [::1]:8080: connection refused` (cloudflared has nothing on its own :8080).
+3. The fix in all cases: address the target by the name that's meaningful **from the caller's vantage point**.
+
+**In Docker Compose, sibling containers reach each other by service name** (Compose runs an internal DNS):
+```
+http://localhost:8080   ❌  (the cloudflared container itself)
+http://agregado:8080    ✅  (the agregado service on the shared compose network)
+```
+
+> **Recurring principle:** *An address is only meaningful together with the vantage point that resolves it.* A private IP, `localhost`, or a LAN hostname each resolve differently depending on whether you're standing on the host, inside a container, or out on Cloudflare's edge.
+
+---
+
+#### 4. Why Cloudflare Tunnel Was Necessary
+
+The app runs in a **homelab** (self-hosted box) behind home NAT — no public IP, no inbound ports open. But the Cloudflare Worker runs on Cloudflare's **global edge** and must reach the app over the public internet. A private LAN IP (`192.168.x.x`) is not internet-routable, and the Worker's `global_fetch_strictly_public` compatibility flag *explicitly blocks* private/loopback fetches.
+
+**A tunnel inverts the connection direction.** Instead of the internet connecting *in* (port-forwarding, blocked by NAT/CGNAT), a `cloudflared` daemon in the homelab dials *out* to Cloudflare and holds a persistent connection. Cloudflare then routes public requests *down* that pipe.
+
+**A tunnel has two independent legs** — diagnose them separately:
+- **Leg 1: edge ↔ cloudflared** — authenticated by `TUNNEL_TOKEN`. Healthy when logs show prechecks pass + `Registered tunnel connection`. A timeout means this leg is down.
+- **Leg 2: cloudflared → origin** — the `service:` mapping (`http://agregado:8080`). A **502 / `connection refused`** means leg 1 works but leg 2 doesn't.
+
+---
+
+#### 5. Least-Exposure: Scoping the Tunnel to One Path
+
+A tunnel with a blank path publishes **every** route. The app had ~15 routes and only `/webhook/email` was auth-protected; the rest (`/api/sources` CRUD, `/api/digest/send`, health endpoints leaking `err.Error()`) would be open to the internet.
+
+**Principle of least exposure:** publish the *smallest* surface that meets the requirement. The only external caller is the Worker, hitting one path. So the tunnel's Public Hostname is scoped with a **Path regex** (`^/webhook/email/?$`); everything else falls through to the implicit `http_status:404` catch-all **at Cloudflare's edge** — unreachable, not merely rejected. Anchor the regex (`^...$`) so it can't match `/x/webhook/email/extra`.
+
+---
+
+#### 6. Split-Horizon DNS & NAT Hairpin (the "works on cellular" gotcha)
+
+The tunnel worked from a phone on cellular but appeared broken from inside the home Wi-Fi. Two LAN-side saboteurs:
+- **pihole** runs DNS for the LAN and may answer the public hostname with a local/blocked address, so the request never reaches Cloudflare's edge.
+- Many home routers can't **hairpin** — loop a request back to your own public IP from inside.
+
+**Rule:** always validate external-facing infra from a genuinely external network. A service can be 100% reachable from the internet yet look broken from your own couch.
+
+---
+
+#### 7. Reading Log Timestamps (the stale-log trap)
+
+A `connection refused` error looked like the fix had failed — but its timestamp was *3 minutes before* the `Updated to new configuration version=N` line. It was the *old* config's error. Tunnel config changes propagate from dashboard → daemon with a delay; each dashboard edit emits a new `version=N`.
+
+**Rule:** only trust log lines timestamped *after* your most recent change. Make a fresh request, then read fresh logs (`docker logs <c> --since 1m`).
+
+---
+
+#### 8. `docker compose` vs raw `docker` CLI
+
+`docker compose <cmd>` is project-scoped — it needs to find `docker-compose.yml`. The plain **`docker` CLI** talks straight to the daemon and sees every container by name, no compose file or working dir needed. For inspecting a running system, raw `docker` is more reliable:
+```bash
+docker ps -a                               # all containers, status, ports
+docker logs <name> --since 1m              # logs without the compose file
+docker inspect <name> --format \
+  '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}'   # find the compose file
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `docker-compose.yml` | Added `cloudflared` service (`profiles: ["prod"]`, `TUNNEL_TOKEN`) |
+| `.github/workflows/deploy.yml` | Added `CLOUDFLARE_TUNNEL_TOKEN` to `env:`; named `cloudflared` in the start step |
+| Cloudflare dashboard (tunnel) | Public Hostname → Service `http://agregado:8080`, Path `^/webhook/email/?$` |
+| Cloudflare Worker secret | `WEBHOOK_URL` → `https://agregado.felipefreitas.dev/webhook/email` |
+
+### Key Learnings
+
+- **Debug at boundaries, not in the code.** "Never worked in prod" almost always means a wiring/config gap between components that were each tested in isolation. Gather one fact per boundary.
+- **`localhost` is per-container.** Sibling containers talk via service names on the shared Compose network, never `localhost`.
+- **An address needs a vantage point.** Worker edge, private LAN IP, container loopback, pihole DNS — the same string resolves to different things from different places.
+- **Config has a propagation chain.** Empty GitHub secret → empty workflow env → empty `${VAR}` → silent default. `required` vs optional env fields explains *which* symptom you get.
+- **Compose `up <name>` selects services explicitly**, and `profiles` filter them; a perfect compose file does nothing if the command doesn't select the service.
+- **A tunnel = outbound connection inverting NAT**, with two independently-diagnosable legs (token/edge vs origin service).
+- **Least exposure:** scope public ingress to the one path that must be public; let the edge 404 the rest.
+- **Test external infra externally** (cellular), and **trust only logs newer than your last change.**
+
+---

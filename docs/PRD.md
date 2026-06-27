@@ -319,6 +319,17 @@ Daily Digest
 - Show feed status (last fetch, error count)
 - Manual "refresh now" button
 
+#### F6.1: Source Backup & Restore
+**User Story:** As a user, I can export my sources so I don't lose them if the database is wiped, and re-import them to restore everything.
+
+**Format:** OPML — the industry-standard XML format for feed subscriptions, compatible with Feedly, NetNewsWire, Reeder, and others.
+
+**Acceptance Criteria:**
+- `GET /api/sources/export` returns a valid OPML 2.0 file (Content-Disposition triggers browser download)
+- `POST /api/sources/import` accepts an OPML file upload, creates missing RSS sources, skips duplicates by URL
+- Export and Import buttons available on the Sources page
+- Newsletter-type sources are included in export but skipped on import (no URL to re-subscribe to)
+
 #### F7: Article Tagging
 **User Story:** As a user, I can categorize articles by topic (tech, business, personal, etc.) for better organization and filtering.
 

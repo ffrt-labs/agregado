@@ -3017,3 +3017,34 @@ only the column was wrong.
   scan). Acceptable at current volume; noted for later.
 
 ---
+
+## Session: Digest ranking — sort by score, not date
+
+### Topic Covered
+
+#### Ordering the digest by the score we already have
+
+The digest grouped articles by topic but then sorted each group by
+`PublishedAt`, discarding the relevance order. Fixed in
+`internal/digest/ranker.go`: within each group, sort by `RelevanceScore` DESC
+then `PublishedAt` DESC; order the groups so the topic with the highest-scored
+article leads (Uncategorized pinned last).
+
+### Key Learnings
+
+- **The AI ranking signal already exists.** `relevance_score` is assigned by the
+  scorer at ingest. Re-ranking by that stored int is free and instant; calling
+  an LLM at render time would just re-derive the same number, slowly.
+- **`sort.Slice` needs a strict weak ordering.** A comparator must satisfy: if
+  `less(a,b)` then `!less(b,a)`, and `less(a,a)` is false. Return `false` for
+  equal keys (including both-nil) or sorts can corrupt.
+- **Nil-pointer keys need an explicit rank.** `RelevanceScore`/`PublishedAt` are
+  `*int`/`*time.Time`. Handle nil on both sides before dereferencing and decide
+  where nil sorts (here: last, matching SQL `NULLS LAST`). A small
+  `scoreOrZero(*int) int` helper makes the primary-key compare total and
+  removes the nil branching.
+- **Primary/secondary sort keys.** Compare the primary key; only fall through to
+  the tiebreaker when it's equal. Extracting one comparator
+  (`lessByScoreThenDate`) removed two divergent copies of the logic.
+
+---

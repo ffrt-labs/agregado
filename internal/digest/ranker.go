@@ -106,16 +106,7 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 		}
 
 		sort.Slice(articles, func(i, j int) bool {
-			if articles[j].PublishedAt == nil {
-				return true
-			}
-
-			if articles[i].PublishedAt == nil {
-				return false
-			}
-
-			nextArticlePublishedAt := *articles[j].PublishedAt
-			return articles[i].PublishedAt.After(nextArticlePublishedAt)
+			return lessByScoreThenDate(articles[i], articles[j])
 		})
 
 		taggedArticles = append(taggedArticles, TaggedArticles{
@@ -128,16 +119,7 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 		uncategorizedArticles := articlesGrouppedByTag["uncategorized"]
 
 		sort.Slice(uncategorizedArticles, func(i, j int) bool {
-			if uncategorizedArticles[j].PublishedAt == nil {
-				return true
-			}
-
-			if uncategorizedArticles[i].PublishedAt == nil {
-				return false
-			}
-
-			nextArticlePublishedAt := *uncategorizedArticles[j].PublishedAt
-			return uncategorizedArticles[i].PublishedAt.After(nextArticlePublishedAt)
+			return lessByScoreThenDate(uncategorizedArticles[i], uncategorizedArticles[j])
 		})
 
 		taggedArticles = append(taggedArticles, TaggedArticles{
@@ -147,12 +129,55 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 	}
 
 	sort.Slice(taggedArticles, func(a, b int) bool {
+		// Pin the uncategorized bucket last regardless of score.
 		if taggedArticles[a].Tag == nil {
 			return false
 		}
+		if taggedArticles[b].Tag == nil {
+			return true
+		}
 
-		return taggedArticles[a].Tag.Name > taggedArticles[b].Tag.Name
+		return groupTopScore(taggedArticles[a]) > groupTopScore(taggedArticles[b])
 	})
 
 	return taggedArticles, nil
+}
+
+// lessByScoreThenDate orders articles by relevance score (higher first), then by
+// published date (newer first). Both keys are nullable pointers; a nil key ranks
+// last (matching the SQL NULLS LAST). Returns false when the keys are equal so
+// the ordering stays a valid strict weak ordering.
+func lessByScoreThenDate(a, b domain.Article) bool {
+	sa, sb := scoreOrZero(a.RelevanceScore), scoreOrZero(b.RelevanceScore)
+	if sa != sb {
+		return sa > sb
+	}
+
+	switch {
+	case a.PublishedAt == nil && b.PublishedAt == nil:
+		return false
+	case a.PublishedAt == nil:
+		return false
+	case b.PublishedAt == nil:
+		return true
+	default:
+		return a.PublishedAt.After(*b.PublishedAt)
+	}
+}
+
+// groupTopScore returns the relevance score of a group's leading article, used
+// to order groups. Articles are sorted before this runs, so index 0 is the
+// highest-scored member.
+func groupTopScore(g TaggedArticles) int {
+	if len(g.Articles) == 0 {
+		return 0
+	}
+	return scoreOrZero(g.Articles[0].RelevanceScore)
+}
+
+func scoreOrZero(score *int) int {
+	if score == nil {
+		return 0
+	}
+	return *score
 }

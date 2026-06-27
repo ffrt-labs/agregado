@@ -2987,3 +2987,33 @@ docker inspect <name> --format \
 - **Test external infra externally** (cellular), and **trust only logs newer than your last change.**
 
 ---
+
+## Session: Digest 24h window — `ingested_at` vs `published_at`
+
+### Topic Covered
+
+#### Filtering on the right timestamp
+
+The daily digest was surfacing months-old posts. Root cause: `FindUnreadSince`
+(`internal/storage/article_repo.go`) filtered `WHERE ingested_at > $1` — *when
+Agregado fetched the item* — instead of `published_at` — *when the source
+published it*. An old post re-fetched today therefore looked "new" to the
+digest. The lookback plumbing (`LookbackHours` → `since`) was already correct;
+only the column was wrong.
+
+### Key Learnings
+
+- **Two timestamps, two meanings.** `published_at` (source's clock, **nullable**
+  — feeds may omit it) vs `ingested_at` (our clock, always set). Pick the one
+  that matches the *question*: "published in the last 24h" → `published_at`.
+- **`COALESCE(published_at, ingested_at)` for nullable fallback.** Returns the
+  publish date when present, else fetch time — so undated feeds/newsletters
+  aren't silently dropped from the digest.
+- **Filter and sort must use the same expression.** Filtering on `COALESCE(...)`
+  but ordering by bare `published_at DESC` would float NULL-dated rows to the top
+  (Postgres's default `DESC` NULL ordering). Match both.
+- **Sargability trade-off.** Wrapping a column in `COALESCE(...)` makes the
+  `published_at` btree index unusable for this predicate (non-sargable → filtered
+  scan). Acceptable at current volume; noted for later.
+
+---

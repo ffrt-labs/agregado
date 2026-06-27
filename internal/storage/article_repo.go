@@ -139,10 +139,10 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minS
 		ctx,
 		`
 		SELECT * FROM articles
-		WHERE ingested_at > $1
+		WHERE COALESCE(published_at, ingested_at) > $1
 			AND is_read = false
 			AND (relevance_score >= $2 OR relevance_score IS NULL)
-		ORDER BY relevance_score DESC NULLS LAST, published_at DESC
+		ORDER BY relevance_score DESC NULLS LAST, COALESCE(published_at, ingested_at) DESC
 		LIMIT $3
 		`,
 		since,

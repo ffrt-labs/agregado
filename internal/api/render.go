@@ -6,7 +6,12 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/felipeafreitas/agregado/internal/textutil"
 )
+
+// excerptChars is the maximum number of characters shown in an article excerpt.
+const excerptChars = 200
 
 type NavData struct {
 	ArticleCount  int
@@ -46,6 +51,16 @@ func (n *NavBuilder) Build(ctx context.Context) NavData {
 
 var funcMap = template.FuncMap{
 	"add": func(a, b int) int { return a + b },
+	"excerpt": func(s *string) string {
+		if s == nil {
+			return ""
+		}
+		clean := textutil.Strip(*s)
+		if len([]rune(clean)) > excerptChars {
+			return textutil.Truncate(clean, excerptChars) + "…"
+		}
+		return clean
+	},
 	"dots": func(score *int) string {
 		if score == nil {
 			return ""

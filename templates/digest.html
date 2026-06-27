@@ -6,6 +6,10 @@
                 <span class="live"></span>
                 <span>Delivered to your inbox &middot; {{ .DeliveryTime }}</span>
                 <span class="date">{{ .Date }}</span>
+                <button class="regen" title="Force regenerate (testing)"
+                        hx-post="/api/digest/refresh" hx-swap="none"
+                        hx-on::before-request="this.disabled=true; this.textContent='Regenerating&hellip;'"
+                        hx-on::after-request="window.location.href='/'">&#8635; Regenerate</button>
             </div>
 
             <div class="digest-kicker">Agregado &middot; Daily Digest</div>
@@ -33,7 +37,7 @@
                     </div>
                     <a class="title" href="{{ .ExternalURL }}" target="_blank" rel="noopener"
                        hx-post="/api/articles/{{ .ID }}/read" hx-trigger="click" hx-swap="none">{{ .Title }}</a>
-                    {{ if .Summary }}<p class="excerpt">{{ .Summary }}</p>{{ end }}
+                    {{ with excerpt .Summary }}<p class="excerpt">{{ . }}</p>{{ end }}
                     <div class="acts">
                         <button class="fb up" hx-ext="json-enc" hx-post="/api/articles/{{ .ID }}/feedback"
                                 hx-vals='{"direction":"up"}' hx-swap="none"

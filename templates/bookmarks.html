@@ -30,7 +30,7 @@
                         {{ if .IsManual }}<span class="pill link">link</span>{{ end }}
                     </div>
                     <a class="bm-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
-                    {{ if .Summary }}<p class="bm-excerpt">{{ .Summary }}</p>{{ end }}
+                    {{ with excerpt .Summary }}<p class="bm-excerpt">{{ . }}</p>{{ end }}
                 </div>
                 <button class="bm-remove" title="Remove bookmark"
                         hx-delete="/api/bookmarks/{{ .ID }}"

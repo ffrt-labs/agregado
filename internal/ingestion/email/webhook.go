@@ -32,6 +32,7 @@ type Handler struct {
 type SourceRepository interface {
 	FindByEmailSender(ctx context.Context, email string) (*domain.Source, error)
 	Create(ctx context.Context, source domain.Source) (*domain.Source, error)
+	TouchEmailReceived(ctx context.Context, id string) error
 }
 
 func NewHandler(secret string, parser *Parser, sources SourceRepository, publisher *broker.Publisher, provider ai.Provider) *Handler {
@@ -97,6 +98,10 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to publish email to queue", http.StatusInternalServerError)
   		return
 	}
+
+	// Best-effort: record that this source just received an email. A failure
+	// here must not block ingestion (same spirit as the Summarize block above).
+	h.sources.TouchEmailReceived(r.Context(), source.ID)
 
 	w.WriteHeader(http.StatusOK)
 

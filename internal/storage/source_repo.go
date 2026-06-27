@@ -108,6 +108,16 @@ func (r *SourceRepo) Update(ctx context.Context, source domain.Source) error {
 	return err
 }
 
+func (r *SourceRepo) TouchEmailReceived(ctx context.Context, id string) error {
+	_, err := r.db.pool.Exec(
+		ctx,
+		"UPDATE sources SET last_email_received_at = NOW() WHERE id=$1",
+		id,
+	)
+
+	return err
+}
+
 func (r *SourceRepo) FindByEmailSender(ctx context.Context, email string) (*domain.Source, error) {
 	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE email_sender=$1", email)
 	if err != nil {

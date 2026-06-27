@@ -318,6 +318,7 @@ Daily Digest
 - Remove feed
 - Show feed status (last fetch, error count)
 - Manual "refresh now" button
+- "Last activity" column is type-aware: RSS sources show last poll time (`last_fetched_at`); newsletter sources show when the last email arrived (`last_email_received_at`, stamped by the webhook on ingest)
 
 #### F6.1: Source Backup & Restore
 **User Story:** As a user, I can export my sources so I don't lose them if the database is wiped, and re-import them to restore everything.
@@ -476,7 +477,8 @@ CREATE TABLE sources (
     default_tag_id UUID REFERENCES tags(id) ON DELETE SET NULL,  -- Default tag for new articles
     priority INTEGER DEFAULT 5,           -- 1-10, higher = more important
     is_active BOOLEAN DEFAULT true,
-    last_fetched_at TIMESTAMP,
+    last_fetched_at TIMESTAMP,            -- RSS: last successful poll
+    last_email_received_at TIMESTAMP,     -- Newsletter: last inbound email (migration 000010)
     last_error TEXT,
     error_count INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW(),

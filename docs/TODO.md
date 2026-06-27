@@ -283,6 +283,12 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] `GET /` route — query today's top articles, render home template
 - [ ] Handler fetches articles since midnight, groups by tag (reuse ranker), passes to template
 
+### 4.10 Source Backup & Restore
+- [ ] Add `GET /api/sources/export` — returns all sources as OPML (RSS standard; importable into any feed reader)
+- [ ] Add `POST /api/sources/import` — accepts an OPML file, bulk-creates missing sources (skip duplicates by URL)
+- [ ] Add Export button to Sources page → triggers file download
+- [ ] Add Import file input to Sources page → POSTs OPML, refreshes list
+
 ### Phase 4 Verification
 - [ ] Can browse articles in browser
 - [ ] Can add/remove sources

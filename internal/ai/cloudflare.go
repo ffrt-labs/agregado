@@ -5,12 +5,37 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 )
+
+// maxPromptContentChars caps how much article body we feed the model. Keeping
+// the window small keeps the prompt focused (and cheaper) without starving the
+// model of signal.
+const maxPromptContentChars = 500
+
+// htmlTagRe matches any HTML tag so feed bodies (often raw HTML) become plain
+// text before they reach the model.
+var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
+
+// cleanContent strips HTML, decodes entities, collapses whitespace, and
+// rune-safely truncates to max characters so the model sees dense prose.
+func cleanContent(s string, max int) string {
+	s = htmlTagRe.ReplaceAllString(s, " ")
+	s = html.UnescapeString(s)
+	s = strings.Join(strings.Fields(s), " ")
+
+	r := []rune(s)
+	if len(r) > max {
+		r = r[:max]
+	}
+	return string(r)
+}
 
 type CloudflareProvider struct {
 	accountID	string
@@ -112,7 +137,7 @@ func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string
 
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {
 	systemPrompt := "You are a content classifier. Given an article title and content, return exactly one category slug from this list: tech, business, personal, politics, economy, science, health, entertainment. Return only the slug — no explanation, no punctuation."
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, content[:min(len(content), 500)])
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, cleanContent(content, maxPromptContentChars))
 
 	return p.complete(ctx, systemPrompt, userPrompt)
 }
@@ -125,7 +150,7 @@ func (p *CloudflareProvider) Score(ctx context.Context, title, content string, t
 		fmt.Fprintf(&weights, "- %s: %.1f\n", topic, w)
 	}
 
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s\n\nTopic interest weights (1.0 = neutral, higher = more interested): %s", title, content[:min(len(content), 500)], weights)
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s\n\nTopic interest weights (1.0 = neutral, higher = more interested): %s", title, cleanContent(content, maxPromptContentChars), weights.String())
 
 	result, err := p.complete(ctx, systemPrompt, userPrompt)
 	if err != nil {

@@ -10,8 +10,9 @@ import (
 )
 
 type SourceHandler struct {
-	sources 		SourceRepository
-	sourceRefresher	SourceRefresher
+	sources         SourceRepository
+	sourceRefresher SourceRefresher
+	nav             *NavBuilder
 }
 
 type SourcesPageData struct {
@@ -37,10 +38,11 @@ type SourceRefresher interface {
 	RefreshSource(ctx context.Context, id string) error
 }
 
-func NewSourceHandler(sourceRepo SourceRepository, sourceRefresher SourceRefresher) *SourceHandler {
+func NewSourceHandler(sourceRepo SourceRepository, sourceRefresher SourceRefresher, nav *NavBuilder) *SourceHandler {
 	return &SourceHandler{
-		sources: sourceRepo,
+		sources:         sourceRepo,
 		sourceRefresher: sourceRefresher,
+		nav:             nav,
 	}
 }
 
@@ -130,7 +132,7 @@ func (s *SourceHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 	render(w, "sources.html", SourcesPageData{
 		Sources:          sources,
 		ErrorSourceCount: errCount,
-		Nav:              NavData{SourceCount: len(sources)},
+		Nav:              s.nav.Build(r.Context()),
 	})
 }
 

@@ -48,13 +48,15 @@ type DigestHandler struct {
 	scheduler DigestScheduler
 	sources   SourceLister
 	articles  DigestArticleCounter
+	nav       *NavBuilder
 }
 
-func NewDigestHandler(scheduler DigestScheduler, sources SourceLister, articles DigestArticleCounter) *DigestHandler {
+func NewDigestHandler(scheduler DigestScheduler, sources SourceLister, articles DigestArticleCounter, nav *NavBuilder) *DigestHandler {
 	return &DigestHandler{
 		scheduler: scheduler,
 		sources:   sources,
 		articles:  articles,
+		nav:       nav,
 	}
 }
 
@@ -71,15 +73,6 @@ func (h *DigestHandler) HomePage(w http.ResponseWriter, r *http.Request) {
 	sourceMap := make(map[string]string, len(sources))
 	for _, s := range sources {
 		sourceMap[s.ID] = s.Name
-	}
-
-	articleCount, _ := h.articles.Count(ctx)
-
-	seen := make(map[string]struct{})
-	for _, group := range computed.Groups {
-		for _, a := range group.Articles {
-			seen[a.ID] = struct{}{}
-		}
 	}
 
 	groups := make([]DigestGroupView, 0, len(computed.Groups))
@@ -117,11 +110,7 @@ func (h *DigestHandler) HomePage(w http.ResponseWriter, r *http.Request) {
 		Date:         computed.Date.Format("Monday, January 2"),
 		Intro:        computed.Overview,
 		Groups:       groups,
-		Nav: NavData{
-			ArticleCount: articleCount,
-			ClearedCount: len(seen),
-			SourceCount:  len(sources),
-		},
+		Nav: h.nav.Build(ctx),
 	})
 }
 

@@ -36,10 +36,11 @@ type BookmarksPageData struct {
 type BookmarkHandler struct {
 	articles BookmarkRepo
 	sources  SourceLister
+	nav      *NavBuilder
 }
 
-func NewBookmarkHandler(articles BookmarkRepo, sources SourceLister) *BookmarkHandler {
-	return &BookmarkHandler{articles: articles, sources: sources}
+func NewBookmarkHandler(articles BookmarkRepo, sources SourceLister, nav *NavBuilder) *BookmarkHandler {
+	return &BookmarkHandler{articles: articles, sources: sources, nav: nav}
 }
 
 func (h *BookmarkHandler) ListPage(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +57,6 @@ func (h *BookmarkHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 	for _, s := range sources {
 		sourceMap[s.ID] = s.Name
 	}
-
-	articleCount, _ := h.articles.Count(ctx)
 
 	bookmarks := make([]BookmarkView, len(saved))
 	for i, a := range saved {
@@ -78,11 +77,7 @@ func (h *BookmarkHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 
 	render(w, "bookmarks.html", BookmarksPageData{
 		Bookmarks: bookmarks,
-		Nav: NavData{
-			ArticleCount:  articleCount,
-			SourceCount:   len(sources),
-			BookmarkCount: len(saved),
-		},
+		Nav:       h.nav.Build(ctx),
 	})
 }
 

@@ -59,6 +59,7 @@ func main() {
 
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
+	weightsRepo := storage.NewTopicWeightsRepo(db)
 
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model)
 
@@ -85,9 +86,9 @@ func main() {
 
 
 
-	handler := storage.NewWorker(articleRepo, provider, articleRepo)
+	handler := storage.NewWorker(articleRepo, provider, articleRepo, weightsRepo)
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, poller, provider)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, poller, provider, cfg.Digest.MinRelevanceScore)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)

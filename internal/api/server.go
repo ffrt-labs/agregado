@@ -25,7 +25,7 @@ type Server struct {
 	scheduler *digest.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, pooler *rss.Poller, provider ai.Provider) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -48,17 +48,19 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
           panic(err)
     }
 
+    navBuilder := NewNavBuilder(articleRepo, sourceRepo, minRelevanceScore)
+
     emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
-    sourcesHandler := NewSourceHandler(sourceRepo, pooler)
-    articlesHandler := NewArticleHandler(articleRepo, sourceRepo)
-    digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo)
+    sourcesHandler := NewSourceHandler(sourceRepo, pooler, navBuilder)
+    articlesHandler := NewArticleHandler(articleRepo, sourceRepo, navBuilder)
+    digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo, navBuilder)
     feedbackHandler := NewFeedbackHandler(
     	webhookSecret,
      	feedbackRepo,
      	weightsRepo,
       	articleRepo,
     )
-    bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo)
+    bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
 
 	s := &Server{
 		broker: b,

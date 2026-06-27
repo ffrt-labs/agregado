@@ -279,3 +279,18 @@ func (r *ArticleRepo) SaveExternalURL(ctx context.Context, url string) error {
 	)
 	return err
 }
+
+func (r *ArticleRepo) CountAboveScore(ctx context.Context, minScore int) (int, error) {
+	var count int
+	err := r.db.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM articles WHERE relevance_score >= $1 AND created_at >= NOW()::date",
+		minScore,
+	).Scan(&count)
+	return count, err
+}
+
+func (r *ArticleRepo) CountSaved(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.pool.QueryRow(ctx, "SELECT COUNT(*) FROM articles WHERE is_saved = true").Scan(&count)
+	return count, err
+}

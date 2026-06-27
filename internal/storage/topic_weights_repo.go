@@ -23,3 +23,22 @@ func (r *TopicWeightsRepo) Upsert(ctx context.Context, topic string, delta float
 	)
 	return err
 }
+
+func (r *TopicWeightsRepo) FindAll(ctx context.Context) (map[string]float64, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT topic, weight FROM topic_weights")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	weights := make(map[string]float64)
+	for rows.Next() {
+		var topic string
+		var weight float64
+		if err := rows.Scan(&topic, &weight); err != nil {
+			return nil, err
+		}
+		weights[topic] = weight
+	}
+	return weights, rows.Err()
+}

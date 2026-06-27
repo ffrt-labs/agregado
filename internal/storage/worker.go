@@ -12,14 +12,18 @@ type ArticleCreator interface {
 }
 
 type AIScorer interface {
-    Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error)
+	Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error)
 }
 
 type ScoreUpdater interface {
-    UpdateRelevanceScore(ctx context.Context, id string, score int) error
+	UpdateRelevanceScore(ctx context.Context, id string, score int) error
 }
 
-func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater) func([]byte) error {
+type WeightsQuerier interface {
+	FindAll(ctx context.Context) (map[string]float64, error)
+}
+
+func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater, weights WeightsQuerier) func([]byte) error {
 	return func(body []byte) error {
 		ctx := context.Background()
 		var article domain.Article
@@ -37,19 +41,14 @@ func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater) 
 			content = *article.Content
 		}
 
-		score, err := scorer.Score(
-			ctx,
-			article.Title,
-			content,
-			map[string]float64{},
-		)
+		topicWeights, err := weights.FindAll(ctx)
+		if err != nil {
+			topicWeights = map[string]float64{}
+		}
 
+		score, err := scorer.Score(ctx, article.Title, content, topicWeights)
 		if err == nil {
-			scoreUpdater.UpdateRelevanceScore(
-				ctx,
-				id,
-				score,
-			)
+			scoreUpdater.UpdateRelevanceScore(ctx, id, score)
 		}
 
 		return nil

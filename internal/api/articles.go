@@ -14,8 +14,9 @@ type SourceLister interface {
 }
 
 type ArticleHandler struct {
-	articles	ArticleRepository
-	sources		SourceLister
+	articles ArticleRepository
+	sources  SourceLister
+	nav      *NavBuilder
 }
 
 
@@ -40,10 +41,11 @@ type ArticleRepository interface {
 	Count(ctx context.Context) (int, error)
 }
 
-func NewArticleHandler (articleRepo ArticleRepository, sourceLister SourceLister) *ArticleHandler {
+func NewArticleHandler(articleRepo ArticleRepository, sourceLister SourceLister, nav *NavBuilder) *ArticleHandler {
 	return &ArticleHandler{
 		articles: articleRepo,
-		sources: sourceLister,
+		sources:  sourceLister,
+		nav:      nav,
 	}
 }
 
@@ -138,24 +140,19 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 		articles = articles[:limit]
 	}
 
-	articleCount, _ := a.articles.Count(r.Context())
-
 	render(
 		w,
 		"articles.html",
 		ArticlesPageData{
-			Articles: articles,
-			HasPrev: offset > 0,
-			HasMore: hasMore,
-			PrevOffset: offset - limit,
-			NextOffset: offset + limit,
-			Sources: sources,
+			Articles:       articles,
+			HasPrev:        offset > 0,
+			HasMore:        hasMore,
+			PrevOffset:     offset - limit,
+			NextOffset:     offset + limit,
+			Sources:        sources,
 			SelectedSource: sourceID,
-			Sort: r.URL.Query().Get("sort"),
-			Nav: NavData{
-				ArticleCount: articleCount,
-				SourceCount:  len(sources),
-			},
+			Sort:           r.URL.Query().Get("sort"),
+			Nav:            a.nav.Build(r.Context()),
 		},
 	)
 }

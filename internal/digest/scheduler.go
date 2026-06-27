@@ -34,9 +34,10 @@ func (s *Scheduler) Today(ctx context.Context) (ComputedDigest, error) {
 	defer s.mu.Unlock()
 
 	today := time.Now().Format("2006-01-02")
-	if s.cached != nil && s.cachedDate == today {
-		return *s.cached, nil
-	}
+	// TOGGLE: in-memory daily cache disabled for testing — uncomment to re-enable.
+	// if s.cached != nil && s.cachedDate == today {
+	// 	return *s.cached, nil
+	// }
 
 	// Use a background context so AI calls aren't cancelled if the triggering
 	// HTTP request ends before the compute finishes.

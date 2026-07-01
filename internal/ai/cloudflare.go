@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/felipeafreitas/agregado/internal/textutil"
@@ -18,11 +19,20 @@ import (
 // model of signal.
 const maxPromptContentChars = 500
 
+// defaultCategorySlugs is the fallback allowed-list appended to the categorize
+// prompt when no live tags are available (nil TagLister or empty result), so the
+// prompt is always well-formed.
+var defaultCategorySlugs = []string{"tech", "business", "personal", "politics", "economy", "science", "health", "entertainment"}
+
 type CloudflareProvider struct {
 	accountID	string
 	apiToken	string
 	model		string
 	client		*http.Client
+
+	prompts	PromptStore // editable system prompts; nil → in-code defaults
+	tags	TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
+	logs	AILogSink   // request/response logging; nil → no logging
 }
 
 type Messages struct {
@@ -30,16 +40,69 @@ type Messages struct {
 	Content	string	`json:"content"`
 }
 
-func NewCloudflareProvider(accountID, apiToken, model string) *CloudflareProvider {
+func NewCloudflareProvider(accountID, apiToken, model string, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
 	return &CloudflareProvider{
 		accountID: accountID,
 		apiToken: apiToken,
 		model: model,
 		client: http.DefaultClient,
+		prompts: prompts,
+		tags: tags,
+		logs: logs,
 	}
 }
 
-func (p *CloudflareProvider) complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+// systemPrompt returns the editable prompt for an operation, falling back to the
+// in-code default when the store is absent, errors, or returns empty.
+func (p *CloudflareProvider) systemPrompt(ctx context.Context, operation string) string {
+	if p.prompts != nil {
+		if s, err := p.prompts.SystemPrompt(ctx, operation); err == nil && s != "" {
+			return s
+		}
+	}
+	return DefaultPrompts[operation]
+}
+
+// categorySlugs returns the live tag slugs, or the built-in fallback list.
+func (p *CloudflareProvider) categorySlugs(ctx context.Context) []string {
+	if p.tags != nil {
+		if slugs, err := p.tags.CategorySlugs(ctx); err == nil && len(slugs) > 0 {
+			return slugs
+		}
+	}
+	return defaultCategorySlugs
+}
+
+// complete runs an AI call and records the request/response to the log sink,
+// whether it succeeds or fails. The operation label ties the log row to the
+// caller (score/categorize/summarize/digest).
+func (p *CloudflareProvider) complete(ctx context.Context, operation, systemPrompt, userPrompt string) (string, error) {
+	start := time.Now()
+	response, err := p.doComplete(ctx, systemPrompt, userPrompt)
+	p.record(ctx, operation, systemPrompt, userPrompt, response, err, time.Since(start))
+	return response, err
+}
+
+func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt, userPrompt, response string, callErr error, elapsed time.Duration) {
+	if p.logs == nil {
+		return
+	}
+	entry := LogEntry{
+		Operation:    operation,
+		Model:        p.model,
+		SystemPrompt: systemPrompt,
+		UserPrompt:   userPrompt,
+		Response:     response,
+		Success:      callErr == nil,
+		DurationMs:   int(elapsed.Milliseconds()),
+	}
+	if callErr != nil {
+		entry.Err = callErr.Error()
+	}
+	p.logs.Record(ctx, entry)
+}
+
+func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", p.accountID, p.model)
 	body := struct {
       Messages []Messages `json:"messages"`
@@ -99,32 +162,34 @@ func (p *CloudflareProvider) complete(ctx context.Context, systemPrompt, userPro
 }
 
 func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Article) (string, error) {
-	systemPrompt := "You are a news digest assistant. Given a list of article titles, write a 2-3 sentence summary capturing the key themes. Be concise and direct."
+	systemPrompt := p.systemPrompt(ctx, OpSummarize)
 	var titles strings.Builder
   	for _, a := range articles {
       fmt.Fprintf(&titles, "- %s\n", a.Title)
    	}
     userPrompt := fmt.Sprintf("Articles:\n%s\nSummary:", titles.String())
 
-	return p.complete(ctx, systemPrompt, userPrompt)
+	return p.complete(ctx, OpSummarize, systemPrompt, userPrompt)
 }
 
 func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {
-	systemPrompt := "You are a news digest assistant. Write a 2-sentence introduction for a daily digest email. Mention the main themes and why they matter. Be concise and direct. No bullet points."
+	systemPrompt := p.systemPrompt(ctx, OpDigest)
 	userPrompt := "Topic summaries:\n" + strings.Join(topicSummaries, "\n") + "\n\nIntroduction:"
 
-	return p.complete(ctx, systemPrompt, userPrompt)
+	return p.complete(ctx, OpDigest, systemPrompt, userPrompt)
 }
 
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {
-	systemPrompt := "You are a content classifier. Given an article title and content, return exactly one category slug from this list: tech, business, personal, politics, economy, science, health, entertainment. Return only the slug — no explanation, no punctuation."
+	// Append the live tag slugs so the classifier can only pick from current tags.
+	systemPrompt := p.systemPrompt(ctx, OpCategorize) +
+		" Allowed slugs: " + strings.Join(p.categorySlugs(ctx), ", ") + "."
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, maxPromptContentChars))
 
-	return p.complete(ctx, systemPrompt, userPrompt)
+	return p.complete(ctx, OpCategorize, systemPrompt, userPrompt)
 }
 
 func (p *CloudflareProvider) Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error) {
-	systemPrompt := "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer."
+	systemPrompt := p.systemPrompt(ctx, OpScore)
 
 	var weights strings.Builder
 	for topic, w := range topicWeights {
@@ -133,7 +198,7 @@ func (p *CloudflareProvider) Score(ctx context.Context, title, content string, t
 
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s\n\nTopic interest weights (1.0 = neutral, higher = more interested): %s", title, textutil.Clean(content, maxPromptContentChars), weights.String())
 
-	result, err := p.complete(ctx, systemPrompt, userPrompt)
+	result, err := p.complete(ctx, OpScore, systemPrompt, userPrompt)
 	if err != nil {
 		return 0, err
 	}

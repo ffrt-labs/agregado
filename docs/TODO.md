@@ -509,6 +509,107 @@ Progress tracker for building Agregado. Check items as you complete them.
 
 ---
 
+## Phase 7: Admin Console (AI Logs, Editable Prompts, Tag Settings)
+
+**Goal:** An `/admin` area to observe AI calls, edit prompts without redeploying, and manage tags. See `docs/PRD.md` F9 and the plan file.
+
+**Decisions:** system-prompt-only editable; log-all with live toggle + clear; `/admin` unauthenticated (v1 — prod-public risk noted); categorize injects live tag slugs. Provider is the single seam (`cmd/agregado/main.go`); `internal/ai` stays free of `internal/storage` via interfaces.
+
+### 7.1 Data Model — migration `000011`
+- [x] Create `migrations/000011_admin.up.sql` / `.down.sql`
+- [x] `ai_prompts` (operation PK, system_prompt, updated_at) + seed 4 prompts (categorize seed WITHOUT the inline slug list)
+- [x] `ai_logs` (id, operation, model, system_prompt, user_prompt, response, success, error, duration_ms, created_at) + index on `created_at DESC`
+- [x] `admin_settings` (key PK, value, updated_at) + seed `ai_logging_enabled = 'true'`
+- [ ] Run migration; verify 3 tables + seeds
+
+### 7.2 Domain + Repos
+- [x] `internal/domain/ai_prompt.go` (`AIPrompt`), `ai_log.go` (`AILog`) with `db:` tags
+- [x] `internal/storage/prompt_repo.go` — `SystemPrompt(op)`, `List`, `Update(op, text)`
+- [x] `internal/storage/ai_log_repo.go` — `Insert(entry)`, `List(limit, offset, opFilter)`, `Clear`
+- [x] `internal/storage/settings_repo.go` — `Get(key)`, `Set(key, value)`, `AILoggingEnabled()`
+- [x] `AILogger` composing settings+log (`Record` gates on the flag) → satisfies `ai.AILogSink`
+- [x] Tag adapter satisfying `ai.TagLister` (`TagRepo.CategorySlugs`)
+
+### 7.3 AI Layer Refactor (the single seam)
+- [x] Add interfaces to `internal/ai`: `PromptStore`, `TagLister`, `AILogSink`, `LogEntry`
+- [x] Move the 4 hardcoded prompts into `ai.DefaultPrompts` (runtime fallback)
+- [x] `CloudflareProvider`: add fields (`prompts`, `tags`, `logs`) + constructor params
+- [x] Each method loads its system prompt via the store (fallback to default); `Categorize` appends live tag slugs
+- [x] `complete(operation, …)` — thread the operation, time the call, `Record` on success **and** error
+- [x] Wire `cmd/agregado/main.go` — build repos + `AILogger`, pass into `NewCloudflareProvider`
+- [ ] ✅ Verify: trigger a digest → `ai_logs` rows appear, prompts sourced from DB (**answers the tagging debug**)
+
+### 7.4 Admin Shell + Logs Page
+- [x] `internal/api/admin.go` (`AdminHandler`, repos from `db`)
+- [x] Routes in `server.go`: `/admin` pages + `/api/admin/logs/*`
+- [x] `templates/admin_logs.html` — paginated table, operation filter, newest first
+- [x] Logging toggle (`POST /api/admin/logs/toggle`) + Clear (`DELETE /api/admin/logs`)
+- [x] "Admin" nav group in `templates/layout.html`
+
+### 7.5 Prompts Page
+- [x] `templates/admin_prompts.html` — list 4 ops, edit system prompt (textarea), Reset to default
+- [x] Handlers: `PromptsPage`, `UpdatePrompt(op)`, `ResetPrompt(op)` (writes `ai.DefaultPrompts[op]`)
+
+### 7.6 Tag Settings Page
+- [x] Extend `TagRepo` with `Create` / `Update` / `Delete` / `FindByID`
+- [x] `templates/admin_tags.html` — CRUD (name, slug, color), reusing `sources.html` form/table style
+- [ ] ✅ Verify: add a tag → it appears in the next `categorize` log's prompt list
+
+### 7.7 Follow-ups / Risks
+- [ ] (Deferred) Basic Auth middleware on `/admin` — prod is public via Cloudflare tunnel
+
+### Phase 7 Verification
+- [x] `go build ./...` && `go test ./...`
+- [ ] `make migrate-up` → 3 tables + seeds present
+- [ ] Regenerate on `/` → `ai_logs` rows for score/categorize/summarize/digest
+- [ ] `/admin/logs`: a `categorize` row shows the live tag slugs in its prompt + the raw returned slug
+- [ ] Toggle logging OFF → no new rows; ON → resume; Clear empties the table
+- [ ] Edit `categorize` prompt → next Regenerate's log reflects it; Reset restores default
+- [ ] Add a tag → next `categorize` log lists it
+
+---
+
+## Phase 8: Unify Digest Templates (web ↔ email)
+
+**Goal:** Make the sent email adopt the web UI's Daily Digest look (email-safe), and refactor so formatting logic + the view-model are shared, not duplicated. See `docs/PRD.md` F4.1 and the plan file `now-we-have-2-sequential-newt.md`.
+
+**Decisions:** email-safe mirrored CSS (web keeps its own); share `funcMap` (leaf pkg) + view-model builder (in `internal/digest`); email keeps ▲/▼ feedback links + footer browse link (no HTMX).
+
+### 8.1 Shared template funcs — leaf package
+- [ ] Create `internal/tmplfunc/funcmap.go` — move `funcMap` (`add`, `excerpt`, `dots`, `scoreLabel`) + `excerptChars` const out of `internal/api/render.go`; export as `tmplfunc.Map` (depends only on `internal/textutil`)
+- [ ] Update `internal/api/render.go` — use `tmplfunc.Map` at both `.Funcs(...)` call sites; drop the moved var/const
+
+### 8.2 Shared view-model — into `internal/digest`
+- [ ] Create `internal/digest/view.go` — move `DigestGroupView`/`DigestItemView` from `api/digest.go`; add `DigestView` (Greeting, DeliveryTime, Date string, Intro, Groups)
+- [ ] Add `BuildView(computed ComputedDigest, sourceNames map[string]string) DigestView` (Position/SourceName/Topic mapping + greeting/date formatting; plain map, no repo interface → no cycle)
+- [ ] Slim `internal/api/digest.go` `HomePage` — build sourceMap → `digest.BuildView(...)` → render `{ DigestView; Nav }`; verify web `/` output unchanged
+
+### 8.3 Config + wiring
+- [ ] Add `BaseURL string \`env:"PUBLIC_BASE_URL"\`` to `config.Digest`
+- [ ] Inject source-name map + base URL into the email path (generator/scheduler); mirror `api/digest.go` source lookup
+- [ ] Update `cmd/agregado/main.go` (`NewDefaultGenerator` call) and `.env.example`
+
+### 8.4 Email generator renders shared view
+- [ ] Register `tmplfunc.Map` when parsing the embedded email template
+- [ ] `Render` builds `DigestView` via `BuildView`, decorates items with absolute `UpURL`/`DownURL` (existing `tokenFor` + `BaseURL`) + footer browse URL (email-specific item struct embedding `DigestItemView`)
+- [ ] Keep/lightly enrich the plain-text fallback
+
+### 8.5 Email template rewrite (email-safe, mirrors web)
+- [ ] Rewrite `internal/digest/templates/digest.html` — full document (`<!DOCTYPE html>…<head><style>…</style></head><body>`), table-based ~650px column
+- [ ] Email-safe CSS mirroring `.digest-*`: hardcoded hex (no `var()`), table/inline-block (no flexbox), `Georgia,serif` + monospace fallbacks
+- [ ] Structure parallels web: deliver line, kicker, H1 greeting, count line, intro, per-group topic-rule + summary, per-article meta (num/src/date/read-time/`dots`), title link, `excerpt`, ▲/▼ feedback links, footer browse link
+- [ ] Decide: `.digest-count` (web uses Nav counts email lacks) → compute simple total or reword
+- [ ] Optional polish: `<meta name="color-scheme" content="light dark">`
+
+### Phase 8 Verification
+- [ ] `go build ./...` && `go vet ./...`
+- [ ] Web `/` renders identically to before the view-model move
+- [ ] `POST /api/digest/preview` → inspect HTML in browser AND a mail client (Gmail draft / send to self)
+- [ ] `dots`/`excerpt`/SourceName/Position appear in the email
+- [ ] Click a feedback link from the email → absolute URL hits `/api/feedback`, records a vote
+
+---
+
 ## Post-MVP Features (Pick as desired)
 
 ### Multi-Content Type Support

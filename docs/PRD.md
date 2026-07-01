@@ -275,6 +275,23 @@ Daily Digest
 - Send via SMTP (configurable provider)
 - Track digest history (avoid re-sending same articles)
 
+#### F4.1: Unified Digest Templating (shared view-model + email-safe styling)
+**User Story:** As the operator, the daily email looks like the web "Daily Digest" page, and the two aren't maintained as unrelated copies.
+
+**Motivation:** Two digest templates had drifted apart — the web page (`templates/digest.html` + `layout.html`) is a polished, enriched view; the email (`internal/digest/templates/digest.html`) was bare `<h1>/<h2>/<h3>` with raw domain fields, no shared styling, funcs, Position, or SourceName. This unifies the *logic* and *view-model* while giving the email its own email-safe stylesheet.
+
+**Design decisions (confirmed):**
+- **Shared formatting funcs** — `add`, `excerpt`, `dots`, `scoreLabel` move from `internal/api/render.go` into a leaf package `internal/tmplfunc` (`tmplfunc.Map`), imported by both the web renderer and the email generator. Leaf placement avoids the import cycle (`internal/api` already imports `internal/digest`).
+- **Shared view-model** — `DigestView` / `DigestGroupView` / `DigestItemView` + `BuildView(computed ComputedDigest, sourceNames map[string]string) DigestView` live in `internal/digest`. Both the web `HomePage` handler and the email generator build the *same* view structs (Position numbering, SourceName lookup, greeting/date). `BuildView` takes a plain map (not a repo interface) to stay cycle-free.
+- **Styling is NOT shared verbatim** — email clients drop CSS custom properties, flexbox, web fonts, and `:hover`. The email gets its own `<style>` block mirroring the web `.digest-*` look, translated to email-safe CSS: hardcoded hex, table/inline-block layout, `Georgia,serif` + monospace fallbacks. The web keeps its `layout.html` CSS unchanged.
+- **Email actions** — per-article ▲/▼ feedback links (existing HMAC-token `GET /api/feedback`) + a footer "browse all / read on the web" link. No HTMX (Save / more-like-this) in email. Links must be **absolute**, so a new `PUBLIC_BASE_URL` config value is introduced (`config.Digest.BaseURL`); the generator/scheduler also gains a source-name map to resolve `SourceName`.
+
+**Acceptance Criteria:**
+- Sent email visually mirrors the web Daily Digest (kicker, greeting H1, per-topic rules, meta line with source/date/read-time/dots, excerpt).
+- `excerpt`, `dots`, `SourceName`, and `Position` render in the email.
+- Web `/` renders identically to before the view-model move (no regression).
+- Feedback links in the email are absolute and record a vote via `/api/feedback`.
+
 #### F5: Web UI - Browse Articles
 **User Story:** As a user, I can browse all my articles in a clean web interface.
 
@@ -395,6 +412,54 @@ Gaps vs. the spec / things to know when debugging mis-tags:
 Improvement directions (not yet done): assign + **persist** tags at ingest time
 alongside relevance scoring (stable, deterministic, queryable in the web UI);
 log raw classifier output; feed richer content; support multiple tags.
+
+#### F9: Admin Console — AI Logs, Editable Prompts, Tag Settings
+**User Story:** As the operator, I can see exactly what prompts are sent to the AI
+and what it returns, tweak those prompts without redeploying, and manage the tag
+taxonomy — all from an `/admin` area.
+
+**Motivation:** AI behavior (e.g. the F7 "wrong tag" case) is currently
+un-debuggable — prompts are hardcoded in `internal/ai/cloudflare.go` and nothing
+records requests/responses. This adds observability + a control surface.
+
+**Three areas:**
+1. **AI logs** — every AI request/response persisted and browsable (operation,
+   model, system + user prompt, raw response, success/error, duration).
+2. **Prompt settings** — the 4 hardcoded **system** prompts (score, categorize,
+   summarize, digest) move to the DB and become editable; injected at call time
+   with the in-code strings kept as a fallback default.
+3. **Tag settings** — CRUD the tag list; the categorize prompt's allowed slugs are
+   generated from the live tags (edit tags → classifier updates).
+
+**Design decisions (confirmed):**
+- **System prompt only** is editable; the dynamic user prompt (title, cleaned
+  content, weights, tag list) stays assembled in code.
+- **Log all AI calls**, gated by a **live on/off toggle** in `/admin` (DB flag,
+  default ON) plus a **Clear logs** action. No automatic retention.
+- Categorize **injects live tag slugs** from the DB at call time (the stored
+  categorize prompt therefore omits any inline slug list).
+- `/admin` is **unauthenticated for v1**. ⚠️ Prod is publicly reachable (Cloudflare
+  tunnel) — Basic Auth is a deliberate, scoped follow-up (one middleware).
+
+**Architecture:** `ai.NewCloudflareProvider` is built once (`cmd/agregado/main.go`)
+and injected into ranker, generator, worker, and server — so refactoring it there
+gives every call site DB-backed prompts + logging. `internal/ai` stays free of
+`internal/storage` (avoiding an import cycle) by defining small interfaces
+(`PromptStore`, `TagLister`, `AILogSink`) that storage repos satisfy. The single
+`complete()` chokepoint gains an `operation` label, times the call, and records a
+log entry; the sink no-ops when the flag is off.
+
+**Acceptance Criteria:**
+- `ai_prompts`, `ai_logs`, `admin_settings` tables (migration `000011`), seeded
+  with the 4 current prompts and `ai_logging_enabled = true`
+- Every AI call (score/categorize/summarize/digest) writes an `ai_logs` row when
+  logging is enabled; nothing when disabled
+- `/admin/logs` — paginated, newest-first, filterable by operation; a logging
+  toggle and a Clear-all action
+- `/admin/prompts` — edit each system prompt; Reset restores the in-code default
+- `/admin/tags` — create/edit/delete tags (name, slug, color); categorize uses the
+  live list
+- Editing a prompt or tag is reflected in the *next* AI call's log (no restart)
 
 ### Post-MVP Features (Prioritized)
 
@@ -586,6 +651,41 @@ CREATE TABLE preferences (
 );
 
 -- ============================================
+-- ADMIN CONSOLE TABLES (F9, migration 000011)
+-- ============================================
+
+-- Editable system prompts (one row per AI operation)
+CREATE TABLE ai_prompts (
+    operation     TEXT PRIMARY KEY,   -- 'score' | 'categorize' | 'summarize' | 'digest'
+    system_prompt TEXT NOT NULL,
+    updated_at    TIMESTAMP DEFAULT NOW()
+);
+-- Seeded with the 4 current strings; categorize seed omits the inline slug list
+-- (the live tag slugs are appended by code at call time).
+
+-- Persisted AI request/response log (gated by admin_settings.ai_logging_enabled)
+CREATE TABLE ai_logs (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    operation     TEXT NOT NULL,
+    model         TEXT,
+    system_prompt TEXT,
+    user_prompt   TEXT,
+    response      TEXT,
+    success       BOOLEAN NOT NULL,
+    error         TEXT,
+    duration_ms   INTEGER,
+    created_at    TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX idx_ai_logs_created ON ai_logs(created_at DESC);
+
+-- Generic key/value settings (seed: ai_logging_enabled = 'true')
+CREATE TABLE admin_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================
 -- SOCIAL MEDIA TABLES (Post-MVP)
 -- ============================================
 
@@ -690,6 +790,18 @@ PUT    /api/preferences/:key     - Update preference
 # Health
 GET    /health                   - Service health check
 GET    /health/rabbit            - RabbitMQ connection status
+
+# Admin Console (F9) — unauthenticated in v1
+GET    /admin/logs               - AI logs page (paginated, filter by operation)
+POST   /api/admin/logs/toggle    - Enable/disable AI logging (admin_settings flag)
+DELETE /api/admin/logs           - Clear all AI logs
+GET    /admin/prompts            - Prompt settings page
+PUT    /api/admin/prompts/{op}   - Update a system prompt
+POST   /api/admin/prompts/{op}/reset - Reset a prompt to its in-code default
+GET    /admin/tags               - Tag settings page
+POST   /api/admin/tags           - Create tag
+PUT    /api/admin/tags/{id}      - Update tag
+DELETE /api/admin/tags/{id}      - Delete tag
 ```
 
 ### Message Format (RabbitMQ)

@@ -354,6 +354,48 @@ Articles can have multiple tags for categorization. Sources can have a default t
 - Filter articles by tag in web UI
 - Digest can filter by tag
 
+**Current Implementation (and known gaps) — as of 2026-06**
+
+How an article actually gets a tag today differs from the spec above. The only
+code path that assigns tags is the digest ranker (`internal/digest/ranker.go`),
+which calls the AI classifier (`CloudflareProvider.Categorize`,
+`internal/ai/cloudflare.go`) at **digest compute time**:
+
+1. `TagRepo.FindAll` loads the 8 seeded tags (`migrations/000002`), keyed by slug.
+2. For each capped article, `Categorize(title, content)` sends a **fixed prompt**
+   (`tech, business, personal, politics, economy, science, health, entertainment`)
+   plus the title and the **first 500 chars** of cleaned content.
+3. The returned slug is normalized (`TrimSpace` + `ToLower`) and looked up by
+   **exact match**; a hit assigns the tag, a miss silently falls through to
+   "uncategorized".
+
+Gaps vs. the spec / things to know when debugging mis-tags:
+
+- **Not persisted.** There is no `INSERT INTO article_tags` anywhere. Tags live
+  only in memory for the duration of one digest compute, so the LLM **re-tags
+  every article on every run** → the same article can get a *different* tag
+  run-to-run (generative output isn't deterministic). The
+  `if len(article.Tags) > 0 { continue }` guard in the ranker is therefore dead
+  code (tags are never loaded from a populated table).
+- **Single tag, not many-to-many.** The classifier returns exactly one slug, so
+  the junction table's multi-tag capability is unused in practice.
+- **`sources.default_tag_id` is never read** to tag articles (it is stored and
+  editable in the UI only). The "new articles inherit source's default tag"
+  criterion is unimplemented.
+- **Mis-tags are usually accuracy, not a code bug.** A wrong-but-valid slug means
+  the model genuinely chose wrong; unmappable output becomes *uncategorized*, not
+  a wrong tag. Prime cause: weak input — only title + 500 chars, and some feeds
+  (e.g. Hacker News) put boilerplate in `summary` (`Article URL: … Comments URL:
+  …`), so the model effectively classifies on the title alone. The coarse 8-bucket
+  taxonomy (business vs. economy, tech vs. science) compounds this.
+- **No observability.** The success path logs nothing, so the raw classifier
+  output isn't captured — the first debugging step is to log the returned slug
+  per article.
+
+Improvement directions (not yet done): assign + **persist** tags at ingest time
+alongside relevance scoring (stable, deterministic, queryable in the web UI);
+log raw classifier output; feed richer content; support multiple tags.
+
 ### Post-MVP Features (Prioritized)
 
 | Priority | Feature | Learning Value | Usefulness |

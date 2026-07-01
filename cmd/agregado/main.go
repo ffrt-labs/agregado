@@ -60,10 +60,16 @@ func main() {
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
 	weightsRepo := storage.NewTopicWeightsRepo(db)
-
-	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model)
-
 	tagRepo := storage.NewTagRepo(db)
+
+	// AI provider dependencies: DB-backed prompts, live tag list, request logging.
+	promptRepo := storage.NewPromptRepo(db)
+	settingsRepo := storage.NewSettingsRepo(db)
+	aiLogRepo := storage.NewAILogRepo(db)
+	aiLogger := storage.NewAILogger(settingsRepo, aiLogRepo)
+
+	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, promptRepo, tagRepo, aiLogger)
+
 	ranker := digest.NewRanker(
 		articleRepo,
 		tagRepo,

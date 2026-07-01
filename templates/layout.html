@@ -210,6 +210,26 @@
       .toggle{display:inline-flex; align-items:center; gap:5px; font-size:10px; color:var(--faint); cursor:pointer; user-select:none}
       .toggle input[type=checkbox]{accent-color:var(--accent); cursor:pointer; width:13px; height:13px}
       .toggle:hover{color:var(--soft)}
+
+      /* ---- Admin: AI logs & prompts ---- */
+      .log-list{display:flex; flex-direction:column; gap:10px}
+      .log{border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:var(--card)}
+      .log-fail{border-color:var(--danger)}
+      .log-meta{display:flex; align-items:center; gap:7px; font-size:11px; color:var(--faint)}
+      .log-meta .ok{color:var(--accent)} .log-meta .bad{color:var(--danger)}
+      .log-resp{margin-top:8px; font-size:13px; color:var(--ink); white-space:pre-wrap; word-break:break-word}
+      .log-err{margin-top:8px; font-size:12px; color:var(--danger); white-space:pre-wrap}
+      .log-det{margin-top:8px} .log-det summary{font-size:11px; color:var(--faint); cursor:pointer}
+      .log-label{font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); margin-top:6px}
+      .log-pre{margin:2px 0 0; padding:8px; border-radius:6px; background:var(--pill-rss); font-size:12px; white-space:pre-wrap; word-break:break-word; color:var(--soft)}
+      .pager{display:flex; align-items:center; gap:14px; justify-content:center; margin-top:18px}
+      .pager .pg{font-size:11px; color:var(--faint)}
+      .btn-ghost{font-size:12px; color:var(--soft); text-decoration:none; padding:6px 12px; border:1px solid var(--line); border-radius:8px}
+      .btn-ghost:hover{border-color:var(--accent); color:var(--accent)}
+      .prompt-card{border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--card); margin-bottom:14px}
+      .prompt-card h3{margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.05em}
+      .prompt-card textarea{width:100%; min-height:90px; font-family:inherit; font-size:13px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--paper); color:var(--ink); resize:vertical; box-sizing:border-box}
+      .prompt-acts{display:flex; gap:8px; margin-top:8px; align-items:center}
     </style>
 </head>
 <body>
@@ -230,6 +250,13 @@
             <nav class="nav">
                 <a href="/articles"><span class="dot"></span><span class="label">Articles</span><span class="count">{{ .Nav.ArticleCount }}</span></a>
                 <a href="/sources"><span class="dot"></span><span class="label">Sources</span><span class="count">{{ .Nav.SourceCount }}</span></a>
+            </nav>
+
+            <div class="nav-group">Admin</div>
+            <nav class="nav">
+                <a href="/admin/logs"><span class="dot"></span><span class="label">AI Logs</span></a>
+                <a href="/admin/prompts"><span class="dot"></span><span class="label">Prompts</span></a>
+                <a href="/admin/tags"><span class="dot"></span><span class="label">Tags</span></a>
             </nav>
 
             <div class="side-stat">

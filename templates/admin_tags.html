@@ -1,0 +1,54 @@
+{{ define "content" }}
+    <div class="page">
+        <div class="page-head">
+            <div class="eyebrow">Admin</div>
+            <h1 class="page-title">Tags</h1>
+            <p class="page-sub">{{ len .Tags }} tag{{ if ne (len .Tags) 1 }}s{{ end }} &middot; the slugs form the categorize allowed-list</p>
+        </div>
+
+        <form class="src-form"
+              hx-ext="json-enc"
+              hx-post="/api/admin/tags"
+              hx-swap="none"
+              hx-on::after-request="window.location.href='/admin/tags'">
+            <div class="field grow">
+                <span class="field-label">Name</span>
+                <input name="name" placeholder="Science">
+            </div>
+            <div class="field grow">
+                <span class="field-label">Slug</span>
+                <input name="slug" placeholder="science">
+            </div>
+            <div class="field">
+                <span class="field-label">Color</span>
+                <input name="color" type="color" value="#64748b">
+            </div>
+            <button class="btn-primary" type="submit">Add tag</button>
+        </form>
+
+        <div class="src-table">
+            {{ range .Tags }}
+            <div class="src-row">
+                <form hx-ext="json-enc"
+                      hx-put="/api/admin/tags/{{ .ID }}"
+                      hx-swap="none"
+                      hx-on::after-request="this.querySelector('.saved').textContent='saved'"
+                      style="display:flex; gap:10px; align-items:center; flex:1">
+                    <input name="color" type="color" value="{{ .Color }}" style="width:32px; height:28px; padding:0; border:none; background:none">
+                    <input name="name" value="{{ .Name }}" style="flex:1">
+                    <input name="slug" value="{{ .Slug }}" style="flex:1">
+                    <button class="btn-primary" type="submit">Save</button>
+                    <span class="saved" style="font-size:11px; color:var(--accent)"></span>
+                </form>
+                <div class="col-ops">
+                    <button class="icon-btn danger" title="Delete tag"
+                            hx-delete="/api/admin/tags/{{ .ID }}"
+                            hx-swap="none"
+                            hx-confirm="Delete tag '{{ .Name }}'?"
+                            hx-on::after-request="window.location.href='/admin/tags'">&times;</button>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+{{ end }}

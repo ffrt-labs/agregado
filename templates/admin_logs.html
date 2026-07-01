@@ -1,0 +1,64 @@
+{{ define "content" }}
+    <div class="page">
+        <div class="page-head">
+            <div class="eyebrow">Admin</div>
+            <h1 class="page-title">AI Logs</h1>
+            <p class="page-sub">Every request/response sent to the model{{ if .Operation }} &middot; filtered to <b>{{ .Operation }}</b>{{ end }}</p>
+        </div>
+
+        <div class="toolbar">
+            <div class="segmented">
+                <a href="/admin/logs" class="{{ if not .Operation }}on{{ end }}">All</a>
+                <a href="/admin/logs?operation=score" class="{{ if eq .Operation "score" }}on{{ end }}">score</a>
+                <a href="/admin/logs?operation=categorize" class="{{ if eq .Operation "categorize" }}on{{ end }}">categorize</a>
+                <a href="/admin/logs?operation=summarize" class="{{ if eq .Operation "summarize" }}on{{ end }}">summarize</a>
+                <a href="/admin/logs?operation=digest" class="{{ if eq .Operation "digest" }}on{{ end }}">digest</a>
+            </div>
+            <div style="flex:1"></div>
+            <button class="btn-primary"
+                    hx-post="/api/admin/logs/toggle" hx-swap="none"
+                    hx-on::after-request="window.location.reload()">
+                Logging: {{ if .LoggingEnabled }}ON{{ else }}OFF{{ end }}
+            </button>
+            <button class="icon-btn danger"
+                    hx-delete="/api/admin/logs" hx-swap="none"
+                    hx-confirm="Delete all AI logs?"
+                    hx-on::after-request="window.location.href='/admin/logs'">Clear</button>
+        </div>
+
+        {{ if .Logs }}
+        <div class="log-list">
+            {{ range .Logs }}
+            <div class="log{{ if not .Success }} log-fail{{ end }}">
+                <div class="log-meta">
+                    <span class="pill">{{ .Operation }}</span>
+                    <span class="when">{{ .CreatedAt.Format "Jan 2 15:04:05" }}</span>
+                    {{ with .DurationMs }}<span class="sep">&middot;</span><span class="when">{{ . }} ms</span>{{ end }}
+                    {{ with .Model }}<span class="sep">&middot;</span><span class="when">{{ . }}</span>{{ end }}
+                    <span class="sep">&middot;</span>
+                    <span class="{{ if .Success }}ok{{ else }}bad{{ end }}">{{ if .Success }}&check; ok{{ else }}&times; error{{ end }}</span>
+                </div>
+                {{ with .Response }}<div class="log-resp">{{ . }}</div>{{ end }}
+                {{ with .Error }}<div class="log-err">{{ . }}</div>{{ end }}
+                <details class="log-det">
+                    <summary>prompts</summary>
+                    {{ with .SystemPrompt }}<div class="log-label">system</div><pre class="log-pre">{{ . }}</pre>{{ end }}
+                    {{ with .UserPrompt }}<div class="log-label">user</div><pre class="log-pre">{{ . }}</pre>{{ end }}
+                </details>
+            </div>
+            {{ end }}
+        </div>
+
+        <div class="pager">
+            {{ if .HasPrev }}<a class="btn-ghost" href="/admin/logs?operation={{ .Operation }}&amp;page={{ .PrevPage }}">&larr; Newer</a>{{ end }}
+            <span class="pg">page {{ .Page }}</span>
+            {{ if .HasNext }}<a class="btn-ghost" href="/admin/logs?operation={{ .Operation }}&amp;page={{ .NextPage }}">Older &rarr;</a>{{ end }}
+        </div>
+        {{ else }}
+        <div class="empty">
+            <h2>No logs</h2>
+            <p>{{ if .LoggingEnabled }}Trigger an AI call (e.g. regenerate the digest) and they'll appear here.{{ else }}Logging is OFF &mdash; turn it on to start capturing calls.{{ end }}</p>
+        </div>
+        {{ end }}
+    </div>
+{{ end }}

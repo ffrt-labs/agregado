@@ -1,0 +1,31 @@
+{{ define "content" }}
+    <div class="page">
+        <div class="page-head">
+            <div class="eyebrow">Admin</div>
+            <h1 class="page-title">Prompts</h1>
+            <p class="page-sub">Editable <b>system</b> prompts sent to the model. The dynamic parts (title, content, weights, tags) are added in code.</p>
+        </div>
+
+        {{ range .Prompts }}
+        <div class="prompt-card">
+            <h3>{{ .Operation }}</h3>
+            <form hx-ext="json-enc"
+                  hx-put="/api/admin/prompts/{{ .Operation }}"
+                  hx-swap="none"
+                  hx-on::after-request="this.querySelector('.saved').textContent='saved'">
+                <textarea name="system_prompt">{{ .SystemPrompt }}</textarea>
+                {{ if eq .Operation "categorize" }}<p class="page-sub" style="margin:6px 0 0">The live tag slugs are appended automatically as the allowed list.</p>{{ end }}
+                <div class="prompt-acts">
+                    <button class="btn-primary" type="submit">Save</button>
+                    <button class="icon-btn" type="button"
+                            hx-post="/api/admin/prompts/{{ .Operation }}/reset"
+                            hx-swap="none"
+                            hx-confirm="Reset {{ .Operation }} prompt to the built-in default?"
+                            hx-on::after-request="window.location.reload()">Reset to default</button>
+                    <span class="saved" style="font-size:11px; color:var(--accent)"></span>
+                </div>
+            </form>
+        </div>
+        {{ end }}
+    </div>
+{{ end }}

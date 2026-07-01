@@ -62,6 +62,15 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     )
     bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
 
+    tagRepo := storage.NewTagRepo(db)
+    adminHandler := NewAdminHandler(
+    	storage.NewAILogRepo(db),
+    	storage.NewSettingsRepo(db),
+    	storage.NewPromptRepo(db),
+    	tagRepo,
+    	navBuilder,
+    )
+
 	s := &Server{
 		broker: b,
 		db: db,
@@ -105,6 +114,23 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Post("/api/bookmarks", bookmarkHandler.SaveLink)
 
 	r.Get("/api/feedback", feedbackHandler.Handle)
+
+	// Admin console (unauthenticated in v1 — see PRD F9)
+	r.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin/logs", http.StatusFound)
+	})
+	r.Get("/admin/logs", adminHandler.LogsPage)
+	r.Post("/api/admin/logs/toggle", adminHandler.ToggleLogging)
+	r.Delete("/api/admin/logs", adminHandler.ClearLogs)
+
+	r.Get("/admin/prompts", adminHandler.PromptsPage)
+	r.Put("/api/admin/prompts/{operation}", adminHandler.UpdatePrompt)
+	r.Post("/api/admin/prompts/{operation}/reset", adminHandler.ResetPrompt)
+
+	r.Get("/admin/tags", adminHandler.TagsPage)
+	r.Post("/api/admin/tags", adminHandler.CreateTag)
+	r.Put("/api/admin/tags/{id}", adminHandler.UpdateTag)
+	r.Delete("/api/admin/tags/{id}", adminHandler.DeleteTag)
 
 	return s
 }

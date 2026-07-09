@@ -77,7 +77,7 @@ func main() {
 		cfg.Digest.MinRelevanceScore,
 		provider,
 	)
-	generator, err := digest.NewDefaultGenerator(provider, cfg.Webhook.Secret, cfg.Digest.BaseURL)
+	generator, err := digest.NewDefaultGenerator(provider, cfg.Digest.BaseURL)
 
 	if err != nil {
 		log.Fatal("Failed to create generator", err)

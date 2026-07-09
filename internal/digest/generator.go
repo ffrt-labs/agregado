@@ -2,14 +2,10 @@ package digest
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"fmt"
 	"html/template"
 	"log"
-	"net/url"
 	"strings"
 	"time"
 
@@ -29,32 +25,30 @@ type DigestEmail struct {
 type Generator struct {
 	generator *template.Template
 	provider  ai.Provider
-	secret    string
 	baseURL   string
 }
 
 // emailData is the email template's root. It mirrors the shared DigestView but
-// carries email-only extras: absolute per-item feedback URLs and a footer
-// browse link (the mailbox can't resolve the relative links the web UI uses).
+// carries email-only extras: absolute links (the mailbox can't resolve the
+// relative links the web UI uses) and its own date formatting — the email is
+// a point-in-time artifact (unlike the always-live web page), so it spells out
+// the full date including the year.
 type emailData struct {
-	Greeting     string
-	DeliveryTime string
-	Date         string
-	Intro        string
-	Groups       []emailGroup
-	BrowseURL    string
+	Greeting       string
+	DeliveryTime   string
+	Date           string
+	Intro          string
+	Groups         []emailGroup
+	DigestURL      string
+	SourcesURL     string
+	ClearedCount   int
+	CandidateCount int
 }
 
 type emailGroup struct {
 	Topic   string
 	Summary string
-	Items   []emailItem
-}
-
-type emailItem struct {
-	DigestItemView
-	UpURL   string
-	DownURL string
+	Items   []DigestItemView
 }
 
 type ComputedDigest struct {
@@ -64,7 +58,7 @@ type ComputedDigest struct {
 	CandidateCount int
 }
 
-func NewGenerator(templateSrc string, provider ai.Provider, secret, baseURL string) (*Generator, error) {
+func NewGenerator(templateSrc string, provider ai.Provider, baseURL string) (*Generator, error) {
 	t, err := template.New("digest").Funcs(tmplfunc.Map).Parse(templateSrc)
 	if err != nil {
 		return nil, err
@@ -73,26 +67,12 @@ func NewGenerator(templateSrc string, provider ai.Provider, secret, baseURL stri
 	return &Generator{
 		generator: t,
 		provider:  provider,
-		secret:    secret,
 		baseURL:   baseURL,
 	}, nil
 }
 
-func NewDefaultGenerator(provider ai.Provider, secret, baseURL string) (*Generator, error) {
-	return NewGenerator(digestTemplate, provider, secret, baseURL)
-}
-
-func (g *Generator) tokenFor(articleID, vote string) string {
-	mac := hmac.New(sha256.New, []byte(g.secret))
-	mac.Write([]byte(articleID + ":" + vote))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// feedbackURL builds the absolute, HMAC-signed feedback link that the email's
-// ▲/▼ buttons point at.
-func (g *Generator) feedbackURL(articleID, vote string) string {
-	return fmt.Sprintf("%s/api/feedback?article_id=%s&vote=%s&token=%s",
-		g.baseURL, url.QueryEscape(articleID), vote, g.tokenFor(articleID, vote))
+func NewDefaultGenerator(provider ai.Provider, baseURL string) (*Generator, error) {
+	return NewGenerator(digestTemplate, provider, baseURL)
 }
 
 func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles, candidateCount int) ComputedDigest {
@@ -130,32 +110,27 @@ func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles, cand
 }
 
 // Render turns a computed digest into a sendable email. It builds the shared
-// DigestView (so the email shows the same Position/SourceName/excerpt/dots as
-// the web page), then decorates each item with absolute feedback URLs.
+// DigestView (so the email shows the same Position/SourceName/excerpt/reason
+// as the web page) and decorates it with email-only absolute links.
 // sourceNames maps source ID → display name (see BuildView).
 func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*DigestEmail, error) {
 	view := BuildView(c, sourceNames)
 
 	groups := make([]emailGroup, len(view.Groups))
 	for i, group := range view.Groups {
-		items := make([]emailItem, len(group.Items))
-		for j, item := range group.Items {
-			items[j] = emailItem{
-				DigestItemView: item,
-				UpURL:          g.feedbackURL(item.ID, "up"),
-				DownURL:        g.feedbackURL(item.ID, "down"),
-			}
-		}
-		groups[i] = emailGroup{Topic: group.Topic, Summary: group.Summary, Items: items}
+		groups[i] = emailGroup{Topic: group.Topic, Summary: group.Summary, Items: group.Items}
 	}
 
 	data := emailData{
-		Greeting:     view.Greeting,
-		DeliveryTime: view.DeliveryTime,
-		Date:         view.Date,
-		Intro:        view.Intro,
-		Groups:       groups,
-		BrowseURL:    g.baseURL + "/articles",
+		Greeting:       view.Greeting,
+		DeliveryTime:   view.DeliveryTime,
+		Date:           c.Date.Format("Monday, January 2, 2006"),
+		Intro:          view.Intro,
+		Groups:         groups,
+		DigestURL:      g.baseURL,
+		SourcesURL:     g.baseURL + "/sources",
+		ClearedCount:   view.ClearedCount,
+		CandidateCount: view.CandidateCount,
 	}
 
 	var html strings.Builder

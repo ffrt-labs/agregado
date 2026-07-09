@@ -10,10 +10,10 @@ import (
 )
 
 type NavData struct {
-	ArticleCount  int
-	SourceCount   int
-	BookmarkCount int
-	ClearedCount  int
+	ArticleCount     int
+	SourceCount      int
+	BookmarkCount    int
+	ScoredTodayCount int
 }
 
 type NavQuerier interface {
@@ -34,14 +34,14 @@ func NewNavBuilder(articles NavQuerier, sources SourceLister, minScore int) *Nav
 
 func (n *NavBuilder) Build(ctx context.Context) NavData {
 	articleCount, _ := n.articles.Count(ctx)
-	cleared, _ := n.articles.CountAboveScore(ctx, n.minScore)
+	scoredToday, _ := n.articles.CountAboveScore(ctx, n.minScore)
 	sources, _ := n.sources.List(ctx, 999, 0)
 	bookmarkCount, _ := n.articles.CountSaved(ctx)
 	return NavData{
-		ArticleCount:  articleCount,
-		SourceCount:   len(sources),
-		BookmarkCount: bookmarkCount,
-		ClearedCount:  cleared,
+		ArticleCount:     articleCount,
+		SourceCount:      len(sources),
+		BookmarkCount:    bookmarkCount,
+		ScoredTodayCount: scoredToday,
 	}
 }
 

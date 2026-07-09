@@ -38,11 +38,12 @@ func(m *Mailer) Send(ctx context.Context, to string, email DigestEmail) error {
 			mail.WithPassword(m.config.Password),
 		)
 	} else {
+		// No password → local dev sink (e.g. Mailpit), which speaks plain SMTP
+		// with no auth and no TLS. Forcing TLS here would fail the connection.
 		c, err = mail.NewClient(
 			m.config.Host,
 			mail.WithPort(m.config.Port),
-			// mail.WithTLSPortPolicy(mail.NoTLS),
-			mail.WithTLSPortPolicy(mail.TLSMandatory),
+			mail.WithTLSPortPolicy(mail.NoTLS),
 		)
 	}
 

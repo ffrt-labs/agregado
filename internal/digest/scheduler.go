@@ -7,26 +7,48 @@ import (
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/config"
+	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/robfig/cron/v3"
 )
+
+// SourceLister supplies the source list used to resolve article source names
+// for the digest email. Defined here (not imported from internal/api) so the
+// digest package stays free of a dependency on the HTTP layer.
+type SourceLister interface {
+	List(ctx context.Context, limit, offset int) ([]domain.Source, error)
+}
 
 type Scheduler struct {
 	ranker      *Ranker
 	generator   *Generator
 	mailer      *Mailer
+	sources     SourceLister
 	config      config.Digest
 	mu          sync.Mutex
 	cached      *ComputedDigest
 	cachedDate  string
 }
 
-func NewScheduler(ranker *Ranker, generator *Generator, mailer *Mailer, config config.Digest) *Scheduler {
+func NewScheduler(ranker *Ranker, generator *Generator, mailer *Mailer, sources SourceLister, config config.Digest) *Scheduler {
 	return &Scheduler{
 		ranker: ranker,
 		generator: generator,
 		mailer: mailer,
+		sources: sources,
 		config: config,
 	}
+}
+
+// sourceNames builds the source ID → display-name map that Render needs to
+// resolve each article's source. Best-effort: on error it returns whatever was
+// listed (names simply fall back to empty).
+func (s *Scheduler) sourceNames(ctx context.Context) map[string]string {
+	sources, _ := s.sources.List(ctx, 1000, 0)
+	names := make(map[string]string, len(sources))
+	for _, src := range sources {
+		names[src.ID] = src.Name
+	}
+	return names
 }
 
 func (s *Scheduler) Today(ctx context.Context) (ComputedDigest, error) {
@@ -77,7 +99,7 @@ func (s *Scheduler) sendDigest(ctx context.Context) error {
 		return err
 	}
 
-	digestedEmail, err := s.generator.Render(computed)
+	digestedEmail, err := s.generator.Render(computed, s.sourceNames(ctx))
 	if err != nil {
 		return err
 	}
@@ -102,5 +124,5 @@ func (s *Scheduler) Preview(ctx context.Context) (*DigestEmail, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.generator.Render(computed)
+	return s.generator.Render(computed, s.sourceNames(ctx))
 }

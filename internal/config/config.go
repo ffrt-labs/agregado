@@ -39,6 +39,10 @@ type Digest struct {
 	MaxArticles 		int		`env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
 	LookbackHours 		int		`env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
 	MinRelevanceScore 	int 	`env:"DIGEST_MIN_SCORE" envDefault:"3"`
+	// BaseURL is the public origin (e.g. https://agregado.example.com) used to
+	// build absolute links in the digest email — relative links don't resolve
+	// inside a mail client.
+	BaseURL 			string	`env:"PUBLIC_BASE_URL" envDefault:"http://localhost:8080"`
 }
 
 type SMTP struct {

@@ -77,7 +77,7 @@ func main() {
 		cfg.Digest.MinRelevanceScore,
 		provider,
 	)
-	generator, err := digest.NewDefaultGenerator(provider, cfg.Webhook.Secret)
+	generator, err := digest.NewDefaultGenerator(provider, cfg.Webhook.Secret, cfg.Digest.BaseURL)
 
 	if err != nil {
 		log.Fatal("Failed to create generator", err)
@@ -85,7 +85,7 @@ func main() {
 	fmt.Printf("Generator created: %+v\n", generator)
 
 	mailer := digest.NewMailer(cfg.SMTP)
-	scheduler := digest.NewScheduler(ranker, generator, mailer, cfg.Digest)
+	scheduler := digest.NewScheduler(ranker, generator, mailer, sourceRepo, cfg.Digest)
 
 	parser := rss.NewParser()
 	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)

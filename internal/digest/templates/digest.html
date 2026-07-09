@@ -1,24 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light only">
+  <title>Your Daily Digest</title>
+  <style>
+    /* Email-safe reset. Layout-critical styling is inlined per element below;
+       this only covers what a mailbox reliably honours from <head>. */
+    body { margin: 0; padding: 0; background: #faf7f0; }
+    a { color: inherit; }
+    img { border: 0; }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#faf7f0;">
+  <!-- Outer canvas -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf7f0;">
+    <tr>
+      <td align="center">
+        <!-- Centered reading column -->
+        <table role="presentation" width="650" cellpadding="0" cellspacing="0" style="width:100%;max-width:650px;">
+          <tr>
+            <td style="padding:48px 32px 64px;">
 
-<h1>Your Daily Digest - {{ .Date.Format "January 2, 2006" }}</h1>
-{{ if .Overview }}<p><em>{{ .Overview }}</em></p>{{ end }}
-{{range .Groups}}
-    <h2>
-        {{ if .Tag }}
-            {{.Tag.Name}}
-        {{else}}
-            Uncategorized
-        {{end}}
-    </h2>
-    {{ if .Summary}}
-        <p><em>{{.Summary}}</em></p>
-    {{end}}
-    {{ range .Articles }}
-        <h3>
-            <a href="{{.ExternalURL}}">{{ .Title }}</a>
-        </h3>
-        <p>
-            <a href="/api/feedback?article_id={{.ID}}&vote=up&token={{.UpToken}}">👍</a>
-            <a href="/api/feedback?article_id={{.ID}}&vote=down&token={{.DownToken}}">👎</a>
-        </p>
-    {{ end }}
-{{ end }}
+              <!-- Delivery line -->
+              <p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.04em;color:#a89f8b;margin:0 0 34px;">
+                <span style="color:#6f8f5f;">&#9679;</span>
+                Delivered to your inbox &middot; {{ .DeliveryTime }} &middot; {{ .Date }}
+              </p>
+
+              <!-- Masthead -->
+              <p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#b07150;margin:0 0 18px;">Agregado &middot; Daily Digest</p>
+              <h1 style="font-family:Georgia,'Times New Roman',serif;font-weight:500;font-size:40px;line-height:1.05;letter-spacing:-.01em;color:#2a251e;margin:0;">{{ .Greeting }}</h1>
+              <p style="font-family:'Courier New',monospace;font-size:12px;color:#7a7060;margin:14px 0 0;">The stories that cleared the bar {{ .DeliveryTime }}.</p>
+
+              {{ if .Intro }}
+              <p style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:18px;line-height:1.6;color:#5a5142;margin:30px 0 0;">{{ .Intro }}</p>
+              {{ end }}
+
+              {{ range .Groups }}
+              <!-- Topic rule -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:40px 0 0;border-bottom:1px solid #ece4d4;">
+                <tr>
+                  <td style="padding-bottom:9px;font-family:'Courier New',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#b07150;">{{ .Topic }}</td>
+                  <td align="right" style="padding-bottom:9px;font-family:'Courier New',monospace;font-size:10px;letter-spacing:.04em;color:#bcb19a;white-space:nowrap;">{{ len .Items }} stor{{ if eq (len .Items) 1 }}y{{ else }}ies{{ end }}</td>
+                </tr>
+              </table>
+
+              {{ if .Summary }}
+              <p style="font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:15px;line-height:1.6;color:#6e6655;margin:14px 0 0;">{{ .Summary }}</p>
+              {{ end }}
+
+              {{ range .Items }}
+              <!-- Article -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #efe9dc;">
+                <tr>
+                  <td style="padding:24px 0;">
+                    <p style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.04em;color:#a89f8b;margin:0 0 8px;">
+                      <span style="color:#b07150;">{{ printf "%02d" .Position }}</span>
+                      {{ if .SourceName }}&nbsp;&middot;&nbsp;<span style="color:#b07150;">{{ .SourceName }}</span>{{ end }}
+                      {{ if .PublishedAt }}&nbsp;&middot;&nbsp;<span>{{ .PublishedAt.Format "Jan 2" }}</span>{{ end }}
+                      {{ if .EstimatedReadMinutes }}&nbsp;&middot;&nbsp;<span>{{ .EstimatedReadMinutes }} min read</span>{{ end }}
+                      {{ if .RelevanceScore }}&nbsp;&nbsp;<span style="color:#b07150;letter-spacing:1px;">{{ dots .RelevanceScore }}</span>{{ end }}
+                    </p>
+                    <a href="{{ .ExternalURL }}" style="font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;font-weight:500;letter-spacing:-.01em;color:#2a251e;text-decoration:none;">{{ .Title }}</a>
+                    {{ with excerpt .Summary }}
+                    <p style="font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.6;color:#6e6655;margin:10px 0 0;">{{ . }}</p>
+                    {{ end }}
+                    <p style="margin:16px 0 0;">
+                      <a href="{{ .UpURL }}" style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.03em;color:#8a8070;text-decoration:none;border:1px solid #e3d9c6;border-radius:6px;padding:6px 11px;">&#9650; More like this</a>
+                      &nbsp;
+                      <a href="{{ .DownURL }}" style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.03em;color:#8a8070;text-decoration:none;border:1px solid #e3d9c6;border-radius:6px;padding:6px 11px;">&#9660; Less</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              {{ end }}
+              {{ end }}
+
+              <!-- Footer -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:36px 0 0;">
+                <tr>
+                  <td align="center">
+                    <a href="{{ .BrowseURL }}" style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.04em;color:#b07150;text-decoration:none;border:1px solid #e3d9c6;border-radius:7px;padding:10px 18px;display:inline-block;">Browse all articles &rarr;</a>
+                    <p style="font-family:'Courier New',monospace;font-size:10px;color:#a89f8b;line-height:1.9;margin:22px 0 0;">Your feedback retunes tomorrow's digest.</p>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

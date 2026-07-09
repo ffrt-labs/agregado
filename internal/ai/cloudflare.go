@@ -215,6 +215,18 @@ func (p *CloudflareProvider) Categorize(ctx context.Context, title, content stri
 	return p.complete(ctx, OpCategorize, systemPrompt, userPrompt)
 }
 
+func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {
+	systemPrompt := p.systemPrompt(ctx, OpReason)
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, maxPromptContentChars))
+
+	result, err := p.complete(ctx, OpReason, systemPrompt, userPrompt)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(result), nil
+}
+
 func (p *CloudflareProvider) Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error) {
 	systemPrompt := p.systemPrompt(ctx, OpScore)
 

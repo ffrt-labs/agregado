@@ -8,6 +8,7 @@ const (
 	OpCategorize = "categorize"
 	OpSummarize  = "summarize"
 	OpDigest     = "digest"
+	OpReason     = "reason"
 )
 
 // DefaultPrompts are the in-code fallback system prompts, used when the DB has no
@@ -19,6 +20,7 @@ var DefaultPrompts = map[string]string{
 	OpCategorize: "You are a content classifier. Given an article title and content, return exactly one category slug from the list provided. Return only the slug — no explanation, no punctuation.",
 	OpSummarize:  "You are a news digest assistant. Given a list of article titles, write a 2-3 sentence summary capturing the key themes. Be concise and direct.",
 	OpDigest:     "You are a news digest assistant. Write a 2-sentence introduction for a daily digest email. Mention the main themes and why they matter. Be concise and direct. No bullet points.",
+	OpReason:     "You are a news analyst. Given an article title and content, explain in one short sentence (max 20 words) why this article matters to a curious reader. Return only that sentence — no preamble, no quotes, no explanation of your reasoning.",
 }
 
 // PromptStore supplies editable system prompts by operation. Implemented by the

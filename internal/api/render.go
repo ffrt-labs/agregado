@@ -5,13 +5,9 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"strings"
 
-	"github.com/felipeafreitas/agregado/internal/textutil"
+	"github.com/felipeafreitas/agregado/internal/tmplfunc"
 )
-
-// excerptChars is the maximum number of characters shown in an article excerpt.
-const excerptChars = 200
 
 type NavData struct {
 	ArticleCount  int
@@ -49,45 +45,8 @@ func (n *NavBuilder) Build(ctx context.Context) NavData {
 	}
 }
 
-var funcMap = template.FuncMap{
-	"add": func(a, b int) int { return a + b },
-	"excerpt": func(s *string) string {
-		if s == nil {
-			return ""
-		}
-		clean := textutil.Strip(*s)
-		if len([]rune(clean)) > excerptChars {
-			return textutil.Truncate(clean, excerptChars) + "…"
-		}
-		return clean
-	},
-	"dots": func(score *int) string {
-		if score == nil {
-			return ""
-		}
-		s := *score
-		if s < 1 {
-			s = 1
-		}
-		if s > 5 {
-			s = 5
-		}
-		return strings.Repeat("●", s) + strings.Repeat("○", 5-s)
-	},
-	"scoreLabel": func(score *int) string {
-		if score == nil {
-			return ""
-		}
-		labels := map[int]string{1: "noise", 2: "low", 3: "mid", 4: "high", 5: "top"}
-		if l, ok := labels[*score]; ok {
-			return l
-		}
-		return ""
-	},
-}
-
 func render(w http.ResponseWriter, filename string, data any) {
-	tmpl, err := template.New("layout.html").Funcs(funcMap).ParseFiles(
+	tmpl, err := template.New("layout.html").Funcs(tmplfunc.Map).ParseFiles(
 		"templates/layout.html",
 		"templates/"+filename,
 	)
@@ -103,7 +62,7 @@ func render(w http.ResponseWriter, filename string, data any) {
 }
 
 func renderPartial(w http.ResponseWriter, filename string, name string, data any) {
-	tmpl, err := template.New(name).Funcs(funcMap).ParseFiles("templates/" + filename)
+	tmpl, err := template.New(name).Funcs(tmplfunc.Map).ParseFiles("templates/" + filename)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

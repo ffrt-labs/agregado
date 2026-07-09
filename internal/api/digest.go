@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/felipeafreitas/agregado/internal/digest"
 )
@@ -17,32 +16,12 @@ type DigestArticleCounter interface {
 	Count(ctx context.Context) (int, error)
 }
 
+// DigestPageData is the web-page wrapper around the shared DigestView: it adds
+// the sidebar Nav that only the web shell needs. The DigestView fields are
+// promoted, so templates/digest.html still reads .Greeting, .Groups, etc.
 type DigestPageData struct {
-	Greeting     string
-	DeliveryTime string
-	Date         string
-	Intro        string
-	Groups       []DigestGroupView
-	Nav          NavData
-}
-
-type DigestGroupView struct {
-	Topic   string
-	Summary string
-	Items   []DigestItemView
-}
-
-type DigestItemView struct {
-	Position             int
-	SourceName           string
-	Title                string
-	ExternalURL          string
-	ID                   string
-	Summary              *string
-	PublishedAt          *time.Time
-	EstimatedReadMinutes *int
-	RelevanceScore       *int
-	IsSaved              bool
+	digest.DigestView
+	Nav NavData
 }
 
 type DigestHandler struct {
@@ -76,42 +55,9 @@ func (h *DigestHandler) HomePage(w http.ResponseWriter, r *http.Request) {
 		sourceMap[s.ID] = s.Name
 	}
 
-	groups := make([]DigestGroupView, 0, len(computed.Groups))
-	for _, group := range computed.Groups {
-		topic := "Uncategorized"
-		if group.Tag != nil {
-			topic = group.Tag.Name
-		}
-
-		items := make([]DigestItemView, len(group.Articles))
-		for i, a := range group.Articles {
-			sourceName := ""
-			if a.SourceID != nil {
-				sourceName = sourceMap[*a.SourceID]
-			}
-			items[i] = DigestItemView{
-				Position:             i + 1,
-				SourceName:           sourceName,
-				Title:                a.Title,
-				ExternalURL:          a.ExternalURL,
-				ID:                   a.ID,
-				Summary:              a.Summary,
-				PublishedAt:          a.PublishedAt,
-				EstimatedReadMinutes: a.EstimatedReadMinutes,
-				RelevanceScore:       a.RelevanceScore,
-			}
-		}
-
-		groups = append(groups, DigestGroupView{Topic: topic, Summary: group.Summary, Items: items})
-	}
-
 	render(w, "digest.html", DigestPageData{
-		Greeting:     timeGreeting(),
-		DeliveryTime: "this morning",
-		Date:         computed.Date.Format("Monday, January 2"),
-		Intro:        computed.Overview,
-		Groups:       groups,
-		Nav: h.nav.Build(ctx),
+		DigestView: digest.BuildView(computed, sourceMap),
+		Nav:        h.nav.Build(ctx),
 	})
 }
 
@@ -125,16 +71,4 @@ func (h *DigestHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func timeGreeting() string {
-	hour := time.Now().Hour()
-	switch {
-	case hour < 12:
-		return "Good morning."
-	case hour < 18:
-		return "Good afternoon."
-	default:
-		return "Good evening."
-	}
 }

@@ -292,6 +292,21 @@ Daily Digest
 - Web `/` renders identically to before the view-model move (no regression).
 - Feedback links in the email are absolute and record a vote via `/api/feedback`.
 
+#### F4.2: Digest Compute Resilience (per-call AI timeout + non-blocking homepage)
+**User Story:** As the operator, a slow or capacity-limited AI provider degrades gracefully instead of silently dropping `summarize`/`digest` output and blocking the homepage for minutes.
+
+**Motivation:** In production, `Categorize` → `Summarize` → `Digest` ran sequentially under one shared 3-minute deadline. A heavy model exhausted that deadline during categorization, so every later call failed instantly — and because the AI logger reused the same expired context, the failures didn't even show up as failed rows in the admin log table, making the pipeline look silently broken rather than visibly failing. The homepage also blocked on this same deadline when the daily cache was cold.
+
+**Design decisions:**
+- Each AI call gets its own bounded context (`config.AI.RequestTimeout`, env `AI_REQUEST_TIMEOUT`, default 30s) instead of inheriting whatever's left of a shared deadline; `CloudflareProvider`'s `http.Client` also carries an explicit `Timeout`.
+- AI log writes use a context detached from the call's own cancellation (`context.WithoutCancel` + a short timeout), so a call that times out is still recorded as a failed row instead of disappearing from `/admin/logs`.
+- `Scheduler.Today` (blocking) is reserved for callers that need real content regardless of wait time (digest send, preview). The web homepage uses `Scheduler.TodayOrTrigger`, which returns immediately on a cold cache and kicks off a background compute; concurrent callers join the same in-flight compute rather than duplicating AI calls.
+
+**Acceptance Criteria:**
+- A single slow/hung AI call cannot exhaust the budget for calls queued behind it.
+- A timed-out or failed AI call always produces a row in the AI log table.
+- `GET /` never blocks on a cold digest cache; it shows a "generating" state and the digest appears on a subsequent load once the background compute finishes.
+
 #### F5: Web UI - Browse Articles
 **User Story:** As a user, I can browse all my articles in a clean web interface.
 

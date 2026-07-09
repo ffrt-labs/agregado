@@ -604,9 +604,34 @@ Progress tracker for building Agregado. Check items as you complete them.
 ### Phase 8 Verification
 - [x] `go build ./...` && `go vet ./...` pass
 - [x] Render smoke test (throwaway) — template executes; Position/SourceName/dots/excerpt/absolute feedback+browse URLs all present; excerpt strips markup
-- [ ] Web `/` renders identically to before the view-model move (manual — needs running stack)
-- [ ] `POST /api/digest/preview` → inspect HTML in browser AND a mail client (Gmail draft / send to self)
+- [x] Web `/` renders identically to before the view-model move (manual — verified via Mailpit smoke test)
+- [x] `POST /api/digest/preview` → inspect HTML in browser AND a mail client (Gmail draft / send to self) — verified via Mailpit
 - [ ] Click a feedback link from the email → absolute URL hits `/api/feedback`, records a vote
+
+## Phase 9: Fix digest AI-call context exhaustion (production incident)
+
+**Symptom:** In production, `summarize`/`digest` AI operations stopped appearing in the admin AI-log table while `score`/`categorize` kept working. Prod logs showed `context deadline exceeded` on every `summarize` call, `digest: computed overview=false`, and `GET /` taking the full 3-minute timeout.
+
+**Root cause:** `Categorize` → `Summarize` → `Digest` ran sequentially inside one shared 3-minute deadline (`Scheduler.computeLocked`). With the production model, the deadline was exhausted during categorization, so every later call failed instantly — and because the AI logger reused that same expired context, the failure also failed to write its own log row, making the calls look like they'd silently stopped rather than like they were failing.
+
+### 9.1 Per-call AI timeout + log visibility
+- [x] `CloudflareProvider` gets its own bounded context per call (`AI_REQUEST_TIMEOUT`, default 30s) instead of inheriting the caller's remaining deadline
+- [x] `http.Client` given an explicit `Timeout` (was `http.DefaultClient`, unbounded)
+- [x] Log writes detached from the call's context (`context.WithoutCancel` + short timeout) so a timed-out call still records a failed row instead of vanishing from the AI log table
+- [x] `AI_REQUEST_TIMEOUT` added to config + `.env.example`
+
+### 9.2 Non-blocking digest homepage
+- [x] `Scheduler` split into `Today` (blocking — used by digest send/preview) and `TodayOrTrigger` (non-blocking — used by the web homepage; kicks off a background compute on a cold cache)
+- [x] Computes are single-flighted (`inFlight` channel guarded by the scheduler's mutex) so a background trigger and a concurrent blocking caller join the same run instead of duplicating AI calls
+- [x] Homepage renders a "generating" banner (`DigestPageData.Generating`) while a background compute is in progress
+- [x] Compute-wide ceiling widened from 3 min to 10 min (safe now that it's not blocking a request, and each AI call inside it is individually bounded)
+
+### Phase 9 Verification
+- [x] `go build ./...` && `go vet ./...` pass
+- [x] Local smoke test: cold `GET /` returns in ~10ms (previously blocked for the duration of the compute); background compute completes and logs `digest: computing for N groups` / `computed overview=...`
+- [x] Second `GET /` while warm serves from cache without triggering a duplicate compute (single `digest: computing` log line)
+- [x] `POST /api/digest/refresh` and `GET /api/digest/preview` still block synchronously and return real content
+- [ ] Verify in production: `summarize`/`digest` rows reappear in `/admin/logs`, and any real failures show up as failed rows instead of disappearing
 
 ---
 

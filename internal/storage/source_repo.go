@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -126,6 +127,27 @@ func (r *SourceRepo) FindByEmailSender(ctx context.Context, email string) (*doma
 
 	source, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[domain.Source])
 	if err != nil {
+		return nil, err
+	}
+
+	return &source, nil
+}
+
+// FindByURL looks up a source by its feed URL. Unlike FindByID/
+// FindByEmailSender, "not found" is returned as (nil, nil) rather than
+// propagating pgx.ErrNoRows — it's the expected, common branch when checking
+// import candidates for duplicates, not an error condition.
+func (r *SourceRepo) FindByURL(ctx context.Context, url string) (*domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE url=$1", url)
+	if err != nil {
+		return nil, err
+	}
+
+	source, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[domain.Source])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 

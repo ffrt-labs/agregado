@@ -11,10 +11,12 @@ import (
 
 	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/api"
+	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
+	"github.com/felipeafreitas/agregado/internal/mail"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/joho/godotenv"
 )
@@ -84,8 +86,9 @@ func main() {
 	}
 	fmt.Printf("Generator created: %+v\n", generator)
 
-	mailer := digest.NewMailer(cfg.SMTP)
+	mailer := mail.NewMailer(cfg.SMTP)
 	scheduler := digest.NewScheduler(ranker, generator, mailer, sourceRepo, cfg.Digest)
+	backupScheduler := backup.NewScheduler(sourceRepo, mailer, cfg.Backup)
 
 	parser := rss.NewParser()
 	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)
@@ -94,11 +97,12 @@ func main() {
 
 	handler := storage.NewWorker(articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore)
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, poller, provider, cfg.Digest.MinRelevanceScore)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
 	go scheduler.Start(ctx)
+	go backupScheduler.Start(ctx)
 	consumer.Consume("articles.store", handler)
 
 	<-ctx.Done()

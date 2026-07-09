@@ -8,6 +8,7 @@ import (
 
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/domain"
+	"github.com/felipeafreitas/agregado/internal/mail"
 	"github.com/robfig/cron/v3"
 )
 
@@ -21,7 +22,7 @@ type SourceLister interface {
 type Scheduler struct {
 	ranker      *Ranker
 	generator   *Generator
-	mailer      *Mailer
+	mailer      *mail.Mailer
 	sources     SourceLister
 	config      config.Digest
 	mu          sync.Mutex
@@ -34,7 +35,7 @@ type Scheduler struct {
 	inFlight    chan struct{}
 }
 
-func NewScheduler(ranker *Ranker, generator *Generator, mailer *Mailer, sources SourceLister, config config.Digest) *Scheduler {
+func NewScheduler(ranker *Ranker, generator *Generator, mailer *mail.Mailer, sources SourceLister, config config.Digest) *Scheduler {
 	return &Scheduler{
 		ranker: ranker,
 		generator: generator,
@@ -172,7 +173,7 @@ func (s *Scheduler) sendDigest(ctx context.Context) error {
 		return err
 	}
 
-	return s.mailer.Send(ctx, s.config.RecipientEmail, *digestedEmail)
+	return s.mailer.Send(ctx, s.config.RecipientEmail, digestedEmail.Subject, digestedEmail.HTML, digestedEmail.Text)
 }
 
 func (s *Scheduler) Send(ctx context.Context) error {

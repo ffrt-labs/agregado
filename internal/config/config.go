@@ -54,6 +54,13 @@ type SMTP struct {
 	FromMail	string	`env:"SMTP_FROM_MAIL" envDefault:""`
 }
 
+type Backup struct {
+	RecipientEmail	string	`env:"BACKUP_RECIPIENT_EMAIL" envDefault:""`
+	// Schedule defaults to weekly (Sun 03:00) — sources change rarely, unlike
+	// the daily digest content.
+	Schedule		string	`env:"BACKUP_SCHEDULE" envDefault:"0 3 * * 0"`
+}
+
 type AI struct {
 	Provider			string	`env:"AI_PROVIDER" envDefault:"cloudflare"`
 	CloudflareAccountID	string	`env:"CLOUDFLARE_ACCOUNT_ID"`
@@ -74,6 +81,7 @@ type Config struct {
 	Digest
 	SMTP
 	AI
+	Backup
 }
 
 func Load() (*Config, error) {

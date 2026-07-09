@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
+	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
@@ -23,9 +24,10 @@ type Server struct {
 	db *storage.DB
 	httpServer *http.Server
 	scheduler *digest.Scheduler
+	backupScheduler *backup.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -76,6 +78,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		db: db,
 		httpServer: &httpServer,
 		scheduler: scheduler,
+		backupScheduler: backupScheduler,
 	}
 
 	r.Get("/", digestHandler.HomePage)
@@ -88,12 +91,16 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/api/digest/preview", s.Preview)
 	r.Post("/api/digest/refresh", digestHandler.Refresh)
 
+	r.Post("/api/backup/send", s.SendBackup)
+
 	r.Route("/api/sources", func(r chi.Router) {
 		r.Get("/", sourcesHandler.List)
 		r.Post("/", sourcesHandler.Create)
 		r.Put("/{id}", sourcesHandler.Update)
 		r.Delete("/{id}", sourcesHandler.Delete)
 		r.Patch("/{id}", sourcesHandler.Patch)
+		r.Get("/export", sourcesHandler.Export)
+		r.Post("/import", sourcesHandler.Import)
 	})
 
 	r.Route("/api/articles", func(r chi.Router) {
@@ -199,6 +206,21 @@ func (s *Server) Send(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil{
 		log.Println("digest send error:", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) SendBackup(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	err := s.backupScheduler.Send(ctx)
+
+	if err != nil {
+		log.Println("backup send error:", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}

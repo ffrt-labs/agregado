@@ -288,10 +288,12 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Handler fetches articles since midnight, groups by tag (reuse ranker), passes to template
 
 ### 4.10 Source Backup & Restore
-- [ ] Add `GET /api/sources/export` — returns all sources as OPML (RSS standard; importable into any feed reader)
-- [ ] Add `POST /api/sources/import` — accepts an OPML file, bulk-creates missing sources (skip duplicates by URL)
-- [ ] Add Export button to Sources page → triggers file download
-- [ ] Add Import file input to Sources page → POSTs OPML, refreshes list
+- [x] Add `GET /api/sources/export` — returns all sources as OPML (RSS standard; importable into any feed reader)
+- [x] Add `POST /api/sources/import` — accepts an OPML file, bulk-creates missing sources (skip duplicates by URL)
+- [x] Add Export button to Sources page → triggers file download
+- [x] Add Import file input to Sources page → POSTs OPML, refreshes list
+- [x] Add scheduled job to email OPML backup to self (`BACKUP_SCHEDULE`, `BACKUP_RECIPIENT_EMAIL`, weekly default)
+- [x] Add manual trigger endpoint `POST /api/backup/send`
 
 ### Phase 4 Verification
 - [ ] Can browse articles in browser

@@ -6,6 +6,20 @@
             <p class="page-sub">{{ len .Sources }} feed{{ if ne (len .Sources) 1 }}s{{ end }}{{ if .ErrorSourceCount }} &middot; {{ .ErrorSourceCount }} reporting errors{{ end }}</p>
         </div>
 
+        <div class="src-toolbar" style="display:flex; gap:10px; align-items:center; margin-bottom:16px;">
+            <a class="btn-primary" href="/api/sources/export" download="agregado-sources.opml">Export OPML</a>
+            <form
+                style="display:flex; gap:10px; align-items:center;"
+                hx-post="/api/sources/import"
+                hx-encoding="multipart/form-data"
+                hx-swap="none"
+                hx-on::after-request="window.location.href='/sources'"
+            >
+                <input type="file" name="file" accept=".opml,.xml" required>
+                <button class="btn-primary" type="submit">Import OPML</button>
+            </form>
+        </div>
+
         <form
             class="src-form"
             hx-ext="json-enc"

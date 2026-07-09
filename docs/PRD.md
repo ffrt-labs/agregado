@@ -363,6 +363,25 @@ Daily Digest
 - Export and Import buttons available on the Sources page
 - Newsletter-type sources are included in export but skipped on import (no URL to re-subscribe to)
 
+#### F6.2: Periodic Automated Backup Email
+**User Story:** As a user, I automatically receive my sources as an OPML backup by
+email on a schedule, without remembering to export manually.
+
+**Motivation:** The `agregado` app container has no persistent volume — anything
+written to local disk is lost on redeploy/recreate. Rather than add new
+infrastructure (mounted volume, cloud storage), the periodic backup reuses the
+existing SMTP mailer to deliver the same OPML export (F6.1) to an email inbox,
+which is durable and off-server by construction.
+
+**Acceptance Criteria:**
+- A scheduled job (`BACKUP_SCHEDULE`, cron syntax, default weekly `0 3 * * 0`)
+  generates the same OPML export as F6.1 and emails it as an attachment to
+  `BACKUP_RECIPIENT_EMAIL` via the existing SMTP mailer
+- Manual trigger via `POST /api/backup/send` (mirrors `/api/digest/send`)
+- If `BACKUP_RECIPIENT_EMAIL` is unset, the job logs and no-ops rather than erroring
+- Scope: sources only (OPML). No article/bookmark backup, no full DB dump, no
+  cloud storage, no retention policy for prior backup emails — out of scope for v1
+
 #### F7: Article Tagging
 **User Story:** As a user, I can categorize articles by topic (tech, business, personal, etc.) for better organization and filtering.
 
@@ -762,6 +781,11 @@ GET    /api/sources/:id          - Get source details
 PUT    /api/sources/:id          - Update source
 DELETE /api/sources/:id          - Remove source
 POST   /api/sources/:id/refresh  - Trigger immediate fetch
+GET    /api/sources/export       - Export all sources as OPML (F6.1)
+POST   /api/sources/import       - Import sources from an OPML file (F6.1)
+
+# Backup
+POST   /api/backup/send          - Manually trigger the periodic OPML backup email (F6.2)
 
 # Articles
 GET    /api/articles             - List articles (paginated, filterable by tag)

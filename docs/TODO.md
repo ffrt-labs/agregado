@@ -576,36 +576,36 @@ Progress tracker for building Agregado. Check items as you complete them.
 **Decisions:** email-safe mirrored CSS (web keeps its own); share `funcMap` (leaf pkg) + view-model builder (in `internal/digest`); email keeps ▲/▼ feedback links + footer browse link (no HTMX).
 
 ### 8.1 Shared template funcs — leaf package
-- [ ] Create `internal/tmplfunc/funcmap.go` — move `funcMap` (`add`, `excerpt`, `dots`, `scoreLabel`) + `excerptChars` const out of `internal/api/render.go`; export as `tmplfunc.Map` (depends only on `internal/textutil`)
-- [ ] Update `internal/api/render.go` — use `tmplfunc.Map` at both `.Funcs(...)` call sites; drop the moved var/const
+- [x] Create `internal/tmplfunc/funcmap.go` — move `funcMap` (`add`, `excerpt`, `dots`, `scoreLabel`) + `excerptChars` const out of `internal/api/render.go`; export as `tmplfunc.Map` (depends only on `internal/textutil`)
+- [x] Update `internal/api/render.go` — use `tmplfunc.Map` at both `.Funcs(...)` call sites; drop the moved var/const
 
 ### 8.2 Shared view-model — into `internal/digest`
-- [ ] Create `internal/digest/view.go` — move `DigestGroupView`/`DigestItemView` from `api/digest.go`; add `DigestView` (Greeting, DeliveryTime, Date string, Intro, Groups)
-- [ ] Add `BuildView(computed ComputedDigest, sourceNames map[string]string) DigestView` (Position/SourceName/Topic mapping + greeting/date formatting; plain map, no repo interface → no cycle)
-- [ ] Slim `internal/api/digest.go` `HomePage` — build sourceMap → `digest.BuildView(...)` → render `{ DigestView; Nav }`; verify web `/` output unchanged
+- [x] Create `internal/digest/view.go` — move `DigestGroupView`/`DigestItemView` from `api/digest.go`; add `DigestView` (Greeting, DeliveryTime, Date string, Intro, Groups)
+- [x] Add `BuildView(computed ComputedDigest, sourceNames map[string]string) DigestView` (Position/SourceName/Topic mapping + greeting/date formatting; plain map, no repo interface → no cycle)
+- [x] Slim `internal/api/digest.go` `HomePage` — build sourceMap → `digest.BuildView(...)` → render `{ DigestView; Nav }` (embeds `digest.DigestView`). Note: `BuildView` now also populates `IsSaved` (old web loop left it zero — a fix, not a regression)
 
 ### 8.3 Config + wiring
-- [ ] Add `BaseURL string \`env:"PUBLIC_BASE_URL"\`` to `config.Digest`
-- [ ] Inject source-name map + base URL into the email path (generator/scheduler); mirror `api/digest.go` source lookup
-- [ ] Update `cmd/agregado/main.go` (`NewDefaultGenerator` call) and `.env.example`
+- [x] Add `BaseURL string \`env:"PUBLIC_BASE_URL"\`` to `config.Digest` (default `http://localhost:8080`)
+- [x] Inject source-name map + base URL into the email path — `digest.SourceLister` interface on the scheduler builds the map; generator holds `baseURL`
+- [x] Update `cmd/agregado/main.go` (`NewDefaultGenerator(provider, secret, baseURL)`, `NewScheduler(..., sourceRepo, ...)`) and `.env.example`
 
 ### 8.4 Email generator renders shared view
-- [ ] Register `tmplfunc.Map` when parsing the embedded email template
-- [ ] `Render` builds `DigestView` via `BuildView`, decorates items with absolute `UpURL`/`DownURL` (existing `tokenFor` + `BaseURL`) + footer browse URL (email-specific item struct embedding `DigestItemView`)
-- [ ] Keep/lightly enrich the plain-text fallback
+- [x] Register `tmplfunc.Map` when parsing the embedded email template
+- [x] `Render(c, sourceNames)` builds `DigestView` via `BuildView`, decorates items with absolute `UpURL`/`DownURL` (`feedbackURL` = `tokenFor` + `baseURL`) + footer browse URL (`emailItem` embeds `DigestItemView`); removed dead `DigestArticle`/`digestGroup`/`templateData`/`Generate`
+- [x] Keep/lightly enrich the plain-text fallback
 
 ### 8.5 Email template rewrite (email-safe, mirrors web)
-- [ ] Rewrite `internal/digest/templates/digest.html` — full document (`<!DOCTYPE html>…<head><style>…</style></head><body>`), table-based ~650px column
-- [ ] Email-safe CSS mirroring `.digest-*`: hardcoded hex (no `var()`), table/inline-block (no flexbox), `Georgia,serif` + monospace fallbacks
-- [ ] Structure parallels web: deliver line, kicker, H1 greeting, count line, intro, per-group topic-rule + summary, per-article meta (num/src/date/read-time/`dots`), title link, `excerpt`, ▲/▼ feedback links, footer browse link
-- [ ] Decide: `.digest-count` (web uses Nav counts email lacks) → compute simple total or reword
-- [ ] Optional polish: `<meta name="color-scheme" content="light dark">`
+- [x] Rewrite `internal/digest/templates/digest.html` — full document, table-based ~650px column
+- [x] Email-safe CSS mirroring `.digest-*`: hardcoded hex (no `var()`), table layout (no flexbox), inline styles + minimal `<head>` reset, `Georgia,serif` + `'Courier New',monospace` fallbacks
+- [x] Structure parallels web: deliver line, kicker, H1 greeting, subtitle, intro, per-group topic-rule + summary, per-article meta (num/src/date/read-time/`dots`), title link, `excerpt`, ▲/▼ feedback links, footer browse link
+- [x] `.digest-count` reworded (web uses Nav counts email lacks) → "The stories that cleared the bar {DeliveryTime}."
+- [x] Polish: `<meta name="color-scheme" content="light only">`
 
 ### Phase 8 Verification
-- [ ] `go build ./...` && `go vet ./...`
-- [ ] Web `/` renders identically to before the view-model move
+- [x] `go build ./...` && `go vet ./...` pass
+- [x] Render smoke test (throwaway) — template executes; Position/SourceName/dots/excerpt/absolute feedback+browse URLs all present; excerpt strips markup
+- [ ] Web `/` renders identically to before the view-model move (manual — needs running stack)
 - [ ] `POST /api/digest/preview` → inspect HTML in browser AND a mail client (Gmail draft / send to self)
-- [ ] `dots`/`excerpt`/SourceName/Position appear in the email
 - [ ] Click a feedback link from the email → absolute URL hits `/api/feedback`, records a vote
 
 ---

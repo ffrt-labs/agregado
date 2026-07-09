@@ -22,5 +22,6 @@ type Article struct {
 	Tags 					[]Tag `db:"-" json:"-"`
 	CreatedAt 				time.Time `db:"created_at" json:"-"`
 	RelevanceScore 			*int `db:"relevance_score" json:"relevance_score,omitempty"`
+	RelevanceReason 		*string `db:"relevance_reason" json:"relevance_reason,omitempty"`
 	ParentArticleId			*string `db:"parent_article_id" json:"-"`
 }

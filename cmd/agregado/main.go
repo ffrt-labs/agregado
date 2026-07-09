@@ -92,7 +92,7 @@ func main() {
 
 
 
-	handler := storage.NewWorker(articleRepo, provider, articleRepo, weightsRepo)
+	handler := storage.NewWorker(articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore)
 
 	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, poller, provider, cfg.Digest.MinRelevanceScore)
 

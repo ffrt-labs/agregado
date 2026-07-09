@@ -14,17 +14,19 @@ type ArticleCreator interface {
 
 type AIScorer interface {
 	Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error)
+	Reason(ctx context.Context, title, content string) (string, error)
 }
 
 type ScoreUpdater interface {
 	UpdateRelevanceScore(ctx context.Context, id string, score int) error
+	UpdateRelevanceReason(ctx context.Context, id string, reason string) error
 }
 
 type WeightsQuerier interface {
 	FindAll(ctx context.Context) (map[string]float64, error)
 }
 
-func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater, weights WeightsQuerier) func([]byte) error {
+func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater, weights WeightsQuerier, minScore int) func([]byte) error {
 	return func(body []byte) error {
 		ctx := context.Background()
 		var article domain.Article
@@ -60,6 +62,15 @@ func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater, 
 
 		log.Printf("worker: scored id=%s score=%d title=%q", id, score, article.Title)
 		scoreUpdater.UpdateRelevanceScore(ctx, id, score)
+
+		if score >= minScore {
+			reason, err := scorer.Reason(ctx, article.Title, content)
+			if err != nil {
+				log.Printf("worker: reason failed id=%s title=%q: %v", id, article.Title, err)
+				return nil
+			}
+			scoreUpdater.UpdateRelevanceReason(ctx, id, reason)
+		}
 
 		return nil
 	}

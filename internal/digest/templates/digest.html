@@ -67,6 +67,9 @@
                     {{ with excerpt .Summary }}
                     <p style="font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.6;color:#6e6655;margin:10px 0 0;">{{ . }}</p>
                     {{ end }}
+                    {{ with .Reason }}
+                    <p style="font-family:'Courier New',monospace;font-style:italic;font-size:13px;line-height:1.6;color:#b07150;margin:8px 0 0;">{{ . }}</p>
+                    {{ end }}
                     <p style="margin:16px 0 0;">
                       <a href="{{ .UpURL }}" style="font-family:'Courier New',monospace;font-size:11px;letter-spacing:.03em;color:#8a8070;text-decoration:none;border:1px solid #e3d9c6;border-radius:6px;padding:6px 11px;">&#9650; More like this</a>
                       &nbsp;

@@ -32,6 +32,7 @@ type DigestItemView struct {
 	PublishedAt          *time.Time
 	EstimatedReadMinutes *int
 	RelevanceScore       *int
+	Reason               *string
 	IsSaved              bool
 }
 
@@ -65,6 +66,7 @@ func BuildView(computed ComputedDigest, sourceNames map[string]string) DigestVie
 				PublishedAt:          a.PublishedAt,
 				EstimatedReadMinutes: a.EstimatedReadMinutes,
 				RelevanceScore:       a.RelevanceScore,
+				Reason:               a.RelevanceReason,
 				IsSaved:              a.IsSaved,
 			}
 		}

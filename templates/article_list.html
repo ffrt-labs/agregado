@@ -13,6 +13,7 @@
                    hx-post="/api/articles/{{ $a.ID }}/read" hx-trigger="click" hx-swap="none"
                    hx-on:click="this.closest('.item').classList.add('is-read')">{{ $a.Title }}</a>
                 {{ with excerpt $a.Summary }}<p class="item-excerpt">{{ . }}</p>{{ end }}
+                {{ with $a.RelevanceReason }}<p class="item-reason">{{ . }}</p>{{ end }}
             </div>
             <div class="item-side">
                 {{ if $a.RelevanceScore }}

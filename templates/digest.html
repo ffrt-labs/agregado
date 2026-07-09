@@ -44,6 +44,7 @@
                     <a class="title" href="{{ .ExternalURL }}" target="_blank" rel="noopener"
                        hx-post="/api/articles/{{ .ID }}/read" hx-trigger="click" hx-swap="none">{{ .Title }}</a>
                     {{ with excerpt .Summary }}<p class="excerpt">{{ . }}</p>{{ end }}
+                    {{ with .Reason }}<p class="reason">{{ . }}</p>{{ end }}
                     <div class="acts">
                         <button class="fb up" hx-ext="json-enc" hx-post="/api/articles/{{ .ID }}/feedback"
                                 hx-vals='{"direction":"up"}' hx-swap="none"

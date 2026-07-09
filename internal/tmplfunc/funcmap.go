@@ -5,8 +5,10 @@
 package tmplfunc
 
 import (
+	"fmt"
 	"html/template"
 	"strings"
+	"time"
 
 	"github.com/felipeafreitas/agregado/internal/textutil"
 )
@@ -50,5 +52,26 @@ var Map = template.FuncMap{
 			return l
 		}
 		return ""
+	},
+	// timeAgo renders a compact recency label (e.g. "42m", "6h", "3d") for an
+	// email meta line, where table-based layouts can't rely on flex gaps to
+	// space out a "Jan 2" style absolute date the way the web UI does.
+	"timeAgo": func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		d := time.Since(*t)
+		switch {
+		case d < time.Minute:
+			return "just now"
+		case d < time.Hour:
+			return fmt.Sprintf("%dm", int(d.Minutes()))
+		case d < 24*time.Hour:
+			return fmt.Sprintf("%dh", int(d.Hours()))
+		case d < 7*24*time.Hour:
+			return fmt.Sprintf("%dd", int(d.Hours()/24))
+		default:
+			return t.Format("Jan 2")
+		}
 	},
 }

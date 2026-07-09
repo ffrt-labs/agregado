@@ -58,9 +58,10 @@ type emailItem struct {
 }
 
 type ComputedDigest struct {
-	Date     time.Time
-	Overview string
-	Groups   []TaggedArticles
+	Date           time.Time
+	Overview       string
+	Groups         []TaggedArticles
+	CandidateCount int
 }
 
 func NewGenerator(templateSrc string, provider ai.Provider, secret, baseURL string) (*Generator, error) {
@@ -94,7 +95,7 @@ func (g *Generator) feedbackURL(articleID, vote string) string {
 		g.baseURL, url.QueryEscape(articleID), vote, g.tokenFor(articleID, vote))
 }
 
-func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles) ComputedDigest {
+func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles, candidateCount int) ComputedDigest {
 	for i, group := range articles {
 		summary, err := g.provider.Summarize(ctx, group.Articles)
 		if err != nil {
@@ -121,9 +122,10 @@ func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles) Comp
 	}
 
 	return ComputedDigest{
-		Date:     time.Now(),
-		Overview: overview,
-		Groups:   articles,
+		Date:           time.Now(),
+		Overview:       overview,
+		Groups:         articles,
+		CandidateCount: candidateCount,
 	}
 }
 

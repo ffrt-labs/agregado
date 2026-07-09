@@ -7,11 +7,13 @@ import "time"
 // deliberately free of surface-specific concerns — no HTMX attributes, no Nav
 // sidebar, no absolute URLs — so both renderers can build from the same data.
 type DigestView struct {
-	Greeting     string
-	DeliveryTime string
-	Date         string
-	Intro        string
-	Groups       []DigestGroupView
+	Greeting       string
+	DeliveryTime   string
+	Date           string
+	Intro          string
+	Groups         []DigestGroupView
+	ClearedCount   int
+	CandidateCount int
 }
 
 type DigestGroupView struct {
@@ -39,7 +41,9 @@ type DigestItemView struct {
 // import cycle forms with internal/api).
 func BuildView(computed ComputedDigest, sourceNames map[string]string) DigestView {
 	groups := make([]DigestGroupView, 0, len(computed.Groups))
+	clearedCount := 0
 	for _, group := range computed.Groups {
+		clearedCount += len(group.Articles)
 		topic := "Uncategorized"
 		if group.Tag != nil {
 			topic = group.Tag.Name
@@ -69,11 +73,13 @@ func BuildView(computed ComputedDigest, sourceNames map[string]string) DigestVie
 	}
 
 	return DigestView{
-		Greeting:     timeGreeting(),
-		DeliveryTime: "this morning",
-		Date:         computed.Date.Format("Monday, January 2"),
-		Intro:        computed.Overview,
-		Groups:       groups,
+		Greeting:       timeGreeting(),
+		DeliveryTime:   "this morning",
+		Date:           computed.Date.Format("Monday, January 2"),
+		Intro:          computed.Overview,
+		Groups:         groups,
+		ClearedCount:   clearedCount,
+		CandidateCount: computed.CandidateCount,
 	}
 }
 

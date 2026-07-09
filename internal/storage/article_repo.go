@@ -141,8 +141,8 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minS
 		SELECT * FROM articles
 		WHERE COALESCE(published_at, ingested_at) > $1
 			AND is_read = false
-			AND (relevance_score >= $2 OR relevance_score IS NULL)
-		ORDER BY relevance_score DESC NULLS LAST, COALESCE(published_at, ingested_at) DESC
+			AND relevance_score >= $2
+		ORDER BY relevance_score DESC, COALESCE(published_at, ingested_at) DESC
 		LIMIT $3
 		`,
 		since,
@@ -196,6 +196,18 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minS
 	}
 
 	return articles, nil
+}
+
+// CountUnreadSince counts unread articles in the same window FindUnreadSince
+// selects from, before the relevance-score bar is applied. It is the
+// candidate pool the digest draws its "cleared the bar" list from.
+func (r *ArticleRepo) CountUnreadSince(ctx context.Context, since time.Time) (int, error) {
+	var count int
+	err := r.db.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM articles WHERE COALESCE(published_at, ingested_at) > $1 AND is_read = false",
+		since,
+	).Scan(&count)
+	return count, err
 }
 
 func (r *ArticleRepo) Search(ctx context.Context, query string, limit, offset int) ([]domain.Article, error) {

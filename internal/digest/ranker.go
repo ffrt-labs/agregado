@@ -12,6 +12,7 @@ import (
 
 type ArticleQuerier interface {
 	FindUnreadSince(ctx context.Context, since time.Time, minScore, limit int) ([]domain.Article, error)
+	CountUnreadSince(ctx context.Context, since time.Time) (int, error)
 }
 
 type TagQuerier interface {
@@ -46,17 +47,22 @@ func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int, minRel
 	}
 }
 
-func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]TaggedArticles, error) {
+func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]TaggedArticles, int, error) {
 	since := time.Now().Add(-time.Duration(lookbackHours) * time.Hour)
 
 	articles, err := r.articles.FindUnreadSince(ctx, since, r.minRelevanceScore, r.maxArticles)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	candidateCount, err := r.articles.CountUnreadSince(ctx, since)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	tags, err := r.tags.FindAll(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if r.categorizer != nil {
@@ -140,7 +146,7 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 		return groupTopScore(taggedArticles[a]) > groupTopScore(taggedArticles[b])
 	})
 
-	return taggedArticles, nil
+	return taggedArticles, candidateCount, nil
 }
 
 // lessByScoreThenDate orders articles by relevance score (higher first), then by

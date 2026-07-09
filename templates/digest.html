@@ -12,6 +12,12 @@
                         hx-on::after-request="window.location.href='/'">&#8635; Regenerate</button>
             </div>
 
+            {{ if .Generating }}
+            <div class="digest-generating" role="status">
+                Generating today's digest&hellip; this can take a few minutes. Reload to check progress.
+            </div>
+            {{ end }}
+
             <div class="digest-kicker">Agregado &middot; Daily Digest</div>
             <h1 class="digest-h1">{{ .Greeting }}</h1>
             <p class="digest-count">{{ .Nav.ClearedCount }} of {{ .Nav.ArticleCount }} stories cleared the bar this morning.</p>

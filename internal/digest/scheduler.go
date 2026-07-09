@@ -27,6 +27,11 @@ type Scheduler struct {
 	mu          sync.Mutex
 	cached      *ComputedDigest
 	cachedDate  string
+	// inFlight is non-nil while a compute is running and is closed when that
+	// compute finishes. It lets a caller that needs the result now (Today)
+	// wait on a compute already started in the background (TodayOrTrigger)
+	// instead of starting a redundant, duplicate-AI-call compute. Guarded by mu.
+	inFlight    chan struct{}
 }
 
 func NewScheduler(ranker *Ranker, generator *Generator, mailer *Mailer, sources SourceLister, config config.Digest) *Scheduler {
@@ -51,45 +56,108 @@ func (s *Scheduler) sourceNames(ctx context.Context) map[string]string {
 	return names
 }
 
+// Today returns today's digest, computing it synchronously (blocking) if the
+// cache is cold. Safe for callers where nothing is waiting on an HTTP
+// response — digest send and preview need the real content regardless of how
+// long the AI compute takes. The web homepage should use TodayOrTrigger
+// instead so a cold cache never blocks page load for minutes.
 func (s *Scheduler) Today(ctx context.Context) (ComputedDigest, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.awaitCompute(time.Now().Format("2006-01-02"))
+}
 
+// TodayOrTrigger returns the cached digest for today if warm (ok=true). If the
+// cache is cold, it starts (or joins) a background compute and returns
+// immediately with ok=false rather than blocking, so a cold cache never stalls
+// the page for the duration of a multi-minute AI compute.
+func (s *Scheduler) TodayOrTrigger(ctx context.Context) (computed ComputedDigest, ok bool) {
 	today := time.Now().Format("2006-01-02")
+
+	s.mu.Lock()
 	if s.cached != nil && s.cachedDate == today {
-		return *s.cached, nil
+		cached := *s.cached
+		s.mu.Unlock()
+		return cached, true
+	}
+	alreadyRunning := s.inFlight != nil
+	s.mu.Unlock()
+
+	if !alreadyRunning {
+		go func() {
+			if _, err := s.awaitCompute(today); err != nil {
+				log.Printf("digest: background compute failed: %v", err)
+			}
+		}()
 	}
 
-	return s.computeLocked(today)
+	return ComputedDigest{}, false
 }
 
-// Refresh forces a full recompute regardless of the cache and stores the fresh
-// result. Used by the manual "regenerate" action; ordinary reads go through Today.
+// Refresh drops the cache and computes a fresh digest, waiting for it to
+// finish. Used by the manual "regenerate" action, whose caller already shows
+// its own loading state while the request is in flight.
 func (s *Scheduler) Refresh(ctx context.Context) (ComputedDigest, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	today := time.Now().Format("2006-01-02")
-	return s.computeLocked(today)
+
+	s.mu.Lock()
+	s.cached = nil
+	s.mu.Unlock()
+
+	return s.awaitCompute(today)
 }
 
-// computeLocked runs the full digest pipeline and caches the result. Callers
-// must hold s.mu. It uses a background context so AI calls aren't cancelled if
-// the triggering HTTP request ends before the compute finishes.
-func (s *Scheduler) computeLocked(today string) (ComputedDigest, error) {
-	computeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+// awaitCompute returns today's digest, computing it if the cache is cold. If a
+// compute for today is already running (started by this or another caller),
+// it waits for that one to finish and re-checks the cache instead of starting
+// a second, redundant compute — GetDigestArticles/Compute make several AI
+// calls each, so duplicating a run duplicates real API cost.
+func (s *Scheduler) awaitCompute(today string) (ComputedDigest, error) {
+	s.mu.Lock()
+	if s.cached != nil && s.cachedDate == today {
+		cached := *s.cached
+		s.mu.Unlock()
+		return cached, nil
+	}
+	if s.inFlight != nil {
+		wait := s.inFlight
+		s.mu.Unlock()
+		<-wait
+		return s.awaitCompute(today)
+	}
+	done := make(chan struct{})
+	s.inFlight = done
+	s.mu.Unlock()
+
+	computed, err := s.runCompute(today)
+
+	s.mu.Lock()
+	if err == nil {
+		s.cached = &computed
+		s.cachedDate = today
+	}
+	s.inFlight = nil
+	s.mu.Unlock()
+	close(done)
+
+	return computed, err
+}
+
+// runCompute runs the full digest pipeline without touching the cache. It uses
+// a background context (not tied to any HTTP request) with a generous ceiling:
+// each AI call inside the pipeline already carries its own per-call timeout
+// (see ai.CloudflareProvider), so this only needs to bound the pipeline as a
+// whole, not race a single slow call.
+func (s *Scheduler) runCompute(today string) (ComputedDigest, error) {
+	computeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	articles, err := s.ranker.GetDigestArticles(computeCtx, s.config.LookbackHours)
+	articles, candidateCount, err := s.ranker.GetDigestArticles(computeCtx, s.config.LookbackHours)
 	if err != nil {
 		return ComputedDigest{}, err
 	}
 
 	log.Printf("digest: computing for %d groups", len(articles))
-	computed := s.generator.Compute(computeCtx, articles)
+	computed := s.generator.Compute(computeCtx, articles, candidateCount)
 	log.Printf("digest: computed overview=%t groups=%d", computed.Overview != "", len(computed.Groups))
-	s.cached = &computed
-	s.cachedDate = today
 	return computed, nil
 }
 

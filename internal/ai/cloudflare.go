@@ -24,11 +24,19 @@ const maxPromptContentChars = 500
 // prompt is always well-formed.
 var defaultCategorySlugs = []string{"tech", "business", "personal", "politics", "economy", "science", "health", "entertainment"}
 
+// defaultRequestTimeout bounds a single Cloudflare call when the caller
+// doesn't configure one. Digest compute makes several of these calls
+// sequentially (categorize per article, summarize per group, then the
+// overview) sharing one overall budget — without a per-call cap, one slow
+// request can exhaust that budget and starve every call queued behind it.
+const defaultRequestTimeout = 30 * time.Second
+
 type CloudflareProvider struct {
 	accountID	string
 	apiToken	string
 	model		string
 	client		*http.Client
+	requestTimeout	time.Duration
 
 	prompts	PromptStore // editable system prompts; nil → in-code defaults
 	tags	TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
@@ -40,12 +48,16 @@ type Messages struct {
 	Content	string	`json:"content"`
 }
 
-func NewCloudflareProvider(accountID, apiToken, model string, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
+func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
+	if requestTimeout <= 0 {
+		requestTimeout = defaultRequestTimeout
+	}
 	return &CloudflareProvider{
 		accountID: accountID,
 		apiToken: apiToken,
 		model: model,
-		client: http.DefaultClient,
+		client: &http.Client{Timeout: requestTimeout},
+		requestTimeout: requestTimeout,
 		prompts: prompts,
 		tags: tags,
 		logs: logs,
@@ -76,17 +88,32 @@ func (p *CloudflareProvider) categorySlugs(ctx context.Context) []string {
 // complete runs an AI call and records the request/response to the log sink,
 // whether it succeeds or fails. The operation label ties the log row to the
 // caller (score/categorize/summarize/digest).
+//
+// Each call gets its own bounded context (p.requestTimeout) rather than
+// inheriting whatever's left on the caller's deadline: digest compute makes
+// several of these calls back to back under one overall budget, and a single
+// slow call must not eat the time reserved for the calls after it.
 func (p *CloudflareProvider) complete(ctx context.Context, operation, systemPrompt, userPrompt string) (string, error) {
+	callCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
+	defer cancel()
+
 	start := time.Now()
-	response, err := p.doComplete(ctx, systemPrompt, userPrompt)
+	response, err := p.doComplete(callCtx, systemPrompt, userPrompt)
 	p.record(ctx, operation, systemPrompt, userPrompt, response, err, time.Since(start))
 	return response, err
 }
 
+// record persists a log entry using a context detached from the call's own
+// deadline/cancellation. Using the call's context here would mean a call that
+// failed with context deadline exceeded also fails to log itself — the
+// failure vanishes from the AI log table instead of showing up as a failed
+// row, which is exactly the visibility we need when a call times out.
 func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt, userPrompt, response string, callErr error, elapsed time.Duration) {
 	if p.logs == nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	entry := LogEntry{
 		Operation:    operation,
 		Model:        p.model,

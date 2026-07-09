@@ -59,6 +59,10 @@ type AI struct {
 	CloudflareAccountID	string	`env:"CLOUDFLARE_ACCOUNT_ID"`
 	CloudflareAPIToken	string	`env:"CLOUDFLARE_API_TOKEN"`
 	Model				string	`env:"AI_MODEL" envDefault:"@cf/google/gemma-4-26b-a4b-it"`
+	// RequestTimeout bounds a single AI call. Digest compute makes several
+	// calls back to back under one overall budget, so this caps how much of
+	// that budget one slow call can consume.
+	RequestTimeout		time.Duration	`env:"AI_REQUEST_TIMEOUT" envDefault:"30s"`
 }
 
 type Config struct {

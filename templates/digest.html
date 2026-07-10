@@ -10,6 +10,10 @@
                         hx-post="/api/digest/refresh" hx-swap="none"
                         hx-on::before-request="this.disabled=true; this.textContent='Regenerating&hellip;'"
                         hx-on::after-request="window.location.href='/'">&#8635; Regenerate</button>
+                <button class="regen" title="Send today's digest email now (testing)"
+                        hx-post="/api/digest/send" hx-swap="none"
+                        hx-on::before-request="this.disabled=true; this.textContent='Sending&hellip;'"
+                        hx-on::after-request="this.textContent = event.detail.successful ? '&#10003; Sent' : '&#10007; Failed'; this.disabled=false">&#9993; Send email</button>
             </div>
 
             {{ if .Generating }}

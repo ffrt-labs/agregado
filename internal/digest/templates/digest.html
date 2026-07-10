@@ -108,6 +108,7 @@
         {{ if $item.SourceName }}&nbsp;&middot;&nbsp;<span class="accent-text" style="color:#b07150;">{{ $item.SourceName }}</span>{{ end }}
         {{ if $item.PublishedAt }}&nbsp;&middot;&nbsp;{{ timeAgo $item.PublishedAt }}{{ end }}
         {{ if $item.EstimatedReadMinutes }}&nbsp;&middot;&nbsp;{{ $item.EstimatedReadMinutes }} min read{{ end }}
+        {{ if $item.RelevanceScore }}&nbsp;&middot;&nbsp;{{ scoreLabel $item.RelevanceScore }}{{ end }}
       </td></tr>
       <tr><td style="padding-top:8px;">
         <a href="{{ $item.ExternalURL }}" target="_blank" class="headline text-primary" style="font-family:Georgia,'Times New Roman',serif; font-size:20px; font-weight:600; line-height:1.3; color:#2a251e; letter-spacing:-0.01em;">{{ $item.Title }}</a>

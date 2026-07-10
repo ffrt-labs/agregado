@@ -44,8 +44,11 @@ func (m *Mailer) Send(ctx context.Context, to, subject, html, text string) error
 	msg.FromFormat(m.config.FromName, m.config.FromMail)
 	msg.To(to)
 	msg.Subject(subject)
-	msg.SetBodyString(mail.TypeTextHTML, html)
-	msg.AddAlternativeString(mail.TypeTextPlain, text)
+	// multipart/alternative orders parts least- to most-preferred; clients
+	// render the last part they can display. Plain text must come first and the
+	// HTML alternative last so the styled version wins (RFC 2046 §5.1.4).
+	msg.SetBodyString(mail.TypeTextPlain, text)
+	msg.AddAlternativeString(mail.TypeTextHTML, html)
 
 	c, err := m.dial()
 	if err != nil {

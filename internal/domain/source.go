@@ -15,6 +15,7 @@ type Source struct {
 	Type 			Type
 	URL 			*string
 	EmailSender 	*string `db:"email_sender"`
+	Identity		*string `db:"identity"`
 	Priority 		int
 	IsActive 		bool `db:"is_active" json:"is_active"`
 	LastFetchedAt	*time.Time `db:"last_fetched_at"`

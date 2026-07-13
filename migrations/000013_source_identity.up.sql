@@ -1,0 +1,1 @@
+ALTER TABLE sources ADD COLUMN identity VARCHAR(255);

@@ -30,7 +30,7 @@ type Handler struct {
 }
 
 type SourceRepository interface {
-	FindByEmailSender(ctx context.Context, email string) (*domain.Source, error)
+	FindByIdentity(ctx context.Context, identity string) (*domain.Source, error)
 	Create(ctx context.Context, source domain.Source) (*domain.Source, error)
 	TouchEmailReceived(ctx context.Context, id string) error
 }
@@ -59,19 +59,24 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
       	return
 	}
 
-	article, senderEmail, err := h.parser.Parse(payload)
+	article, sender, err := h.parser.Parse(payload)
 	if (err != nil) {
 		http.Error(w, "Failed to parse email", http.StatusInternalServerError)
       	return
 	}
 
-	source, err := h.sources.FindByEmailSender(r.Context(), senderEmail)
-	if (err != nil) {
+	source, err := h.sources.FindByIdentity(r.Context(), sender.Identity)
+	if err != nil {
+		http.Error(w, "Failed to look up source", http.StatusInternalServerError)
+		return
+	}
+	if source == nil {
 		source, err = h.sources.Create(context.Background(), domain.Source{
 			Type: domain.Newsletter,
-			Name: senderEmail,
+			Name: sender.Name,
 			IsActive: true,
-			EmailSender: &senderEmail,
+			EmailSender: &sender.Address,
+			Identity: &sender.Identity,
 		})
 		if err != nil {
 			http.Error(w, "Failed to create source", http.StatusInternalServerError)

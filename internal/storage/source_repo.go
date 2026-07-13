@@ -53,11 +53,12 @@ func (r *SourceRepo) ListActive(ctx context.Context) ([]domain.Source, error) {
 func (r *SourceRepo) Create(ctx context.Context, source domain.Source) (*domain.Source, error) {
 	row, err := r.db.pool.Query(
 		ctx,
-		"INSERT INTO sources(name, type, url, email_sender, priority, is_active, extract_links, summarize) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+		"INSERT INTO sources(name, type, url, email_sender, identity, priority, is_active, extract_links, summarize) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
 		source.Name,
 		source.Type,
 		source.URL,
 		source.EmailSender,
+		source.Identity,
 		source.Priority,
 		source.IsActive,
 		source.ExtractLinks,
@@ -90,7 +91,7 @@ func (r *SourceRepo) Delete(ctx context.Context, id string) error {
 func (r *SourceRepo) Update(ctx context.Context, source domain.Source) error {
 	_, err := r.db.pool.Exec(
 		ctx,
-		"UPDATE sources SET name = $2, type = $3, url = $4, email_sender = $5, priority = $6, is_active = $7, last_fetched_at = $8, last_error = $9, error_count = $10, default_tag_id = $11, extract_links = $12, summarize = $13, updated_at = NOW() WHERE id=$1",
+		"UPDATE sources SET name = $2, type = $3, url = $4, email_sender = $5, priority = $6, is_active = $7, last_fetched_at = $8, last_error = $9, error_count = $10, default_tag_id = $11, extract_links = $12, summarize = $13, identity = $14, updated_at = NOW() WHERE id=$1",
 		source.ID,
 		source.Name,
 		source.Type,
@@ -104,6 +105,7 @@ func (r *SourceRepo) Update(ctx context.Context, source domain.Source) error {
 		source.DefaultTagID,
 		source.ExtractLinks,
 		source.Summarize,
+		source.Identity,
 	)
 
 	return err
@@ -119,26 +121,34 @@ func (r *SourceRepo) TouchEmailReceived(ctx context.Context, id string) error {
 	return err
 }
 
-func (r *SourceRepo) FindByEmailSender(ctx context.Context, email string) (*domain.Source, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE email_sender=$1", email)
+// FindByURL looks up a source by its feed URL. Unlike FindByID, "not found" is
+// returned as (nil, nil) rather than propagating pgx.ErrNoRows — it's the
+// expected, common branch when checking import candidates for duplicates, not
+// an error condition.
+func (r *SourceRepo) FindByURL(ctx context.Context, url string) (*domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE url=$1", url)
 	if err != nil {
 		return nil, err
 	}
 
 	source, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[domain.Source])
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
 	return &source, nil
 }
 
-// FindByURL looks up a source by its feed URL. Unlike FindByID/
-// FindByEmailSender, "not found" is returned as (nil, nil) rather than
-// propagating pgx.ErrNoRows — it's the expected, common branch when checking
-// import candidates for duplicates, not an error condition.
-func (r *SourceRepo) FindByURL(ctx context.Context, url string) (*domain.Source, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE url=$1", url)
+// FindByIdentity looks up a newsletter source by its stable identity key
+// (List-Id, or the From-header address as a fallback — see F3.3). Like
+// FindByURL, "not found" is returned as (nil, nil) rather than propagating
+// pgx.ErrNoRows: it's the expected, common branch on a source's first email,
+// not an error condition.
+func (r *SourceRepo) FindByIdentity(ctx context.Context, identity string) (*domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE identity=$1", identity)
 	if err != nil {
 		return nil, err
 	}

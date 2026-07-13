@@ -35,8 +35,12 @@ func NewWorker(repo ArticleCreator, scorer AIScorer, scoreUpdater ScoreUpdater, 
 		}
 		id, err := repo.Create(ctx, article)
 
-		if err != nil || id == "" {
+		if err != nil {
 			return err
+		}
+		if id == "" {
+			log.Printf("worker: skipped duplicate article external_url=%q title=%q", article.ExternalURL, article.Title)
+			return nil
 		}
 
 		// RSS feeds populate the body in either <content:encoded> (Content)

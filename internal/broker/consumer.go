@@ -56,18 +56,29 @@ func (c *Consumer) Consume(queueName string, handler func([]byte) error) error {
 	return nil
 }
 
+// maxNackBodyLog caps how much of a NACK'd message body is logged, so a large
+// newsletter article doesn't flood the log — just enough to identify it.
+const maxNackBodyLog = 300
+
 func worker(msgs <-chan amqp091.Delivery, handler func([]byte) error) {
 	for msg := range msgs {
 		err := handler(msg.Body)
 
 		if err != nil {
 			msg.Nack(false, false)
-			fmt.Printf("Message NACK'd: %v\n", err)
+			fmt.Printf("Message NACK'd: %v (body=%s)\n", err, truncateBody(msg.Body, maxNackBodyLog))
 		} else {
 			msg.Ack(false)
 			fmt.Println("Message ACK'd")
 		}
 	}
+}
+
+func truncateBody(body []byte, max int) string {
+	if len(body) <= max {
+		return string(body)
+	}
+	return string(body[:max]) + "...(truncated)"
 }
 
 func (p *Consumer) Close() error {

@@ -45,7 +45,9 @@ func main() {
 		log.Fatal("Failed to load broker", err)
 	}
 	fmt.Printf("Broker loaded: %+v\n", b)
-	b.DeclareTopology()
+	if err := b.DeclareTopology(); err != nil {
+		log.Fatal("Failed to declare broker topology", err)
+	}
 
 	publisher, err := broker.NewPublisher(b)
 	if err != nil {

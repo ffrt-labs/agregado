@@ -16,7 +16,13 @@
 		"directory": "./public"
 	},
 	"observability": {
-		"enabled": true
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false
+    }
 	},
 	"upload_source_maps": true
 	/**

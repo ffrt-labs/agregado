@@ -637,6 +637,327 @@ Progress tracker for building Agregado. Check items as you complete them.
 
 ---
 
+## Phase 10: Fix newsletter ingestion — stable source identity (production incident)
+
+**Symptom:** Newsletter subscription confirmed, emails visibly arrive in the
+forwarding inbox, but no coherent source or article appears in the app — no error
+visible anywhere in the app.
+
+**Diagnosis (DONE — boundary-evidence method).** `wrangler tail` on `email-worker`
+showed the Cloudflare Worker successfully POSTing every incoming newsletter and
+getting `Ok`/200 back (three live TLDR emails observed). So the infra hypothesis
+(WEBHOOK_SECRET / `cloudflared` / tunnel drift) is **ruled out** — the plumbing is
+fine. The real defect is **semantic**: the webhook keys the source on
+`payload.From` (`internal/ingestion/email/parser.go:33`), which is the SMTP
+**envelope** sender — an ESP bounce/VERP address that rotates every send
+(`bounces+…@em6054.thenewscc.com.br`, `0100019f…@dailyupdate.tldrnewsletter.com`).
+`FindByEmailSender` never matches → every email creates a brand-new source. The
+Worker already forwards all headers in `payload.Headers`, but the parser ignores
+them. See PRD **F3.3**.
+
+### 10.1 Diagnose — DONE
+- [x] `wrangler tail` — Worker returns `Ok`/200 per email (infra ruled out)
+- [x] Root cause identified: envelope-from rotation → per-email source creation
+      (`parser.go` keys on `payload.From`; `payload.Headers` ignored)
+
+### 10.2 Fix: stable newsletter identity (see PRD F3.3)
+- [x] Migration `000013_source_identity` — added `identity VARCHAR(255)` to
+      `sources` (nullable; stable newsletter key) + matching `Identity *string`
+      field on `domain.Source`. **Not yet applied to any database** — run
+      `make migrate-up` when your dev/prod DB is reachable (not run from this
+      session: no local Docker daemon, and this shouldn't be run against a
+      possibly-live DB without you at the wheel)
+- [x] `email-worker` payload already carries `headers` — confirmed no Worker
+      change needed
+- [x] `internal/ingestion/email/parser.go` — `resolveSender()` reads
+      `payload.Headers`: `List-Id` → `From:`-header address (via `net/mail.ParseAddress`)
+      → envelope `from`; `Article.Author` now set from the `From:` header, not
+      the envelope
+- [x] Source `Name` derived from the `From:` header display name (e.g. "TLDR")
+- [x] `internal/storage/source_repo.go` — added `FindByIdentity(ctx, key)`
+      returning `(nil, nil)` on not-found (mirrors `FindByURL`); removed the now-
+      unused `FindByEmailSender` (had the ErrNoRows-as-error shape that caused
+      the bug)
+- [x] `internal/ingestion/email/webhook.go` — looks up by identity; creates only
+      on a genuine `nil` miss (a real lookup error now correctly 500s instead of
+      silently creating a duplicate source)
+- [ ] **Known gap, not closed:** no DB-level uniqueness constraint or upsert on
+      `identity` — two near-simultaneous emails from a brand-new newsletter could
+      still race into two sources. Same risk class as the pre-existing
+      `FindByURL`-based OPML import flow (not a regression), but worth a `UNIQUE`
+      index + `ON CONFLICT` later if it proves to matter in practice.
+- [x] Unit tests (`internal/ingestion/email/parser_test.go`) cover: List-Id
+      preferred, From-header fallback, envelope fallback, malformed From header,
+      missing display name, and identity staying stable across the 3 real
+      rotating envelope addresses captured live via `wrangler tail`
+
+### 10.3 Close the observability gaps (independent of root cause) — DONE
+- [x] `internal/storage/worker.go` — logs `worker: skipped duplicate article
+      external_url=... title=...` when `repo.Create` returns `id == "", nil`
+- [x] `internal/broker/consumer.go` `worker()` — NACK log now includes a
+      truncated (300-char) message body so a DLQ'd message is diagnosable from
+      `docker logs` alone
+- [x] `cmd/agregado/main.go` — `b.DeclareTopology()`'s error is now checked and
+      `log.Fatal`'d, matching every other startup step in `main()`
+
+### Phase 10 Verification
+- [x] `go build ./...` && `go vet ./...` pass
+- [x] `go test ./...` passes — identity resolution unit-tested, including
+      stability across the 3 real rotating envelope addresses from `wrangler tail`
+- [ ] **Needs your environment:** apply migration `000013` (`make migrate-up`),
+      then send 2+ real emails from the same newsletter end-to-end → confirm
+      **one** source, named after the newsletter, with a real `Article.Author`
+- [ ] Force a duplicate insert against a live DB → confirm the new dedup log line
+- [ ] Force a consumer handler error → confirm the NACK log line identifies
+      which message failed and why, without needing the RabbitMQ UI
+
+---
+
+## Phase 11: Content Hygiene (Clean Ingest + 24h Retention)
+
+**Goal:** Stop CSS/HTML noise from reaching the AI, and stop articles accumulating
+forever. See `docs/PRD.md` F10.
+
+**Decisions:** clean at ingest (store clean `content`); hard-delete unsaved articles
+older than 24h (keep `is_saved`); learning survives in the weight tables.
+
+### 11.1 Clean content at ingest (F10a)
+- [ ] Create `internal/textutil/clean.go` — `Clean(html string) string`: strip
+      `<style>`/`<script>`/tags/inline CSS with `goquery`, then `go-readability` for
+      main-content extraction
+- [ ] Call `Clean` in `internal/ingestion/rss/parser.go` before building the article
+- [ ] Call `Clean` in `internal/ingestion/email/parser.go` before building the article
+- [ ] Derive `summary` from the cleaned body (not raw HTML)
+- [ ] Verify: ingest a noisy feed (e.g. beehiiv/Hacker News) → stored `content` has no
+      tag/CSS soup
+
+### 11.2 24h retention job (F10b)
+- [ ] Migration `000013_parent_on_delete_set_null` — drop + re-add
+      `articles.parent_article_id` FK as `ON DELETE SET NULL`
+- [ ] Add `ARTICLE_RETENTION_HOURS` (default `24`) and `RETENTION_SCHEDULE`
+      (default hourly) to `internal/config/config.go` + `.env.example`
+- [ ] Add `DeleteOlderThan(ctx, cutoff time.Time) (int, error)` to `ArticleRepo`
+      (`DELETE ... WHERE ingested_at < $1 AND is_saved = false`)
+- [ ] Register a cron job that runs **after** the digest and calls `DeleteOlderThan`
+- [ ] Add `POST /api/retention/run` manual trigger (mirror `/api/digest/send`)
+- [ ] Verify: unsaved old article deleted; `is_saved=true` article and weight tables untouched
+
+### Phase 11 Verification
+- [ ] Noisy feed ingested → `content` is clean readable text
+- [ ] Retention job deletes only unsaved articles past the window
+- [ ] `go build ./...` && `go vet ./...` pass
+
+---
+
+## Phase 12: Personalization — Implicit Feedback & Topic Cloud
+
+**Goal:** Learn from opened links (not just votes), build a keyword-level "nuvem de
+assuntos", and feed it back into scoring. See `docs/PRD.md` F11.
+
+**Decisions:** AI-extracted keywords per article (new `keyword_weights` layer beside
+`topic_weights`); opens captured via `/r/{id}` redirect; cloud both visualizes AND
+biases the `Score` prompt.
+
+### 12.1 DB Schema — migration `000014`
+- [ ] `keyword_weights` (keyword PK, weight FLOAT default 1.0, updated_at)
+- [ ] `article_keywords` (article_id FK ON DELETE CASCADE, keyword, PK(article_id, keyword))
+- [ ] Run migration; verify tables exist
+
+### 12.2 AI keyword extraction
+- [ ] Add `ExtractKeywords(ctx, title, content string) ([]string, error)` to
+      `internal/ai/provider.go`
+- [ ] Implement in `internal/ai/cloudflare.go` (prompt: return 3–5 salient
+      keywords/entities, one per line); add default system prompt + admin-editable entry
+- [ ] Add `SetKeywords(ctx, articleID string, keywords []string) error` to storage
+- [ ] Wire extraction at ingest (RSS poller + email webhook) after `Create`
+
+### 12.3 Weight tables + repos
+- [ ] Create `internal/storage/keyword_weights_repo.go` — `Upsert(ctx, keyword, delta)`
+      (clamp 0.1–2.0), `Top(ctx, n) ([]KeywordWeight, error)`
+- [ ] Extend the existing feedback handler: on 👍/👎, also upsert `keyword_weights`
+      for the article's keywords (+0.1 / −0.1)
+
+### 12.4 Open tracking redirect
+- [ ] Add `GET /r/{article_id}` handler: look up article → bump its `keyword_weights`
+      (+0.05) and tag `topic_weights` → `302` to the real `external_url`
+- [ ] Change article title links to route through `/r/{id}` in: digest email template,
+      web article/home templates, and (later) the reading feed
+- [ ] Verify: clicking a link records the open and lands on the real URL
+
+### 12.5 Score prompt injection
+- [ ] Inject top-N `keyword_weights` into the `Score` prompt (alongside `topic_weights`)
+- [ ] Verify: a `score` AI-log row shows the keyword weights block
+
+### 12.6 Topic cloud UI
+- [ ] Add `GET /cloud` handler → query `keyword_weights.Top(n)`
+- [ ] Create `templates/cloud.html` — font-size-weighted keyword cloud
+- [ ] Add nav link to the cloud page
+
+### Phase 12 Verification
+- [ ] Ingest an article → `article_keywords` rows created
+- [ ] Click a link → `keyword_weights` bumped, open redirects correctly
+- [ ] Vote 👍/👎 → both `topic_weights` and `keyword_weights` update
+- [ ] `/cloud` renders top keywords sized by weight
+
+---
+
+## Phase 13: Vocabulário Agregado (Daily English Word)
+
+**Goal:** Each daily digest suggests one useful English word (meaning + example),
+drawn from the day's content, in both email and web. See `docs/PRD.md` F12.
+
+**Decisions:** AI-generated from digest content at compute time; `vocab_history`
+prevents repeats; renders via the shared `DigestView`.
+
+### 13.1 DB Schema — migration `000015`
+- [ ] `vocab_history` (id, word, meaning, example, shown_on DATE, created_at)
+- [ ] Run migration; verify table exists
+
+### 13.2 AI word suggestion
+- [ ] Add `SuggestWord(ctx, summaries []string) (Word, error)` to
+      `internal/ai/provider.go` (`Word{Word, Meaning, Example}`)
+- [ ] Implement in `internal/ai/cloudflare.go`; pass recent `vocab_history` words to
+      avoid repeats; add default system prompt + admin-editable entry
+- [ ] Add `vocab_history` repo: `RecentWords(ctx, n)`, `Insert(ctx, word)`
+
+### 13.3 View integration
+- [ ] Call `SuggestWord` during the digest compute (before the 24h retention job);
+      persist to `vocab_history`; soft-fail (omit on AI error)
+- [ ] Add `WordOfDay *Word` to `digest.DigestView` (populated in `BuildView`)
+- [ ] Render the word block in `internal/digest/templates/digest.html` (email) and the
+      web home template
+- [ ] Verify: same word block appears in email and on `GET /`, and doesn't repeat
+
+### Phase 13 Verification
+- [ ] Digest compute produces + persists a word
+- [ ] Word block renders in email and web, identical
+- [ ] AI failure omits the block without breaking the digest
+
+---
+
+## Phase 14: Bookmarks Reading Feed (scrollable)
+
+**Goal:** Flip through bookmarked articles in a full-screen, vertically-scrollable
+feed. See `docs/PRD.md` F13.
+
+**Prerequisite:** the bookmark API + `is_saved` from **Phase 4.1 / 4.8** must be done
+first (`POST /api/bookmarks`, `GET /api/bookmarks`, `is_saved`, `FindSaved`).
+
+**Decisions:** bookmarks-only source; text-only cards (title + source + summary); taps
+open through the F11 `/r/{id}` redirect.
+
+### 14.1 Reading feed
+- [ ] Add `GET /feed` handler → reuse `ArticleRepo.FindSaved` (paginated)
+- [ ] Create `templates/feed.html` — full-screen vertical scroll of saved-article cards
+      (title + source + summary); card tap → `/r/{article_id}`
+- [ ] HTMX infinite scroll / pagination for the feed
+- [ ] Empty state when there are no bookmarks
+- [ ] Add nav link to the feed
+
+### Phase 14 Verification
+- [ ] `/feed` renders saved articles as scrollable cards
+- [ ] Tapping a card records an open and opens the real article
+- [ ] Empty state shows when no bookmarks exist
+- [ ] `go build ./...` && `go vet ./...` pass
+
+---
+
+## Phase 15: Article Open Redirect + Reader Page
+
+**Goal:** Fix the "clicking an article does nothing" bugs and give newsletters a
+home to open into. See `docs/PRD.md` **F5.3**.
+
+**Root causes (verified):** (a) newsletter `external_url = newsletter:<uuid>` →
+`html/template` emits `#ZgotmplZ`; (b) the title `<a>` carries `href` + `hx-post`
+on one click and htmx `preventDefault`s anchors, so navigation never fires (breaks
+RSS links too); (c) newsletters have no external page (body is in `Content`).
+
+**Decisions:** route all title links through `GET /r/{id}` (record open + mark read
+→ 302); newsletters redirect to an in-app reader `GET /articles/{id}` backed by the
+existing `ArticleRepo.GetById`. Pulls a subset of F11 (`/r/`) + F5 detail forward.
+
+### 15.1 Open-tracking redirect
+- [ ] `GET /r/{article_id}` handler in `internal/api` — `GetById` → mark read →
+      `302`: RSS/manual → `external_url`; newsletter (`external_url` has `newsletter:`
+      scheme, or `source.type == newsletter`) → `/articles/{id}`
+- [ ] Route in `internal/api/server.go` (top-level `GET /r/{id}`)
+- [ ] (Defer F11 keyword/topic weight bumps to Phase 12 — this ships record+redirect)
+
+### 15.2 Reader page
+- [ ] `GET /articles/{id}` handler → `GetById` → render reader template
+- [ ] `templates/reader.html` — renders `Article.Content` (Markdown once F14 lands),
+      title, source name, date; "open original" link for RSS
+- [ ] Add `GetById` to the `ArticleRepository` interface used by `ArticleHandler`
+      (`internal/api/articles.go`) — currently only the feedback handler uses it
+
+### 15.3 Repoint title links (kills ZgotmplZ + the htmx-preventDefault bug)
+- [ ] `templates/articles.html`, `templates/article_list.html`, web
+      `templates/digest.html`, email `internal/digest/templates/digest.html`,
+      `templates/bookmarks.html` — change `href="{{ .ExternalURL }}"` +
+      `hx-post=".../read"` to `href="/r/{{ .ID }}"` (plain URL; drop the hx-post so
+      the anchor navigates); read-marking now happens in `/r/{id}`
+- [ ] Keep optimistic `is-read` UI styling if desired (CSS class on click), but
+      without intercepting navigation
+
+### Phase 15 Verification
+- [ ] Clicking an RSS title opens the external article (new tab) AND marks it read
+- [ ] Clicking a newsletter title opens the in-app reader with the full body
+- [ ] No `href="#ZgotmplZ"` remains in any rendered list
+- [ ] `go build ./...` && `go vet ./...` pass
+
+---
+
+## Phase 16: Newsletter AI Content Pipeline (Markdown + Extractive Compression)
+
+**Goal:** Let the AI score/categorize/summarize newsletters from their real
+substance, not the first 500 chars of CSS + boilerplate. See `docs/PRD.md` **F14**.
+
+**Root causes (verified):** `maxPromptContentChars = 500` (`internal/ai/cloudflare.go`)
+truncates Score/Categorize/Reason; `textutil.Clean` strips tags but not
+`<style>`/`<script>` *contents*; the configured model `@cf/moonshotai/kimi-k2.7-code`
+is a **code** model.
+
+**Decisions:** 2-stage ingest pipeline (Markdown conversion → cheap-model extractive
+compression), run async in the storage worker; persist a `distilled_content` column;
+raise the cap to a configurable budget; switch the main model to an instruct model.
+Open sub-decisions (pick at implementation): exact storage split (lean: Markdown as
+display `content` + separate `distilled_content` for AI) and which HTML→Markdown lib
++ cheap compression model.
+
+### 16.1 Semantic Markdown conversion (also improves the F5.3 reader)
+- [ ] `internal/ingestion/email/parser.go` — replace `html2text.FromString` with a
+      goquery pre-strip (`<style>`/`<script>`/tracking pixels/hidden preheader) +
+      an HTML→Markdown pass (e.g. `JohannesKaufmann/html-to-markdown/v2` — confirm)
+- [ ] Store the Markdown as `content` (used by the reader + as compression input)
+
+### 16.2 Extractive compression (cheap-model AI pass)
+- [ ] Add `Compress(ctx, content string) (string, error)` to `internal/ai/provider.go`
+- [ ] Implement in `internal/ai/cloudflare.go` using `AI_COMPRESS_MODEL` (a small/fast
+      model); default system prompt in `internal/ai/prompts.go` + admin-editable
+- [ ] Migration `000017_distilled_content` (number provisional — take the next free
+      slot at implementation time) — add `distilled_content TEXT` to `articles`
+      + `DistilledContent *string` on `domain.Article`
+- [ ] `internal/storage/worker.go` — after `Create`, run Compress → persist
+      `distilled_content`; Score/Reason use it. Soft-fail → fall back to raw content
+- [ ] `internal/digest/ranker.go` — Categorize uses `distilled_content` when present
+
+### 16.3 Cap + model
+- [ ] Make `maxPromptContentChars` configurable — `AI_MAX_CONTENT_CHARS` (default
+      ~8000) in `internal/config/config.go` + `.env.example`; use in cloudflare.go
+- [ ] Switch `AI_MODEL` (`.env` + config default) to a general instruct model
+      (e.g. `@cf/google/gemma-4-26b` or a Llama-instruct) — keep the code model only
+      for compression if it performs there
+
+### Phase 16 Verification
+- [ ] A `score`/`categorize` row in `/admin/logs` shows dense distilled content —
+      no CSS/`<style>` soup, not truncated at 500 chars
+- [ ] Newsletter tags/scores visibly improve vs. title-only classification
+- [ ] A compression failure degrades gracefully (article still scored on fallback)
+- [ ] The reader page (Phase 15) shows the structured Markdown body
+- [ ] `go build ./...` && `go vet ./...` pass
+
+---
+
 ## Post-MVP Features (Pick as desired)
 
 ### Multi-Content Type Support

@@ -244,6 +244,47 @@ Many newsletters require clicking a confirmation link before they start sending.
 - Multi-step confirmation flows (e.g. requiring form submission)
 - Storing confirmation state per source
 
+#### F3.3: Stable Newsletter Identity
+**User Story:** As a user, all emails from one newsletter map to a single source,
+not a new source per email.
+
+**Motivation (production bug):** The webhook keys the source on `payload.From`
+(`internal/ingestion/email/parser.go`), which is the SMTP **envelope** sender —
+an ESP bounce/VERP address that rotates every send (e.g.
+`bounces+27731166-…@em6054.thenewscc.com.br`,
+`0100019f…@dailyupdate.tldrnewsletter.com`). So `FindByEmailSender` never matches
+and **every email creates a brand-new source**. This is the true root cause of the
+"newsletter subscribed but nothing coherent appears" incident (the Cloudflare
+Worker returns `Ok`/200 for every email — the plumbing is fine; the *identity* is
+wrong). The rotating address also leaks into `Article.Author`.
+
+**Key insight:** the Cloudflare Worker (`email-worker/src/index.ts`) already
+forwards *all* parsed headers in the JSON payload's `headers` map (lowercased
+keys). The Go parser simply ignores `Payload.Headers`. The stable identity is
+already in hand — it just isn't read.
+
+**Design decisions (confirmed):**
+- **Identity resolution order:** `List-Id` header (RFC 2919, the gold standard for
+  mailing-list identity) → the `From:` **header** address (e.g. `dan@tldrnewsletter.com`,
+  stable) → the envelope `from` (last-resort fallback for malformed mail).
+- **Source `Name`** comes from the `From:` header display name (e.g. "TLDR"),
+  not the bounce address.
+- **`Article.Author`** uses the `From:` header (name/address), not the envelope.
+- **Storage:** a new stable-key column on `sources` (e.g. `identity` / `list_key`),
+  plus a matching `domain.Source` field. NOTE: all `SourceRepo` reads use
+  `SELECT *` + `pgx.RowToStructByName`, so the struct MUST gain the field in
+  lockstep with the migration or every read errors.
+- **Lookup + dedup:** a stable-key lookup that returns `(nil, nil)` on not-found
+  (mirroring `FindByURL`, *not* the `ErrNoRows`-as-error shape of
+  `FindByEmailSender`), plus a uniqueness guard / upsert so a retry or race can't
+  re-create the same source.
+
+**Acceptance Criteria:**
+- Ten emails from one newsletter (rotating envelope-from) map to **one** source.
+- The source is named after the newsletter (From display name), not a bounce address.
+- `Article.Author` is the human sender, not the envelope address.
+- A newly-seen newsletter still auto-creates its source on first email.
+
 #### F4: Daily Digest Email
 **User Story:** As a user, I receive a daily email with top articles from the last 24 hours, organized by topic.
 
@@ -340,6 +381,45 @@ Daily Digest
 - Form at top of bookmarks page accepts a URL, fetches title/summary, saves as article with `is_saved = true`
 - Remove button un-saves the article (does not delete it)
 - `is_saved BOOLEAN DEFAULT false` column on `articles` table
+
+#### F5.3: Article Reader Page + Open Redirect
+**User Story:** As a user, clicking any article title opens it — a real page for RSS
+links, an in-app reader for newsletters — and the app records that I opened it.
+
+**Motivation (two stacked bugs):**
+1. **`#ZgotmplZ`** — newsletter articles have `external_url = newsletter:<uuid>`, an
+   unknown scheme, so `html/template` refuses to emit it in `href` and substitutes
+   its filter-failure sentinel `#ZgotmplZ` (`templates/articles.html`,
+   `article_list.html`, `digest.html`). The link points nowhere.
+2. **htmx swallows the click** — the title `<a>` carries both `href` AND
+   `hx-post="/api/articles/{id}/read"` on the same click. htmx calls
+   `preventDefault()` on anchors it's bound to, so the mark-as-read POST fires but
+   the browser never navigates — this breaks **RSS** links too, even though their
+   `href` is valid.
+Additionally, newsletters have **no external page** — their body lives in
+`Article.Content` — so even a valid link has nowhere to go.
+
+**Design decisions (confirmed):**
+- **`GET /r/{article_id}`** (a subset of F11's redirect, pulled forward): record the
+  open + mark the article read, then `302` — RSS → `external_url`; newsletter →
+  the in-app reader `GET /articles/{id}`. (The weight-bumping personalization of
+  F11 lands later; this version just records + redirects.)
+- **`GET /articles/{id}`** — an in-app reader page rendering `Article.Content`
+  (Markdown for newsletters once F14 lands). Backed by `ArticleRepo.GetById`, which
+  already exists (`internal/storage/article_repo.go`) but is currently unrouted for
+  this purpose.
+- **All title links route through `/r/{id}`** — a plain `http(s)` URL, so no
+  `ZgotmplZ`; and the anchor no longer carries `hx-post`, so navigation works.
+  Read-marking moves server-side into `/r/{id}` (it can still be reflected in the UI
+  optimistically). Applies to `articles.html`, `article_list.html`, web
+  `digest.html`, the email `internal/digest/templates/digest.html`, and
+  `bookmarks.html`.
+
+**Acceptance Criteria:**
+- Clicking an RSS title opens the external article (new tab) AND marks it read.
+- Clicking a newsletter title opens the in-app reader showing the full body.
+- No `href="#ZgotmplZ"` remains in any rendered article list.
+- Opening an article records it as read without a separate click.
 
 #### F6: Source Management UI
 **User Story:** As a user, I can manage my RSS feeds and see their status.
@@ -447,6 +527,11 @@ Improvement directions (not yet done): assign + **persist** tags at ingest time
 alongside relevance scoring (stable, deterministic, queryable in the web UI);
 log raw classifier output; feed richer content; support multiple tags.
 
+> **F14 supersedes the "feed richer content" item here.** The 500-char truncation
+> and CSS-soup problem are addressed by the Newsletter Content Pipeline (F14):
+> `Categorize`/`Score`/`Reason` consume the compressed, Markdown-derived
+> `distilled_content` instead of the first 500 chars of raw HTML.
+
 #### F9: Admin Console — AI Logs, Editable Prompts, Tag Settings
 **User Story:** As the operator, I can see exactly what prompts are sent to the AI
 and what it returns, tweak those prompts without redeploying, and manage the tag
@@ -494,6 +579,158 @@ log entry; the sink no-ops when the flag is off.
 - `/admin/tags` — create/edit/delete tags (name, slug, color); categorize uses the
   live list
 - Editing a prompt or tag is reflected in the *next* AI call's log (no restart)
+
+#### F10: Content Hygiene (Clean Ingest + 24h Retention)
+**User Story:** As a user, my article store stays small and my AI prompts see clean
+text, not CSS/HTML boilerplate.
+
+**Motivation:** RSS/newsletter bodies frequently leak raw markup into `content`
+(e.g. `.bh__table { border: 1px solid #C0C0C0; } … relembrar bom dia`), so the AI
+`Score`/`Categorize`/keyword prompts classify on noise. Separately, articles
+accumulate forever with no cleanup.
+
+**F10a — Clean content at ingest**
+- New `internal/textutil/clean.go` helper: strip `<style>`/`<script>`/tags/inline
+  CSS with `goquery`, then run `go-readability` to extract main content.
+- Called in the **RSS parser** and **email parser** *before* article `Create`/publish.
+- `articles.content` stores clean text; `summary` derived from the cleaned body.
+- **Acceptance:** no tag/CSS soup in stored `content`; AI prompts receive readable text.
+
+**F10b — 24h retention job**
+- Scheduled job (`robfig/cron`, `RETENTION_SCHEDULE`, default hourly) that runs
+  **after** the digest so the digest + vocabulary still see the day's articles.
+- `DELETE FROM articles WHERE ingested_at < now() - (ARTICLE_RETENTION_HOURS || '24h') AND is_saved = false`.
+- **FK handling:** alter `articles.parent_article_id` to `ON DELETE SET NULL` so
+  deleting a parent newsletter doesn't fail on referenced child articles.
+  `digest_articles` already cascades.
+- **Durability by design:** learning survives because it lives in the aggregate
+  weight tables (`topic_weights`, `keyword_weights`), not in the articles. A vote or
+  open bumps the weight immediately, before the article is ever deleted.
+- **Acceptance:** unsaved articles older than the window are removed; saved
+  (`is_saved = true`) articles and all weight tables are untouched. Manual trigger
+  via `POST /api/retention/run`.
+
+#### F11: Personalization — Implicit Feedback & Topic Cloud
+**User Story:** As a user, the app learns what I like from what I *open* (not just
+what I vote on), builds a "nuvem de assuntos" (topic cloud) of my interests, and
+uses it to score future articles higher.
+
+**Motivation:** Today the feedback loop is **explicit-only** (👍/👎) and **coarse**
+(8 tags via `topic_weights`). This adds the **implicit** signal (opening a link = weak
+positive) and **fine-grained** keywords, closing a real recommender loop.
+
+**Design decisions (confirmed):**
+- **Keyword layer, not a tag replacement.** A new `keyword_weights` table
+  (keyword → float, mirrors `topic_weights`) sits alongside the existing tag layer.
+- **AI extracts keywords per article at ingest** (`Provider.ExtractKeywords`) into
+  `article_keywords`, so an open/vote can map back to the article's keywords.
+- **Opens are captured via a redirect endpoint**, `GET /r/{article_id}`: records the
+  open, then `302`s to the real URL. Article title links in the **digest email, web
+  UI, and reading feed** all route through `/r/` so opens are tracked everywhere.
+- **The cloud feeds scoring.** Top `keyword_weights` are injected into the `Score`
+  prompt (exactly as `topic_weights` already are) — matching articles score higher.
+
+**Weight update rules (all clamp 0.1–2.0):**
+| Signal | Effect |
+|--------|--------|
+| Open (`/r/{id}`) | article's keywords **+0.05** (weak), tag weight bump |
+| 👍 vote | article's keywords **+0.1**, topic weight **+0.1** (existing) |
+| 👎 vote | article's keywords **−0.1**, topic weight **−0.1** (existing) |
+
+**Acceptance Criteria:**
+- Ingesting an article extracts keywords into `article_keywords`.
+- Clicking an article link records an open and bumps the relevant weights, then lands
+  on the real article.
+- A 👍/👎 vote updates both `topic_weights` (existing) and `keyword_weights` (new).
+- The `Score` prompt includes the top keyword weights.
+- `GET /cloud` renders the topic cloud (keywords sized by weight).
+
+#### F12: Vocabulário Agregado (Daily English Word)
+**User Story:** As a user improving my English, each daily digest suggests one useful
+word — with its meaning and an example sentence — drawn from the day's content.
+
+**Design decisions (confirmed):**
+- **AI-generated from today's digest content** (`Provider.SuggestWord`), so the word
+  is contextual to what I read. Computed during the **digest compute** (before the 24h
+  deletion runs).
+- **No repeats:** a `vocab_history` table records shown words; recent words are passed
+  to the prompt to avoid repetition.
+- **Shown in both places:** `WordOfDay` is added to the shared `DigestView` (F4.1
+  view-model) so it renders in the **digest email and the web home page**.
+
+**Acceptance Criteria:**
+- Each digest compute produces `{word, meaning, example}`, persisted to `vocab_history`.
+- The word is not one shown in the recent history window.
+- The word block renders identically in email and on `GET /`.
+- If the AI call fails, the block is omitted gracefully (never blocks the digest).
+
+#### F13: Bookmarks Reading Feed (scrollable)
+**User Story:** As a user, I can flip through my bookmarked articles in a full-screen,
+vertically-scrollable "TikTok-style" feed.
+
+**Design decisions (confirmed):**
+- **Source: bookmarks only** — reuses the `FindSaved` query (F5.2 / Phase 4.8).
+- **Text-only cards** — title + source + summary (no image for v1).
+- **Tap opens through `/r/{id}`** (F11 redirect) so feed opens feed the algorithm too.
+- **Depends on** the bookmark API already scoped in Phase 4.1 / 4.8
+  (`POST /api/bookmarks`, `is_saved`, `GET /api/bookmarks`).
+
+**Acceptance Criteria:**
+- `GET /feed` renders saved articles as full-screen scrollable cards.
+- Infinite scroll / pagination via HTMX.
+- Tapping a card records an open and navigates to the real article.
+- Empty state when no bookmarks exist.
+
+#### F14: Newsletter Content Pipeline for AI (Markdown + Extractive Compression)
+**User Story:** As a user, the AI actually understands my newsletters — it scores,
+categorizes and summarizes them from their real substance, not their first 500
+characters of CSS and greeting boilerplate.
+
+**Motivation:** Every body-consuming AI op (`Score`, `Categorize`, `Reason`) caps
+content at `maxPromptContentChars = 500` (`internal/ai/cloudflare.go`), so a
+newsletter (thousands–tens of thousands of chars) is judged on ~1–5% of itself —
+usually the header/nav/greeting. `textutil.Clean` strips tags but **not** the
+*contents* of `<style>`/`<script>`, so inline CSS soup eats even that tiny budget.
+Full content already flows in from `worker.go`/`ranker.go`, so this is about *what*
+we feed the model, not plumbing. Two additional facts: the configured model is
+`@cf/moonshotai/kimi-k2.7-code` — a **code** model doing summarization — and
+`Summarize`/`Digest` never see bodies at all.
+
+**Design decisions (confirmed):** a 2-stage ingest preprocessing pipeline, run
+**async in the storage worker** (off the webhook request path, alongside `Score`):
+
+1. **Semantic Markdown Conversion** (rules-based, cheap, deterministic) — replace
+   flat `html2text.FromString` (`parser.go`) with an HTML→Markdown pass (goquery
+   pre-strip of `<style>`/`<script>`/tracking pixels/hidden preheader, then an
+   HTML→Markdown library) that preserves headings, lists, links, emphasis. This
+   improves the AI input **and** gives the F5.3 reader page nicely structured
+   content — one change, two wins.
+2. **Extractive Compression** (a cheap-model AI pass) — new `Provider.Compress`
+   using a small/fast model (`AI_COMPRESS_MODEL`) that distills the Markdown to its
+   salient, non-redundant content (drops ads, navigation, repeated boilerplate),
+   preserving key facts/structure. Soft-fail: on error, fall back to truncated raw
+   content so ingestion never blocks.
+3. **Configurable budget** — replace the hardcoded `500` with `AI_MAX_CONTENT_CHARS`
+   (large default, e.g. 8000). With compression the input is usually well under it.
+4. **Model switch** — move the main `AI_MODEL` to a general instruct/summarization
+   model (e.g. the config default `@cf/google/gemma-4-26b`, or a Llama-instruct);
+   keep the cheap model only for the compression stage.
+
+**Storage (lean default — confirm at implementation):** store the Markdown as the
+display `content` (used by the F5.3 reader), and persist the compressed result in a
+new `articles.distilled_content` column so both ingest-time `Score`/`Reason` and
+digest-time `Categorize` reuse it instead of re-truncating raw HTML every run.
+
+**Relationship to F10a:** this **supersedes/augments** the pure `go-readability`
+cleaner idea — Markdown conversion + a cheap-model compression pass is the chosen
+approach for the AI's content input.
+
+**Acceptance Criteria:**
+- A `score`/`categorize` entry in `/admin/logs` shows dense, readable distilled
+  content (Markdown-derived) — no CSS/`<style>` soup, not truncated at 500 chars.
+- Newsletter tags/scores visibly improve vs. title-only classification.
+- A compression failure degrades gracefully (article still scored on fallback text).
+- The reader page (F5.3) shows the structured Markdown body.
 
 ### Post-MVP Features (Prioritized)
 
@@ -614,7 +851,8 @@ CREATE TABLE sources (
     name VARCHAR(255) NOT NULL,
     type VARCHAR(50) NOT NULL CHECK (type IN ('rss', 'newsletter')),
     url VARCHAR(2048),                    -- RSS feed URL (null for newsletters)
-    email_sender VARCHAR(255),            -- Newsletter sender email (null for RSS)
+    email_sender VARCHAR(255),            -- Newsletter From-header address (STABLE; was envelope-from, see F3.3)
+    identity VARCHAR(255),                -- F3.3: stable newsletter key (List-Id or From-header addr); lookup/dedup key
     default_tag_id UUID REFERENCES tags(id) ON DELETE SET NULL,  -- Default tag for new articles
     priority INTEGER DEFAULT 5,           -- 1-10, higher = more important
     is_active BOOLEAN DEFAULT true,
@@ -634,7 +872,8 @@ CREATE TABLE articles (
     title VARCHAR(500) NOT NULL,
     author VARCHAR(255),
     summary TEXT,                         -- Short preview
-    content TEXT,                         -- Full content if available
+    content TEXT,                         -- Display body (F14: semantic Markdown for newsletters)
+    distilled_content TEXT,               -- F14: cheap-model extractive-compression output, fed to Score/Categorize/Reason
     content_hash VARCHAR(64),             -- SHA-256 for content deduplication
     published_at TIMESTAMP,
     ingested_at TIMESTAMP DEFAULT NOW(),
@@ -720,6 +959,40 @@ CREATE TABLE admin_settings (
 );
 
 -- ============================================
+-- PERSONALIZATION & CONTENT TABLES (F10–F13)
+-- ============================================
+
+-- Fine-grained interest weights (F11) — mirrors topic_weights, keyword-level
+CREATE TABLE keyword_weights (
+    keyword    TEXT PRIMARY KEY,
+    weight     FLOAT NOT NULL DEFAULT 1.0,   -- clamped 0.1–2.0
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- AI-extracted keywords per article (F11) — lets an open/vote map back to keywords.
+-- Cascades on article delete; the weight was already banked, so no learning is lost.
+CREATE TABLE article_keywords (
+    article_id UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    keyword    TEXT NOT NULL,
+    PRIMARY KEY (article_id, keyword)
+);
+
+-- Daily vocabulary history (F12) — avoids repeating recently shown words
+CREATE TABLE vocab_history (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    word       TEXT NOT NULL,
+    meaning    TEXT NOT NULL,
+    example    TEXT NOT NULL,
+    shown_on   DATE NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- F10b: retention job must delete parent newsletters without failing on child FKs.
+-- Migration drops the existing articles_parent_article_id_fkey and re-adds it as:
+--   REFERENCES articles(id) ON DELETE SET NULL
+-- so deleting a parent orphans (rather than blocks) any surviving child articles.
+
+-- ============================================
 -- SOCIAL MEDIA TABLES (Post-MVP)
 -- ============================================
 
@@ -790,6 +1063,7 @@ POST   /api/backup/send          - Manually trigger the periodic OPML backup ema
 # Articles
 GET    /api/articles             - List articles (paginated, filterable by tag)
 GET    /api/articles/:id         - Get article details
+GET    /articles/{id}            - In-app reader page for one article (F5.3; renders Content, Markdown for newsletters)
 PATCH  /api/articles/:id/read    - Mark as read
 PATCH  /api/articles/:id/unread  - Mark as unread
 POST   /api/articles/:id/tags    - Add tags to article
@@ -809,6 +1083,12 @@ POST   /api/digest/send          - Manually trigger digest
 
 # Webhook
 POST   /webhook/email            - Cloudflare Email Routing webhook
+
+# Personalization & Reading (F10–F13)
+GET    /r/{article_id}           - Record open + mark read, 302 → external_url (RSS) or /articles/{id} (newsletter). F5.3 ships record+redirect; F11 adds keyword/topic weight bumps.
+GET    /cloud                    - Render the topic cloud from keyword_weights (F11)
+GET    /feed                     - Full-screen scrollable reading feed of bookmarks (F13)
+POST   /api/retention/run        - Manually trigger the 24h retention delete (F10b)
 
 # Social Sources (Post-MVP)
 GET    /api/social-sources           - List social accounts
@@ -907,9 +1187,14 @@ ollama:
 ### Relevance Scoring
 
 **Scoring Factors:**
+0. **Content input (F14)** — the LLM scores/categorizes from `distilled_content`
+   (Markdown conversion + cheap-model extractive compression), not the first 500
+   chars of raw HTML. Governs input size via `AI_MAX_CONTENT_CHARS`. This is the
+   single biggest lever on scoring quality for newsletters.
 1. **AI quality + global importance** — LLM rates each article 1–5 at ingest time using its own knowledge of what's globally significant. No external trend API needed.
 2. **Topic weights** — `topic_weights` table (topic slug → float 0.1–2.0) biases the AI prompt toward user interests. Starts neutral (1.0 for all topics); adjusted by feedback over time.
-3. **Digest cap** — configurable `DIGEST_CAP` (default 20) and `DIGEST_MIN_SCORE` (default 3) filter and limit the digest.
+3. **Keyword weights (F11)** — `keyword_weights` table (keyword → float 0.1–2.0) is the fine-grained layer. Top weights are injected into the `Score` prompt alongside topic weights. Fed by both explicit votes and implicit opens (`/r/{id}`).
+4. **Digest cap** — configurable `DIGEST_CAP` (default 20) and `DIGEST_MIN_SCORE` (default 3) filter and limit the digest.
 
 **Relevance Score Storage:**
 ```sql
@@ -936,6 +1221,12 @@ CREATE TABLE article_feedback (
 ```
 
 Each digest email includes per-article 👍/👎 links (HMAC-signed, separate from article link). Clicking feedback: inserts a row in `article_feedback`, fetches the article's tags, and upserts `topic_weights` (up → +0.1, down → -0.1, clamped 0.1–2.0).
+
+**Implicit feedback (F11):** in addition to explicit votes, opening an article via the
+`GET /r/{article_id}` redirect is a weak positive signal. It bumps `keyword_weights`
+for the article's extracted keywords (**+0.05**) plus the article's tag weight, then
+`302`s to the real URL. Explicit votes also update `keyword_weights` (up → +0.1,
+down → −0.1) for the article's keywords, so both layers learn together.
 
 **Blocklist Storage:**
 ```sql

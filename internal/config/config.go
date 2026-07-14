@@ -75,6 +75,22 @@ type AI struct {
 	MaxContentChars		int	`env:"AI_MAX_CONTENT_CHARS" envDefault:"8000"`
 }
 
+type Fetch struct {
+	// Timeout bounds a single article-page fetch.
+	Timeout			time.Duration	`env:"FETCH_TIMEOUT" envDefault:"15s"`
+	// MaxBytes caps how much of a response body is read, regardless of
+	// Content-Length — a defensive limit against oversized/misbehaving pages.
+	MaxBytes		int64	`env:"FETCH_MAX_BYTES" envDefault:"5242880"`
+	// MinContentChars is the quality-gate floor: extracted plain text shorter
+	// than this is treated as a failed fetch (consent wall, SPA shell,
+	// paywall) and the article falls back to feed content.
+	MinContentChars	int	`env:"FETCH_MIN_CONTENT_CHARS" envDefault:"500"`
+	UserAgent		string	`env:"FETCH_USER_AGENT" envDefault:"Agregado/1.0 (+https://github.com/felipeafreitas/agregado)"`
+	// DistillMaxChars caps the algorithmic extractive pass (internal/textutil.Distill)
+	// that produces articles.distilled_content.
+	DistillMaxChars	int	`env:"DISTILL_MAX_CHARS" envDefault:"2000"`
+}
+
 type Config struct {
 	Database
 	Queue
@@ -85,6 +101,7 @@ type Config struct {
 	SMTP
 	AI
 	Backup
+	Fetch
 }
 
 func Load() (*Config, error) {

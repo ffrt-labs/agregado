@@ -15,6 +15,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/digest"
+	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/mail"
 	"github.com/felipeafreitas/agregado/internal/storage"
@@ -61,6 +62,16 @@ func main() {
 	}
 	fmt.Printf("Consumer created: %+v\n", consumer)
 
+	// Own channel (and therefore own Qos/prefetch) from the storage consumer —
+	// enrichment runs a fetch + up to two AI calls per article and needs real
+	// concurrency; storage stays fast and effectively serial. See
+	// broker.Consumer.Consume.
+	enrichConsumer, err := broker.NewConsumer(b)
+	if err != nil {
+		log.Fatal("Failed to create enrich consumer", err)
+	}
+	fmt.Printf("Enrich consumer created: %+v\n", enrichConsumer)
+
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
 	weightsRepo := storage.NewTopicWeightsRepo(db)
@@ -95,9 +106,10 @@ func main() {
 	parser := rss.NewParser()
 	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)
 
+	fetcher := fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent)
 
-
-	handler := storage.NewWorker(articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore)
+	handler := storage.NewWorker(articleRepo, publisher)
+	enrichHandler := storage.NewEnrichHandler(articleRepo, articleRepo, fetcher, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 
 	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore)
 
@@ -105,7 +117,8 @@ func main() {
 	go server.Start(ctx, cfg.Http.Port)
 	go scheduler.Start(ctx)
 	go backupScheduler.Start(ctx)
-	consumer.Consume("articles.store", handler)
+	consumer.Consume("articles.store", 1, 5, handler)
+	enrichConsumer.Consume("articles.enrich", 5, 5, enrichHandler)
 
 	<-ctx.Done()
 
@@ -116,6 +129,7 @@ func main() {
 	server.Shutdown(shutdownCtx)
 	publisher.Close()
 	consumer.Close()
+	enrichConsumer.Close()
 	db.Close()
 	b.Close()
 }

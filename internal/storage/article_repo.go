@@ -253,6 +253,27 @@ func (r *ArticleRepo) UpdateRelevanceReason(ctx context.Context, id string, reas
 	return err
 }
 
+// UpdateContent persists an article's enriched body: content is the display
+// form (fetched Markdown or the best available feed text), distilled is the
+// short algorithmic extract used to budget AI prompts, source records where
+// content came from (see the content_source CHECK constraint), and wordCount/
+// readMinutes are derived from content so the digest's read-time estimate
+// stops being computed from unset columns.
+func (r *ArticleRepo) UpdateContent(ctx context.Context, id, content, distilled, source string, wordCount, readMinutes int) error {
+	_, err := r.db.pool.Exec(
+		ctx,
+		"UPDATE articles SET content = $2, distilled_content = $3, content_source = $4, word_count = $5, estimated_read_minutes = $6 WHERE id = $1",
+		id,
+		content,
+		distilled,
+		source,
+		wordCount,
+		readMinutes,
+	)
+
+	return err
+}
+
 func (r *ArticleRepo) UpdateSummary(ctx context.Context, id string, summary string) error {
 	_, err := r.db.pool.Exec(
 		ctx,
@@ -310,6 +331,28 @@ func (r *ArticleRepo) CountAboveScore(ctx context.Context, minScore int) (int, e
 		minScore,
 	).Scan(&count)
 	return count, err
+}
+
+// FindUnenriched returns the IDs of articles that have never been through the
+// enrichment stage (content_source is still NULL) — new rows waiting on the
+// enrich queue, or older rows created before Phase 17 existed. Backs the
+// admin backfill trigger (POST /api/admin/enrich).
+func (r *ArticleRepo) FindUnenriched(ctx context.Context) ([]string, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT id FROM articles WHERE content_source IS NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *ArticleRepo) CountSaved(ctx context.Context) (int, error) {

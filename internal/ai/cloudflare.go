@@ -192,13 +192,34 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	return result.Result.Choices[0].Message.Content, nil
 }
 
+// defaultSummarizeExcerptChars bounds each article's content excerpt in the
+// Summarize prompt. Titles alone (the old behavior) give the model nothing
+// to summarize but its own prior guesses at relevance; a real excerpt plus
+// the article's already-computed RelevanceReason gives it substance without
+// re-paying for a full body per article.
+const defaultSummarizeExcerptChars = 400
+
 func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Article) (string, error) {
 	systemPrompt := p.systemPrompt(ctx, OpSummarize)
-	var titles strings.Builder
-  	for _, a := range articles {
-      fmt.Fprintf(&titles, "- %s\n", a.Title)
-   	}
-    userPrompt := fmt.Sprintf("Articles:\n%s\nSummary:", titles.String())
+
+	excerptBudget := defaultSummarizeExcerptChars
+	if n := len(articles); n > 0 {
+		if perArticle := p.maxContentChars / n; perArticle < excerptBudget {
+			excerptBudget = perArticle
+		}
+	}
+
+	var body strings.Builder
+	for _, a := range articles {
+		fmt.Fprintf(&body, "- %s\n", a.Title)
+		if a.RelevanceReason != nil && *a.RelevanceReason != "" {
+			fmt.Fprintf(&body, "  Why it matters: %s\n", *a.RelevanceReason)
+		}
+		if excerpt := textutil.Clean(a.BestText(), excerptBudget); excerpt != "" {
+			fmt.Fprintf(&body, "  Excerpt: %s\n", excerpt)
+		}
+	}
+	userPrompt := fmt.Sprintf("Articles:\n%s\nSummary:", body.String())
 
 	return p.complete(ctx, OpSummarize, systemPrompt, userPrompt)
 }

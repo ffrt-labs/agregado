@@ -48,7 +48,7 @@ func main() {
         return nil
     }
 
-    if err := consumer.Consume("articles.store", handler); err != nil {
+    if err := consumer.Consume("articles.store", 1, 5, handler); err != nil {
     	log.Fatal("Failed to start consumer:", err)
     }
     fmt.Println("✓ Consumer started")

@@ -22,11 +22,22 @@ func NewConsumer(b *Broker) (*Consumer, error) {
 	}, nil
 }
 
-func (c *Consumer) Consume(queueName string, handler func([]byte) error) error {
-	const numWorkers = 5
+// Consume starts numWorkers goroutines draining queueName, acking on success
+// and NACKing (no requeue) on failure. prefetch bounds how many unacked
+// messages RabbitMQ will hand this consumer at once — with global=false this
+// is scoped per consumer, so numWorkers goroutines only run concurrently if
+// prefetch is raised to match; at prefetch 1 the broker won't deliver message
+// N+1 until N is acked, no matter how many goroutines are waiting.
+func (c *Consumer) Consume(queueName string, prefetch, numWorkers int, handler func([]byte) error) error {
+	if prefetch <= 0 {
+		prefetch = 1
+	}
+	if numWorkers <= 0 {
+		numWorkers = 1
+	}
 
 	err := c.ch.Qos(
-		1,
+		prefetch,
 		0,
 		false,
 	)

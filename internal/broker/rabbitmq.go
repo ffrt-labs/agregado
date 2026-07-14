@@ -155,5 +155,46 @@ func (b *Broker) DeclareTopology() error {
 		nil,
 	)
 
+	if err != nil {
+		return err
+	}
+
+	err = ch.ExchangeDeclare(
+		"articles.enrich",
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	_, err = ch.QueueDeclare(
+		"articles.enrich",
+		true,
+		false,
+		false,
+		false,
+		amqp091.Table{
+			"x-dead-letter-exchange": "articles.dlx",
+		},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	err = ch.QueueBind(
+		"articles.enrich",
+		"#",
+		"articles.enrich",
+		false,
+		nil,
+	)
+
 	return err
 }

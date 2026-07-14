@@ -12,9 +12,19 @@ import (
 // htmlTagRe matches any HTML tag.
 var htmlTagRe = regexp.MustCompile(`<[^>]*>`)
 
+// htmlBlockRe matches a style/script/head/noscript element including its
+// contents. Go's RE2 engine has no backreferences, so the closing tag can't be
+// tied to the opening one by name — an alternation over these four names in
+// both positions is good enough in practice, since a <style> block is never
+// closed by </script>.
+var htmlBlockRe = regexp.MustCompile(`(?is)<(style|script|head|noscript)\b[^>]*>.*?</(style|script|head|noscript)\s*>`)
+
 // Strip removes HTML tags, decodes HTML entities (&amp; -> &), and collapses
-// runs of whitespace into single spaces.
+// runs of whitespace into single spaces. style/script/head/noscript elements
+// are removed along with their contents (not just their tags), so inline CSS
+// and JS never leak into the stripped text.
 func Strip(s string) string {
+	s = htmlBlockRe.ReplaceAllString(s, " ")
 	s = htmlTagRe.ReplaceAllString(s, " ")
 	s = html.UnescapeString(s)
 	return strings.Join(strings.Fields(s), " ")

@@ -72,7 +72,7 @@ func main() {
 	aiLogRepo := storage.NewAILogRepo(db)
 	aiLogger := storage.NewAILogger(settingsRepo, aiLogRepo)
 
-	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, promptRepo, tagRepo, aiLogger)
+	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger)
 
 	ranker := digest.NewRanker(
 		articleRepo,

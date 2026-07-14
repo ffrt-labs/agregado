@@ -14,10 +14,9 @@ import (
 	"github.com/felipeafreitas/agregado/internal/textutil"
 )
 
-// maxPromptContentChars caps how much article body we feed the model. Keeping
-// the window small keeps the prompt focused (and cheaper) without starving the
-// model of signal.
-const maxPromptContentChars = 500
+// defaultMaxContentChars bounds how much article body we feed the model when
+// the caller doesn't configure a budget.
+const defaultMaxContentChars = 8000
 
 // defaultCategorySlugs is the fallback allowed-list appended to the categorize
 // prompt when no live tags are available (nil TagLister or empty result), so the
@@ -37,6 +36,7 @@ type CloudflareProvider struct {
 	model		string
 	client		*http.Client
 	requestTimeout	time.Duration
+	maxContentChars	int
 
 	prompts	PromptStore // editable system prompts; nil → in-code defaults
 	tags	TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
@@ -48,9 +48,12 @@ type Messages struct {
 	Content	string	`json:"content"`
 }
 
-func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
+func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, maxContentChars int, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
 	if requestTimeout <= 0 {
 		requestTimeout = defaultRequestTimeout
+	}
+	if maxContentChars <= 0 {
+		maxContentChars = defaultMaxContentChars
 	}
 	return &CloudflareProvider{
 		accountID: accountID,
@@ -58,6 +61,7 @@ func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout tim
 		model: model,
 		client: &http.Client{Timeout: requestTimeout},
 		requestTimeout: requestTimeout,
+		maxContentChars: maxContentChars,
 		prompts: prompts,
 		tags: tags,
 		logs: logs,
@@ -210,14 +214,14 @@ func (p *CloudflareProvider) Categorize(ctx context.Context, title, content stri
 	// Append the live tag slugs so the classifier can only pick from current tags.
 	systemPrompt := p.systemPrompt(ctx, OpCategorize) +
 		" Allowed slugs: " + strings.Join(p.categorySlugs(ctx), ", ") + "."
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, maxPromptContentChars))
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
 
 	return p.complete(ctx, OpCategorize, systemPrompt, userPrompt)
 }
 
 func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {
 	systemPrompt := p.systemPrompt(ctx, OpReason)
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, maxPromptContentChars))
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
 
 	result, err := p.complete(ctx, OpReason, systemPrompt, userPrompt)
 	if err != nil {
@@ -235,7 +239,7 @@ func (p *CloudflareProvider) Score(ctx context.Context, title, content string, t
 		fmt.Fprintf(&weights, "- %s: %.1f\n", topic, w)
 	}
 
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s\n\nTopic interest weights (1.0 = neutral, higher = more interested): %s", title, textutil.Clean(content, maxPromptContentChars), weights.String())
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s\n\nTopic interest weights (1.0 = neutral, higher = more interested): %s", title, textutil.Clean(content, p.maxContentChars), weights.String())
 
 	result, err := p.complete(ctx, OpScore, systemPrompt, userPrompt)
 	if err != nil {

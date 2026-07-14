@@ -70,6 +70,9 @@ type AI struct {
 	// calls back to back under one overall budget, so this caps how much of
 	// that budget one slow call can consume.
 	RequestTimeout		time.Duration	`env:"AI_REQUEST_TIMEOUT" envDefault:"30s"`
+	// MaxContentChars caps how much article body Score/Categorize/Reason feed
+	// the model. 8000 is a rough per-call budget, not a model-specific window.
+	MaxContentChars		int	`env:"AI_MAX_CONTENT_CHARS" envDefault:"8000"`
 }
 
 type Config struct {

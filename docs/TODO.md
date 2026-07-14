@@ -940,41 +940,72 @@ is a **code** model.
 **Decisions:** 2-stage ingest pipeline (Markdown conversion → cheap-model extractive
 compression), run async in the storage worker; persist a `distilled_content` column;
 raise the cap to a configurable budget; switch the main model to an instruct model.
-Open sub-decisions (pick at implementation): exact storage split (lean: Markdown as
-display `content` + separate `distilled_content` for AI) and which HTML→Markdown lib
-+ cheap compression model.
+Scoped into a **lean core round** (this session — fix the two biggest lowest-risk
+levers, no new dependency/migration/AI call) followed by a **deferred round**
+(Markdown conversion + `distilled_content` + `Compress`).
+Open sub-decisions for the deferred round (pick at implementation): exact storage
+split (lean: Markdown as display `content` + separate `distilled_content` for AI)
+and which HTML→Markdown lib + cheap compression model.
 
-### 16.1 Semantic Markdown conversion (also improves the F5.3 reader)
+### 16.0 Lean core — DONE (this session)
+- [x] `internal/textutil/textutil.go` — `Strip` now removes whole
+      `<style|script|head|noscript>…</…>` blocks (contents included, not just the
+      tags) via a pre-pass regex before the existing tag-strip. RE2 has no
+      backreferences, so the closing-tag match is an alternation over the same
+      four names rather than a captured backreference. `internal/textutil/textutil_test.go`
+      (new) covers CSS/script leakage, mixed case, multiple blocks, plaintext
+      passthrough, entity unescaping, and rune-safe truncation
+- [x] Retired the hardcoded `maxPromptContentChars = 500` — added
+      `AI.MaxContentChars int` (`AI_MAX_CONTENT_CHARS`, default `8000`) to
+      `internal/config/config.go`; `CloudflareProvider` takes a `maxContentChars`
+      constructor param (`<=0` → `defaultMaxContentChars = 8000`, mirrors the
+      `requestTimeout` guard); `Categorize`/`Reason`/`Score` use `p.maxContentChars`
+- [x] `.env` `AI_MODEL` corrected from the Kimi **code** model to
+      `@cf/google/gemma-4-26b-a4b-it` (an instruct model — matches the config
+      default, which was already correct; only `.env` was wrong). Added
+      `AI_MODEL` + `AI_MAX_CONTENT_CHARS` to `.env.example` (both were previously
+      undocumented there)
+- [x] `go build ./...`, `go vet ./...`, `go test ./...` pass
+- [x] Live-verified against the real local stack: temporarily bumped one real
+      unread article into the digest lookback window (`published_at`/`ingested_at`
+      → now, `relevance_score` → above the min bar) and triggered
+      `POST /api/digest/refresh` — fresh `categorize`/`summarize`/`digest` rows in
+      `ai_logs` show `model = @cf/google/gemma-4-26b-a4b-it`, all `success = true`.
+      Reverted the article to its original values afterward.
+- [ ] **Not observed live:** a dramatic CSS-soup before/after, because this local
+      DB's RSS sources only ever populate `Article.Summary` (clean, short feed
+      descriptions) — no article currently has `Content` with real HTML/CSS. The
+      bug this fixes is specifically a newsletter problem (no newsletter articles
+      exist in this DB right now). The fix itself is proven by the new unit tests,
+      which encode the exact `<style>…</style>` leak scenario directly.
+
+### 16.1 Semantic Markdown conversion (also improves the F5.3 reader) — deferred
 - [ ] `internal/ingestion/email/parser.go` — replace `html2text.FromString` with a
       goquery pre-strip (`<style>`/`<script>`/tracking pixels/hidden preheader) +
       an HTML→Markdown pass (e.g. `JohannesKaufmann/html-to-markdown/v2` — confirm)
 - [ ] Store the Markdown as `content` (used by the reader + as compression input)
 
-### 16.2 Extractive compression (cheap-model AI pass)
+### 16.2 Extractive compression (cheap-model AI pass) — deferred
 - [ ] Add `Compress(ctx, content string) (string, error)` to `internal/ai/provider.go`
 - [ ] Implement in `internal/ai/cloudflare.go` using `AI_COMPRESS_MODEL` (a small/fast
       model); default system prompt in `internal/ai/prompts.go` + admin-editable
-- [ ] Migration `000017_distilled_content` (number provisional — take the next free
-      slot at implementation time) — add `distilled_content TEXT` to `articles`
-      + `DistilledContent *string` on `domain.Article`
+- [ ] Migration `000014_distilled_content` (number provisional — `000014` is the
+      real next free slot on disk as of this session; confirm at implementation
+      time) — add `distilled_content TEXT` to `articles` + `DistilledContent *string`
+      on `domain.Article`
 - [ ] `internal/storage/worker.go` — after `Create`, run Compress → persist
       `distilled_content`; Score/Reason use it. Soft-fail → fall back to raw content
 - [ ] `internal/digest/ranker.go` — Categorize uses `distilled_content` when present
 
-### 16.3 Cap + model
-- [ ] Make `maxPromptContentChars` configurable — `AI_MAX_CONTENT_CHARS` (default
-      ~8000) in `internal/config/config.go` + `.env.example`; use in cloudflare.go
-- [ ] Switch `AI_MODEL` (`.env` + config default) to a general instruct model
-      (e.g. `@cf/google/gemma-4-26b` or a Llama-instruct) — keep the code model only
-      for compression if it performs there
-
 ### Phase 16 Verification
+- [x] Cap + model corrected, live-verified (see 16.0)
 - [ ] A `score`/`categorize` row in `/admin/logs` shows dense distilled content —
-      no CSS/`<style>` soup, not truncated at 500 chars
+      no CSS/`<style>` soup, not truncated at 500 chars (needs a real newsletter
+      article to observe; deferred round)
 - [ ] Newsletter tags/scores visibly improve vs. title-only classification
 - [ ] A compression failure degrades gracefully (article still scored on fallback)
 - [ ] The reader page (Phase 15) shows the structured Markdown body
-- [ ] `go build ./...` && `go vet ./...` pass
+- [x] `go build ./...` && `go vet ./...` pass
 
 ---
 

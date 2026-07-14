@@ -15,7 +15,8 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 15 done → Phase 16 (Newsletter AI Content Pipeline)
+**Active phase:** Phase 16 lean core done → Phase 16 deferred round (Markdown +
+distilled_content + Compress)
 **Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
 
 ### Completed
@@ -32,13 +33,25 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
   `preventDefault`-ing the anchor's `href`, plus `ZgotmplZ` on newsletter
   `external_url`s). Covered by `internal/api/articles_test.go`; live-verified
   against the local dev stack (real RSS redirect + a temporary newsletter test row)
+- Phase 16 lean core: `textutil.Strip` now removes `<style>`/`<script>` element
+  *contents*, not just the tags (was leaking CSS/JS into every AI prompt and
+  every excerpt); the hardcoded 500-char AI content cap is now configurable
+  (`AI_MAX_CONTENT_CHARS`, default 8000); `.env`'s `AI_MODEL` corrected from a
+  code model to the instruct model the config default already specified.
+  Covered by `internal/textutil/textutil_test.go`; live-verified via a real
+  digest refresh (fresh `ai_logs` rows show the corrected model)
 
 ### Next
-- Phase 16: Newsletter AI Content Pipeline (Markdown conversion + Extractive
-  Compression so scoring/summarization sees real newsletter substance)
-- Known gap: digest-email `/r/{id}` link only confirmed by template parse +
-  `go vet`, not a live click-through (no articles currently clear the relevance
-  bar in the local DB) — re-check next time real digest candidates exist
+- Phase 16 deferred round: HTML→Markdown conversion at ingest (also upgrades the
+  Phase 15 reader body), `distilled_content` column + migration, `Provider.Compress`
+  cheap-model extractive-compression pass
+- Known gap: neither the CSS-soup fix nor the cap/model fix has been observed
+  live against a real newsletter — this local DB currently has zero newsletter
+  articles (only RSS, whose `Summary` is already short/clean). Unit tests prove
+  the fix; re-confirm live once real newsletters land
+- Known gap (carried from Phase 15): digest-email `/r/{id}` link only confirmed
+  by template parse + `go vet`, not a live click-through — re-check next time
+  real digest candidates exist
 
 ### Key library choices (from PRD §4)
 | Purpose | Library |

@@ -45,8 +45,7 @@
                         {{ if .EstimatedReadMinutes }}<span class="sep">&middot;</span><span class="when">{{ .EstimatedReadMinutes }} min read</span>{{ end }}
                         {{ if .RelevanceScore }}<span class="dots s{{ .RelevanceScore }}">{{ dots .RelevanceScore }}</span>{{ end }}
                     </div>
-                    <a class="title" href="{{ .ExternalURL }}" target="_blank" rel="noopener"
-                       hx-post="/api/articles/{{ .ID }}/read" hx-trigger="click" hx-swap="none">{{ .Title }}</a>
+                    <a class="title" href="/r/{{ .ID }}" target="_blank" rel="noopener">{{ .Title }}</a>
                     {{ with excerpt .Summary }}<p class="excerpt">{{ . }}</p>{{ end }}
                     {{ with .Reason }}<p class="reason">{{ . }}</p>{{ end }}
                     <div class="acts">

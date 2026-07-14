@@ -29,7 +29,7 @@
                         <span class="when">{{ if .SavedAt }}saved {{ .SavedAt.Format "Jan 2" }}{{ else }}saved{{ end }}</span>
                         {{ if .IsManual }}<span class="pill link">link</span>{{ end }}
                     </div>
-                    <a class="bm-title" href="{{ .ExternalURL }}" target="_blank" rel="noopener">{{ .Title }}</a>
+                    <a class="bm-title" href="/r/{{ .ID }}" target="_blank" rel="noopener">{{ .Title }}</a>
                     {{ with excerpt .Summary }}<p class="bm-excerpt">{{ . }}</p>{{ end }}
                 </div>
                 <button class="bm-remove" title="Remove bookmark"

@@ -9,8 +9,7 @@
                     {{ if $a.PublishedAt }}<span class="sep">&middot;</span><span class="when">{{ $a.PublishedAt.Format "Jan 2" }}</span>{{ end }}
                     {{ if $a.IsRead }}<span class="read-tag">&check; read</span>{{ end }}
                 </div>
-                <a class="item-title" href="{{ $a.ExternalURL }}" target="_blank" rel="noopener"
-                   hx-post="/api/articles/{{ $a.ID }}/read" hx-trigger="click" hx-swap="none"
+                <a class="item-title" href="/r/{{ $a.ID }}" target="_blank" rel="noopener"
                    hx-on:click="this.closest('.item').classList.add('is-read')">{{ $a.Title }}</a>
                 {{ with excerpt $a.Summary }}<p class="item-excerpt">{{ . }}</p>{{ end }}
                 {{ with $a.RelevanceReason }}<p class="item-reason">{{ . }}</p>{{ end }}

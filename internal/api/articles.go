@@ -3,7 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
+	"strings"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/go-chi/chi/v5"
@@ -35,10 +37,23 @@ type ArticlesPageData struct {
 type ArticleRepository interface {
 	List(ctx context.Context, limit int, offset int) ([]domain.Article, error)
 	ListBySource(ctx context.Context, source string, limit, offset int) ([]domain.Article, error)
+	GetById(ctx context.Context, id string) (*domain.Article, error)
 	MarkRead(ctx context.Context, id string) error
 	MarkUnread(ctx context.Context, id string) error
 	Search(ctx context.Context, query string, limit int, offset int) ([]domain.Article, error)
 	Count(ctx context.Context) (int, error)
+}
+
+// newsletterURLPrefix marks an article whose ExternalURL has no real page to
+// link to (see internal/ingestion/email/parser.go) — the reader page at
+// /articles/{id} is its only destination, since Article.Content holds the body.
+const newsletterURLPrefix = "newsletter:"
+
+type ArticleReaderData struct {
+	Article     domain.Article
+	SourceName  string
+	OriginalURL string // empty for newsletter: articles, which have no real page to link to
+	Nav         NavData
 }
 
 func NewArticleHandler(articleRepo ArticleRepository, sourceLister SourceLister, nav *NavBuilder) *ArticleHandler {
@@ -181,4 +196,68 @@ func (a *ArticleHandler) SearchPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderPartial(w, "article_list.html", "article-list",ArticlesPageData{ Articles: articles })
+}
+
+// Open is the click-through target for every article title link (GET /r/{id}):
+// it marks the article read, then redirects to wherever the content actually
+// lives — the original page for RSS/manual articles, or our own reader page
+// for newsletters, which have no real page of their own (see newsletterURLPrefix).
+func (a *ArticleHandler) Open(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	article, err := a.articles.GetById(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	if err := a.articles.MarkRead(r.Context(), id); err != nil {
+		log.Printf("articles: mark read failed id=%s: %v", id, err)
+	}
+
+	target := article.ExternalURL
+	if strings.HasPrefix(target, newsletterURLPrefix) {
+		target = "/articles/" + article.ID
+	}
+
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// GetPage renders the in-app reader (GET /articles/{id}) for newsletter
+// articles, and for anyone who lands on this URL directly (e.g. a bookmark).
+func (a *ArticleHandler) GetPage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	article, err := a.articles.GetById(r.Context(), id)
+	if err != nil {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	if err := a.articles.MarkRead(r.Context(), id); err != nil {
+		log.Printf("articles: mark read failed id=%s: %v", id, err)
+	}
+
+	sources, _ := a.sources.List(r.Context(), 100, 0)
+	sourceMap := make(map[string]string, len(sources))
+	for _, s := range sources {
+		sourceMap[s.ID] = s.Name
+	}
+
+	sourceName := ""
+	if article.SourceID != nil {
+		sourceName = sourceMap[*article.SourceID]
+	}
+
+	originalURL := ""
+	if !strings.HasPrefix(article.ExternalURL, newsletterURLPrefix) {
+		originalURL = article.ExternalURL
+	}
+
+	render(w, "reader.html", ArticleReaderData{
+		Article:     *article,
+		SourceName:  sourceName,
+		OriginalURL: originalURL,
+		Nav:         a.nav.Build(r.Context()),
+	})
 }

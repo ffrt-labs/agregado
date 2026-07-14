@@ -1,0 +1,30 @@
+{{ define "content" }}
+    <div class="page narrow">
+        <div class="page-head">
+            <a class="btn-ghost" href="/articles">&larr; Back to articles</a>
+            <div class="eyebrow" style="margin-top:22px">{{ if .SourceName }}{{ .SourceName }}{{ else }}Article{{ end }}</div>
+            <h1 class="page-title">{{ .Article.Title }}</h1>
+            <p class="page-sub">
+                {{ if .Article.Author }}{{ .Article.Author }}{{ end }}
+                {{ if .Article.PublishedAt }}{{ if .Article.Author }} &middot; {{ end }}{{ .Article.PublishedAt.Format "Jan 2, 2006" }}{{ end }}
+            </p>
+        </div>
+
+        {{ if .Article.Content }}
+        <div class="serif" style="font-size:17px; line-height:1.7; color:var(--ink); white-space:pre-wrap; max-width:68ch; margin-top:32px">{{ .Article.Content }}</div>
+        {{ else if .Article.Summary }}
+        <div class="serif" style="font-size:17px; line-height:1.7; color:var(--ink); white-space:pre-wrap; max-width:68ch; margin-top:32px">{{ .Article.Summary }}</div>
+        {{ else }}
+        <div class="empty">
+            <h2>No content</h2>
+            <p>This article has no stored body to show.</p>
+        </div>
+        {{ end }}
+
+        {{ if .OriginalURL }}
+        <p style="margin-top:36px">
+            <a class="btn-ghost" href="{{ .OriginalURL }}" target="_blank" rel="noopener">Read the original &#8599;</a>
+        </p>
+        {{ end }}
+    </div>
+{{ end }}

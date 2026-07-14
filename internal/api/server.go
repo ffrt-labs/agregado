@@ -112,6 +112,8 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 
 	r.Get("/articles", articlesHandler.ListPage)
 	r.Get("/articles/search", articlesHandler.SearchPage)
+	r.Get("/articles/{id}", articlesHandler.GetPage)
+	r.Get("/r/{id}", articlesHandler.Open)
 	r.Get("/sources", sourcesHandler.ListPage)
 	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)
 

@@ -3048,3 +3048,115 @@ article leads (Uncategorized pinned last).
   (`lessByScoreThenDate`) removed two divergent copies of the logic.
 
 ---
+
+## Session: Planning Phase 17 — RSS content fetching (design session, no code)
+
+### Topic Covered
+
+#### Grilling a plan until the premise moves
+
+The session opened with "the RSS poller consumes the wrong fields." Reading
+`poller.go:104-112` showed the poller *does* read `<content:encoded>` when a feed
+offers it — the real defect is the **silent fallback** in `worker.go:49-54` when it
+doesn't. That reframing (from "wrong field" to "unrecorded provenance") is what
+produced the `content_source` column, which wasn't in the original idea at all.
+
+Planned as PRD **F15** / TODO **Phase 17**; supersedes Phase 16's deferred round.
+
+### Key Learnings
+
+- **RabbitMQ `Qos` is scoped per *consumer tag*, not per goroutine.**
+  `consumer.go` spawns 5 goroutines behind a single `ch.Consume` call with
+  `Qos(1, 0, false)`. The broker won't deliver message N+1 until N is acked, so
+  the goroutines are starved and ingest is serial. **Fanning out goroutines cannot
+  raise concurrency when the backpressure lives at the broker.** Search term:
+  "RabbitMQ prefetch per-consumer vs global QoS".
+- **Extractive vs abstractive summarization.** *Extractive* = selecting existing
+  sentences (TextRank/LexRank/lead-N — an algorithm, no model). *Abstractive* =
+  generating new text (the LLM). "Extractive compression via a cheap AI model" is
+  close to a contradiction. Naming this correctly turned a planned AI call into a
+  deterministic, unit-testable function.
+- **Compression is not a goal; it's a response to a budget.** Asking *which call is
+  over budget* revealed it's `Summarize` (titles-only today), not `Score` — where
+  truncation already keeps the lede, the most informative part. Two of three
+  callers needed nothing.
+- **A recurring defect class in this codebase: fields that look populated but
+  aren't.** `Content ?? Summary` with no marker; `word_count`/`estimated_read_minutes`
+  never written yet rendered; `Summarize` never receiving a body. All three are the
+  same bug wearing different clothes — *no signal at the point of degradation*.
+- **Dedup placement gates cost.** `ON CONFLICT (external_url) DO NOTHING` means
+  fetching *after* `Create` is free deduplication; fetching in the poller (before the
+  insert) would re-fetch duplicates forever. Where you put work in a pipeline
+  determines what it costs.
+- **Separate durability from enrichment.** Create must succeed; Score/Reason/fetch are
+  best-effort. Fusing them in one handler gives one failure path for two different
+  failure semantics — which is the pressure that justifies a new queue.
+
+### Recommended reading (15–30 min)
+
+*RabbitMQ in Depth* (Gavin M. Roy), **Ch. 5 "Don't Get Messages, Consume Them"** —
+specifically the QoS/prefetch section. It explains why prefetch is negotiated per
+consumer and how prefetch interacts with ack mode, which is exactly the misreading
+that made `numWorkers = 5` a no-op here. If the book isn't handy, the official
+"Consumer Prefetch" page plus "Some queuing theory: throughput, latency and
+bandwidth" on the RabbitMQ blog cover the same ground in ~15 minutes.
+
+---
+
+## Session: Implementing Phase 17 (RSS content fetching + enrichment stage)
+
+### Topic Covered
+
+#### Building the plan end-to-end, live-verified against real infrastructure
+
+Implemented the Phase 17 plan from the prior grilling session in full: migration
+000014, `internal/ingestion/fetch` (readability → Markdown), `internal/textutil.Distill`,
+a new `articles.enrich` RabbitMQ stage, the storage-worker split, `Summarize` rewrite,
+config wiring, and the `/api/admin/enrich` backfill endpoint. Verified live against the
+real local stack (not just unit tests): backfilled 45 pre-existing articles, watched
+real fetches succeed/fail/fall back, and confirmed dense Markdown reaching the AI
+prompts via a real `/admin/logs` row.
+
+### Key Learnings
+
+- **A "recommended" library can be dead on arrival.** `go-shiori/go-readability` (the
+  plan's pick) printed a deprecation notice on `go get`, pointing at
+  `codeberg.org/readeck/go-readability/v2`. Checking `go get` output before writing
+  any code against a new dependency — not just whether it compiles — caught this
+  before it became a decision baked into a hundred lines of code.
+- **The per-host mutex-map pattern.** `fetch.go`'s `lockHost` needs a mutex *per host*
+  (created lazily, since hosts aren't known in advance) while staying safe under
+  concurrent access from multiple goroutines fetching different hosts at once. The
+  shape — a `sync.Mutex` guarding a `map[string]*sync.Mutex`, get-or-create under the
+  guard, then lock the per-key mutex — is a recurring Go idiom for "serialize by key"
+  that shows up anywhere you need N independent locks where N isn't known upfront
+  (rate limiters, per-tenant caches, per-connection state).
+- **AMQP: one channel, one Qos setting.** `Qos(prefetch, 0, false)` with `global=false`
+  applies to consumers created on *that channel* going forward. Two queues needing
+  different prefetch values (`articles.store` at 1, `articles.enrich` at 5) need two
+  separate channels — hence two separate `broker.NewConsumer(b)` calls in `main.go`,
+  not one `Consumer` reused for both `Consume` calls.
+- **Soft-fail design pays off under real failure.** During the live backfill, one
+  `Reason` call genuinely timed out against Cloudflare (`context deadline exceeded`).
+  Because that path was designed to log-and-continue rather than propagate, the queue
+  kept draining instead of stalling — the exact behavior the design was meant to
+  produce, observed under a real (not simulated) failure.
+- **An imprecise cleanup is still worth disclosing.** Verifying the digest needed
+  articles inside its lookback window, so several rows had `published_at` bumped to
+  `NOW()` — but the original values weren't captured first, so the revert (pushed back
+  to `NOW() - 30 days`) is approximate, not exact. Recorded as such in `AGENTS.md`
+  rather than presented as a clean revert.
+
+### Recommended reading (15–30 min)
+
+Go's blog post **"Go Concurrency Patterns: Context"** is the canonical one for the
+context-cancellation half of this session (why `context.WithTimeout` per AI call
+matters, why `context.WithoutCancel` is needed for the log write). But the more
+novel pattern from *this* session is the per-host mutex map in `fetch.go` — for that,
+skim the **`sync.Map` documentation's "When to use sync.Map"** section and compare it
+against the hand-rolled `map[string]*sync.Mutex` used here: `sync.Map` optimizes for
+different tradeoffs (many reads, stable key set) than "one mutex per dynamically
+discovered key," which is why a plain map + guarding mutex was the right choice here
+rather than reaching for `sync.Map` by default.
+
+---

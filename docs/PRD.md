@@ -682,6 +682,16 @@ vertically-scrollable "TikTok-style" feed.
 - Empty state when no bookmarks exist.
 
 #### F14: Newsletter Content Pipeline for AI (Markdown + Extractive Compression)
+
+> **Status: lean core DONE; deferred round SUPERSEDED BY F15.**
+> The cap (`AI_MAX_CONTENT_CHARS`), the `<style>`/`<script>` content-strip and the
+> model switch all shipped — items 3 and 4 below are **done**.
+> Items 1 and 2 (Markdown conversion, `Provider.Compress`, `distilled_content`) are
+> **superseded by F15**, which reaches different conclusions: distillation is
+> **algorithmic, not an AI call**, and the pipeline runs in a **dedicated
+> `articles.enrich` stage**, not inline in the storage worker. Read F15 instead —
+> the design below is kept for history only.
+
 **User Story:** As a user, the AI actually understands my newsletters — it scores,
 categorizes and summarizes them from their real substance, not their first 500
 characters of CSS and greeting boilerplate.
@@ -731,6 +741,119 @@ approach for the AI's content input.
 - Newsletter tags/scores visibly improve vs. title-only classification.
 - A compression failure degrades gracefully (article still scored on fallback text).
 - The reader page (F5.3) shows the structured Markdown body.
+
+#### F15: RSS Article Content Fetching + Enrichment Stage
+
+> **Status: DONE, live-verified.** Implemented and confirmed against the real local
+> stack (see `docs/TODO.md` Phase 17 for the checklist). One deviation from the
+> design below: `go-shiori/go-readability` is deprecated upstream, so the
+> implementation uses **`codeberg.org/readeck/go-readability/v2`** instead (same
+> Mozilla-Readability-derived approach, actively maintained). Live backfill of 45
+> pre-existing articles: 30 fetched successfully, 15 fell back to feed content
+> (blocked-by-origin and thin-content cases both observed and handled correctly);
+> `word_count`/`estimated_read_minutes`/`distilled_content` went from 0 populated to
+> 45/45.
+
+**User Story:** As a user, the AI scores and tags my RSS articles by reading the
+*actual article*, not the teaser blurb the feed happened to ship — and I can tell,
+at a glance, which articles it only got a teaser for.
+
+**Motivation.** RSS items overwhelmingly carry a link plus a short `<description>`;
+the full body in `<content:encoded>` is the exception, not the rule.
+`internal/ingestion/rss/poller.go:104-112` maps `<description>` → `Summary` and
+`<content:encoded>` → `Content`. When a feed omits the latter, `Content` is nil and
+`internal/storage/worker.go:49-54` **silently** falls back to `Summary`. The AI then
+scores a ~200-char teaser with full confidence. Nothing anywhere records that this
+happened.
+
+This is the third instance of one defect class in this codebase — *a field that looks
+populated but isn't, with no signal that it isn't*:
+1. `Content ?? Summary` — no marker separating a real article from a teaser.
+2. `word_count` / `estimated_read_minutes` — columns since migration `000001`, never
+   written by any code, yet the digest template renders a read-time from them.
+3. `Summarize` and `Digest` (`internal/ai/cloudflare.go:195,206`) build prompts from
+   **titles only** — they never receive a body. `AI_MAX_CONTENT_CHARS` therefore
+   reaches only 3 of 5 provider methods; F14 raised a cap two callers cannot use.
+
+So F15 is not only "fetch the link." It is: get real content, *record its provenance*,
+and let the summarizer finally see it.
+
+**Design decisions (confirmed):**
+
+1. **Always fetch** `item.Link` for each new article. Feed content is the *fallback*,
+   not the trigger — length heuristics are fragile (a long teaser passes; a short
+   real post fails). Cost is bounded: `ON CONFLICT (external_url) DO NOTHING`
+   (`article_repo.go:76`) means each URL is fetched at most once, ever.
+2. **A dedicated `articles.enrich` stage.** The storage worker shrinks to Create-only
+   and publishes `{article_id}` on a successful (non-duplicate) insert. A separate
+   consumer does fetch → extract → distil → `Score` → `Reason`. This separates
+   *durability* (must succeed) from *enrichment* (best-effort) — today they share one
+   handler and one failure path. **Newsletters ride this for free**: the email webhook
+   already publishes to `articles.ingest`, so newsletters enter the same stage and
+   simply skip the fetch step. One pipeline, two entry points.
+3. **The message is a trigger, not a payload** — `{article_id}` only. Postgres stays
+   the source of truth; the consumer re-reads via the existing `ArticleRepo.GetById`.
+4. **Extraction:** `go-shiori/go-readability` (Mozilla Readability port — drops
+   nav/ads/footers) → `JohannesKaufmann/html-to-markdown/v2`. Markdown preserves the
+   headings, lists and links that `textutil.Strip` destroys, which helps both the AI
+   and the F5.3 reader page.
+5. **Quality gate:** readability's `.Length < ~500` chars ⇒ extraction failed.
+   Otherwise keep whichever is longer, fetched vs feed. Consent walls, SPA shells and
+   paywalls all return HTTP 200, so the transport layer cannot detect them.
+6. **Provenance:** `articles.content_source` ∈
+   `fetched | feed_content | feed_description | newsletter`, CHECK-constrained
+   (mirrors `sources.type`). This is the column that turns invisible degradation into
+   `SELECT content_source, count(*) ... GROUP BY 1`.
+7. **Distillation is algorithmic, not an AI call** — `textutil.Distill` keeps headings,
+   the lede and section leads, capped ~2000 chars, stored in `distilled_content`.
+   Deterministic, unit-testable, and free. *Extractive* summarization classically means
+   selecting existing sentences (an algorithm); calling a model is *abstractive*.
+   Adding a third AI call to the enrichment stage would compound its bottleneck for
+   little gain. `Provider.Compress` (F14 item 2) is **dropped** for now;
+   `distilled_content` remains the seam to swap it in behind if quality demands it.
+8. **`Summarize` finally sees substance** — title + the article's existing
+   `relevance_reason` + a ~400-char excerpt of `distilled_content`, budgeted per
+   article. `Reason` is already computed at ingest for every article at/above the score
+   bar (`worker.go:70-77`), and `FindUnreadSince` filters `relevance_score >= $2`
+   (`article_repo.go:144`) — `NULL >= 3` is false — so every digest article already has
+   one. Free, dense, on-topic signal that `Summarize` currently ignores.
+9. **Polite, honest fetching** — a truthful `User-Agent`
+   (`Agregado/1.0 (+github.com/felipeafreitas/agregado)`), one in-flight request per
+   host, explicit timeout, size cap, `text/html` only, no retry on 403/429. No
+   browser-UA spoofing: misrepresenting the client to bypass a stated access decision
+   is not a thing this project does. robots.txt is skipped in v1 as disproportionate
+   for a single-user, subscriber-driven, once-per-URL fetch.
+
+**Also fixed here (latent, predates this feature):** `internal/broker/consumer.go`
+spawns 5 goroutines but calls `Qos(1, 0, false)`. Prefetch is scoped per *consumer
+tag*, and there is exactly one `ch.Consume` call — so RabbitMQ never delivers message
+N+1 until N is acked and the goroutines are starved. Ingest is effectively serial
+today. `Consume` gains prefetch + worker-count parameters; enrich runs 5/5, storage
+stays at 1. Without this, enrichment would run ~90s/article and a 200-item poll would
+take ~5 hours — finishing long after the digest fired.
+
+**Out of scope (deliberate):**
+- **Link roundups.** An item linking to a *list* (TLDR-style) ingests as a roundup.
+  Following those links means child articles, `parent_article_id`, per-child scoring
+  and digest template changes — a much larger feature that stays deferred. F15 builds
+  the `Fetch` primitive it has been blocked on since F3/Phase 2.5.
+- **Clustering.** Grouping articles by topic is a *digest-time*, cross-article concern
+  (Phase 3.1). It does nothing for a single article's prompt budget.
+
+**Relationship to F10a / F14:** F15 supersedes both the pure-`go-readability` cleaner
+idea (F10a) and F14's deferred round. Content is cleaned by *extraction at fetch*, not
+by a separate hygiene pass.
+
+**Acceptance Criteria:**
+- `SELECT content_source, count(*) FROM articles GROUP BY 1` shows a real `fetched`
+  majority; teaser-scored articles are countable rather than invisible.
+- A `score` entry in `/admin/logs` shows dense article prose — no CSS, not truncated
+  at 500 chars. (This is the observation F14 shipped without being able to make.)
+- A `summarize` entry shows titles + reasons + excerpts, not a bare title list.
+- `word_count` is populated and the digest's read-time stops being computed from nil.
+- A fetch failure degrades gracefully: article still scored on feed content, with
+  `content_source` recording the fallback.
+- The enrich queue drains concurrently across distinct hosts, serially per host.
 
 ### Post-MVP Features (Prioritized)
 

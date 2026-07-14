@@ -15,9 +15,17 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 16 lean core done → Phase 16 deferred round (Markdown +
-distilled_content + Compress)
+**Active phase:** Phase 17 — RSS Article Content Fetching + Enrichment Stage —
+**DONE, live-verified**. **Superseded Phase 16's deferred round** — TODO 16.1/16.2
+were never implemented as originally written; Phase 17 replaced them.
 **Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
+**Phase 17 plan:** `docs/rss-content-fetching-plan.md` + PRD **F15**.
+
+> **Note on how Phase 17 was built:** the user explicitly asked for a full,
+> unattended implementation of the already-grilled plan ("Exceptionally, implement
+> this plan step-by-step for me") — the documented exception to the "user writes
+> all code" rule above. This was a one-time deviation for this phase; the default
+> guide-don't-do mode applies again starting next session unless asked again.
 
 ### Completed
 - Phases 1–9: Foundation, email ingestion, digest pipeline (ranker/generator/mailer/
@@ -40,18 +48,51 @@ distilled_content + Compress)
   code model to the instruct model the config default already specified.
   Covered by `internal/textutil/textutil_test.go`; live-verified via a real
   digest refresh (fresh `ai_logs` rows show the corrected model)
+- **Phase 17: RSS Article Content Fetching + Enrichment Stage.** RSS items mostly
+  carry a link + a `<description>` teaser, not `<content:encoded>`, so the old
+  worker silently scored the teaser. Now: `internal/ingestion/fetch` fetches
+  `item.Link` (readability via `codeberg.org/readeck/go-readability/v2` — a
+  maintained fork of the originally-planned, since-deprecated
+  `go-shiori/go-readability` — → `html-to-markdown/v2`), a new `articles.enrich`
+  RabbitMQ stage (own exchange/queue, own prefetch=5/workers=5) runs
+  fetch → quality-gate (keep longer of fetched-vs-feed) → `textutil.Distill`
+  (algorithmic, no AI call) → `UpdateContent` → `Score`/`Reason`, and every article
+  now records `content_source` (`fetched|feed_content|feed_description|newsletter`)
+  so teaser-scoring is countable instead of invisible. `Summarize` was rewritten to
+  use title + `relevance_reason` + a real content excerpt instead of titles alone.
+  Also fixed two latent bugs found while building this: `Qos(1, 0, false)` behind a
+  single consumer tag was starving `consumer.go`'s 5 goroutines (`Consume` now takes
+  explicit prefetch/worker params); `word_count`/`estimated_read_minutes` had never
+  been written by any code despite the digest template rendering a read-time from
+  them. New `POST /api/admin/enrich` backfills pre-Phase-17 rows.
+  Covered by unit tests (`internal/textutil/distill_test.go`,
+  `internal/ingestion/fetch/fetch_test.go`, `internal/domain/article_test.go`);
+  **live-verified** against the real local stack — backfilled 45 pre-existing
+  articles (30 fetched successfully, 15 fell back to feed content on real
+  `ErrBlocked`/`ErrThinContent` cases), confirmed a live `/admin/logs` `score` row
+  showing dense fetched Markdown (not CSS soup, not truncated at 500 chars), and
+  confirmed a live `summarize` row showing title + reason + excerpt instead of a
+  bare title list
 
 ### Next
-- Phase 16 deferred round: HTML→Markdown conversion at ingest (also upgrades the
-  Phase 15 reader body), `distilled_content` column + migration, `Provider.Compress`
-  cheap-model extractive-compression pass
-- Known gap: neither the CSS-soup fix nor the cap/model fix has been observed
-  live against a real newsletter — this local DB currently has zero newsletter
-  articles (only RSS, whose `Summary` is already short/clean). Unit tests prove
-  the fix; re-confirm live once real newsletters land
+- No active phase queued. Natural next candidates per `docs/TODO.md`: Phase 17's
+  own deliberate known gaps (no robots.txt, no enrichment retry, roundup link
+  extraction still deferred, `ai.Compress` not built), or resume earlier deferred
+  items (Phase 3.1 AI-detected topic clustering, Phase 4 polish, Phase 5 hardening)
+- Known gap: the CSS-soup fix from Phase 16 still hasn't been separately observed
+  against a *newsletter* specifically (this local DB has no newsletter articles) —
+  Phase 17's live verification covered RSS fetched-content, which exercises the
+  same `textutil.Strip`/`Clean` path, but not the newsletter ingestion branch
 - Known gap (carried from Phase 15): digest-email `/r/{id}` link only confirmed
   by template parse + `go vet`, not a live click-through — re-check next time
   real digest candidates exist
+- Housekeeping note: while live-verifying Phase 17, 5 pre-existing articles had
+  their `published_at`/`ingested_at` temporarily bumped to `NOW()` to pull them into
+  the digest lookback window (same technique Phase 16 used). Unlike Phase 16, the
+  original timestamps weren't captured first, so they were pushed back to
+  `NOW() - 30 days` afterward as an approximate (not exact) revert — low-impact
+  since these are pre-existing local test/seed articles, not real production data,
+  but noted here for honesty rather than silently claiming a clean revert
 
 ### Key library choices (from PRD §4)
 | Purpose | Library |

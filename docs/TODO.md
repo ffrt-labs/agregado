@@ -927,7 +927,10 @@ existing `ArticleRepo.GetById`. Pulls a subset of F11 (`/r/`) + F5 detail forwar
 
 ---
 
-## Phase 16: Newsletter AI Content Pipeline (Markdown + Extractive Compression)
+## Phase 16: Newsletter AI Content Budget (cap + CSS strip + model) — CLOSED
+
+> **Closed at the lean core.** The deferred round it planned (Markdown conversion,
+> `distilled_content`, `Compress`) is **superseded by Phase 17** — see 16.1/16.2 below.
 
 **Goal:** Let the AI score/categorize/summarize newsletters from their real
 substance, not the first 500 chars of CSS + boilerplate. See `docs/PRD.md` **F14**.
@@ -937,15 +940,16 @@ truncates Score/Categorize/Reason; `textutil.Clean` strips tags but not
 `<style>`/`<script>` *contents*; the configured model `@cf/moonshotai/kimi-k2.7-code`
 is a **code** model.
 
-**Decisions:** 2-stage ingest pipeline (Markdown conversion → cheap-model extractive
-compression), run async in the storage worker; persist a `distilled_content` column;
-raise the cap to a configurable budget; switch the main model to an instruct model.
-Scoped into a **lean core round** (this session — fix the two biggest lowest-risk
-levers, no new dependency/migration/AI call) followed by a **deferred round**
-(Markdown conversion + `distilled_content` + `Compress`).
-Open sub-decisions for the deferred round (pick at implementation): exact storage
-split (lean: Markdown as display `content` + separate `distilled_content` for AI)
-and which HTML→Markdown lib + cheap compression model.
+**What shipped (16.0):** the two biggest, lowest-risk levers — configurable
+`AI_MAX_CONTENT_CHARS` (was a hardcoded 500), `<style>`/`<script>` *content* stripping
+in `textutil.Strip`, and the `.env` model corrected to an instruct model. No new
+dependency, migration, or AI call.
+
+**What did not ship:** the 2-stage Markdown + cheap-model-compression pipeline. Phase
+17 covers that ground for RSS *and* newsletters and reaches different conclusions —
+notably that distillation should be **algorithmic**, not an AI call, and that the
+pipeline belongs in a **dedicated `articles.enrich` stage** rather than inline in the
+storage worker.
 
 ### 16.0 Lean core — DONE (this session)
 - [x] `internal/textutil/textutil.go` — `Strip` now removes whole
@@ -979,23 +983,18 @@ and which HTML→Markdown lib + cheap compression model.
       exist in this DB right now). The fix itself is proven by the new unit tests,
       which encode the exact `<style>…</style>` leak scenario directly.
 
-### 16.1 Semantic Markdown conversion (also improves the F5.3 reader) — deferred
-- [ ] `internal/ingestion/email/parser.go` — replace `html2text.FromString` with a
-      goquery pre-strip (`<style>`/`<script>`/tracking pixels/hidden preheader) +
-      an HTML→Markdown pass (e.g. `JohannesKaufmann/html-to-markdown/v2` — confirm)
-- [ ] Store the Markdown as `content` (used by the reader + as compression input)
+### 16.1 / 16.2 — SUPERSEDED BY PHASE 17
 
-### 16.2 Extractive compression (cheap-model AI pass) — deferred
-- [ ] Add `Compress(ctx, content string) (string, error)` to `internal/ai/provider.go`
-- [ ] Implement in `internal/ai/cloudflare.go` using `AI_COMPRESS_MODEL` (a small/fast
-      model); default system prompt in `internal/ai/prompts.go` + admin-editable
-- [ ] Migration `000014_distilled_content` (number provisional — `000014` is the
-      real next free slot on disk as of this session; confirm at implementation
-      time) — add `distilled_content TEXT` to `articles` + `DistilledContent *string`
-      on `domain.Article`
-- [ ] `internal/storage/worker.go` — after `Create`, run Compress → persist
-      `distilled_content`; Score/Reason use it. Soft-fail → fall back to raw content
-- [ ] `internal/digest/ranker.go` — Categorize uses `distilled_content` when present
+> The deferred round (Markdown conversion, `distilled_content`, `Provider.Compress`)
+> is **superseded by Phase 17**, which covers the same ground for RSS *and*
+> newsletters and reaches two different conclusions:
+> - distillation is **algorithmic** (`textutil.Distill`), not a cheap-model AI call —
+>   a third AI call would compound the enrichment bottleneck, and *extractive*
+>   summarization is classically an algorithm anyway;
+> - the pipeline runs in a **dedicated `articles.enrich` stage**, not inline in the
+>   storage worker.
+>
+> Do not implement 16.1/16.2 as written — see Phase 17 and `docs/PRD.md` F15.
 
 ### Phase 16 Verification
 - [x] Cap + model corrected, live-verified (see 16.0)
@@ -1006,6 +1005,151 @@ and which HTML→Markdown lib + cheap compression model.
 - [ ] A compression failure degrades gracefully (article still scored on fallback)
 - [ ] The reader page (Phase 15) shows the structured Markdown body
 - [x] `go build ./...` && `go vet ./...` pass
+
+---
+
+## Phase 17: RSS Article Content Fetching + Enrichment Stage
+
+**Goal:** Score/tag/summarize RSS articles from the *real article body* fetched via
+`item.Link`, not the feed's teaser — and record content provenance so degradation is
+countable. See `docs/PRD.md` **F15** and `docs/rss-content-fetching-plan.md`.
+
+**Root causes (verified):** most feeds omit `<content:encoded>`, so `Content` is nil
+(`poller.go:104-112`) and `worker.go:49-54` silently falls back to `Summary` (the
+`<description>` teaser). `Summarize`/`Digest` (`cloudflare.go:195,206`) build prompts
+from **titles only** — `AI_MAX_CONTENT_CHARS` reaches just 3 of 5 provider methods.
+`word_count`/`estimated_read_minutes` have never been written by any code, yet the
+digest renders a read-time from them.
+
+**Decisions:** always fetch (feed = fallback); dedicated `articles.enrich` stage after
+`Create` (newsletters ride it free); message carries `{article_id}` only; readability →
+Markdown; algorithmic distillation (no `ai.Compress`); `content_source` provenance
+column; honest UA + per-host serialization, no robots.txt v1; roundup link-following
+and clustering explicitly out of scope. **Supersedes Phase 16.1/16.2.**
+
+### 17.1 Schema + domain — migration `000014_article_content_source` — DONE
+- [x] `migrations/000014_article_content_source.up.sql` / `.down.sql` — add
+      `distilled_content TEXT` and `content_source VARCHAR(32) CHECK (content_source IN
+      ('fetched','feed_content','feed_description','newsletter'))` to `articles`
+- [x] `internal/domain/article.go` — add `DistilledContent *string`,
+      `ContentSource *string` with `db:` tags (`FindUnreadSince` uses `SELECT *`
+      (`article_repo.go:141`), so these scan through with no query edits)
+- [x] Add `BestText() string` to `domain.Article` — precedence
+      `DistilledContent → Content → Summary`. Unit-tested (`article_test.go`)
+- [x] Replace the hand-written fallbacks in `worker.go:49-54` **and** `ranker.go:76-82`
+      with `BestText()` (already duplicated; this phase would make it a third copy)
+- [x] Run migration; verify columns + CHECK exist
+
+### 17.2 Fetcher — new `internal/ingestion/fetch/` — DONE
+- [x] `Fetcher.Fetch(ctx, url) (Result, error)`, `Result{Markdown, Title, Byline, Length}`
+- [x] Own `http.Client`: explicit `Timeout`, `io.LimitReader` size cap,
+      `Content-Type: text/html` gate, redirect cap ~5
+- [x] Honest UA `Agregado/1.0 (+https://github.com/felipeafreitas/agregado)`;
+      per-host serialization (mutex keyed on `url.Host`) + small delay;
+      403/429 → `ErrBlocked`, never retry
+- [x] Pipeline: fetch → readability → cleaned HTML → `JohannesKaufmann/html-to-markdown/v2`
+      → Markdown. **Library swap from plan:** `go-shiori/go-readability` is deprecated
+      upstream (points at a successor); used **`codeberg.org/readeck/go-readability/v2`**
+      instead — same Mozilla-Readability-derived approach, actively maintained, verified
+      to resolve cleanly against this repo's `go.mod` before committing
+- [x] Title/Byline **fill gaps only**: `readability.Byline()` fills `Author` only when the
+      feed left it nil; `Title` is never overridden by the fetched page's title
+- [x] Config-injected timeout with a `<= 0 → default` guard (mirrors `cloudflare.go:19-31`)
+- [x] Unit tests against `httptest.Server`: real article (nav/footer correctly excluded),
+      consent-wall-length fallback, 403, 429, unsupported content-type, oversized body
+      (capped, doesn't hang), per-host serialization (no concurrent requests observed)
+
+### 17.3 Distiller — `internal/textutil/distill.go` — DONE
+- [x] `Distill(markdown string, max int) string` — keep headings + lede + first
+      sentence of each section, drop boilerplate (bare links/images, short button-like
+      lines), cap to `max` runes
+- [x] Dependency-free + deterministic, matching existing `textutil` style; unit-tested
+      (`distill_test.go`)
+
+### 17.4 Enrich stage — DONE
+- [x] `internal/broker` — declared `articles.enrich` exchange + queue in
+      `DeclareTopology()`, bound to the existing dead-letter exchange like `articles.store`.
+      Confirmed live via `rabbitmqctl list_exchanges`/`list_queues`
+- [x] `internal/broker/consumer.go` — `Consume` now takes `(queueName, prefetch,
+      numWorkers, handler)`. **Fixed the latent bug predating this feature:**
+      `Qos(1, 0, false)` with a single consumer tag was starving the 5 goroutines —
+      ingest was serial. Storage keeps prefetch 1 (fast, Create-only); enrich gets 5/5
+- [x] `internal/storage/worker.go` — slimmed to Create-only; publishes `{article_id}`
+      (`enrichTrigger`) to `articles.enrich` on non-duplicate `Create`. `Score`/`Reason`
+      moved into `enrich.go`
+- [x] `internal/storage/enrich.go` (new) — `NewEnrichHandler`: `GetById` → skip fetch if
+      `external_url` has the `newsletter:` scheme (Phase 15) → else `Fetch` → quality gate
+      (`resolveContent`: keep whichever of fetched/feed is longer after `textutil.Strip`)
+      → `Distill` → compute `word_count`/`estimated_read_minutes` → `UpdateContent` →
+      `Score` → `Reason` (gated on `>= minScore`)
+- [x] Added `ArticleRepo.UpdateContent(ctx, id, content, distilled, source string, wordCount, readMinutes int) error`
+- [x] **Failure semantics implemented as planned:** fetch/quality-gate misses degrade to
+      feed content and keep going (not an error); only `GetById`/`UpdateContent` errors
+      NACK; AI failures soft-fail + ACK — all three paths observed live (see Verification)
+- [x] Left `UpdateSummary` (zero callers) alone, as planned
+
+### 17.5 Summarize sees substance — DONE
+- [x] `internal/ai/cloudflare.go` `Summarize` — per article emits title + `RelevanceReason`
+      ("Why it matters:") + a `textutil.Clean`'d excerpt of `BestText()` ("Excerpt:"),
+      budgeted per article against `p.maxContentChars` (capped at 400 chars/article,
+      shrinking further when `len(articles)` is large)
+- [x] No new plumbing needed, as predicted: every digest article already has a
+      `relevance_reason` from ingest
+- [x] Updated the `summarize` default prompt in `internal/ai/prompts.go` for the new
+      input shape
+
+### 17.6 Config + wiring — DONE
+- [x] New `Fetch` struct in `internal/config/config.go`: `FETCH_TIMEOUT` (15s),
+      `FETCH_MAX_BYTES` (5MB), `FETCH_MIN_CONTENT_CHARS` (500), `FETCH_USER_AGENT`,
+      `DISTILL_MAX_CHARS` (2000); documented in `.env.example`
+- [x] `cmd/agregado/main.go` — builds the fetcher, wires the enrich handler, adds a
+      second `broker.NewConsumer` (own channel, own Qos) consuming `articles.enrich`
+- [x] **Dependency risk resolved:** `golang.org/x/net` bumped `v0.4.0 → v0.55.0` (also
+      `x/sync`, `x/text`) — clean resolution, no conflicts, confirmed with `go build ./...`
+      before writing any code against the new libs
+
+### 17.7 Backfill — DONE
+- [x] `POST /api/admin/enrich` (`AdminHandler.EnrichBackfill`) — `FindUnenriched`
+      (new repo method, `content_source IS NULL`) → republish each onto `articles.enrich`.
+      Mirrors the `/api/digest/refresh` + `/api/backup/send` handler shape
+
+### Phase 17 Verification
+- [x] `go build ./...` && `go vet ./...` && `go test ./...` — all green
+- [x] Unit tests: `Distill` (7 cases), `Fetcher` against `httptest.Server` (7 cases,
+      including per-host serialization and oversized-body capping), `BestText()`
+      (6 cases) — all pass
+- [x] **Live**, against the real local stack (Postgres + RabbitMQ, real network fetches):
+      `POST /api/admin/enrich` on 45 pre-existing articles →
+      `content_source` distribution **30 fetched / 15 feed_description**, zero NULL;
+      `word_count`/`estimated_read_minutes`/`distilled_content` populated on all 45
+      (previously 0). Observed real `ErrBlocked` (news.ycombinator.com 403s bots) and
+      `ErrThinContent` (JS-rendered pages) fallbacks in the logs, both degrading cleanly
+      to feed content as designed
+- [x] `/admin/logs`: a live `score` row shows real Markdown prose (headings, bold,
+      code fences) from a 68KB fetched article — no CSS, nowhere near truncated at 500
+      chars (**the observation Phase 16 shipped without being able to make**)
+- [x] `POST /api/digest/refresh` → live `summarize` row shows title + "Why it matters:"
+      (the article's `relevance_reason`) + "Excerpt:" (real Markdown from
+      `distilled_content`) — confirmed against the pre-fix titles-only shape
+- [x] Enrich queue drained under real network conditions without hanging or crashing;
+      one AI call timeout (`context deadline exceeded` against Cloudflare) soft-failed
+      and logged correctly instead of blocking the queue
+- [ ] **Not exercised:** true multi-host concurrency at scale (5 fetches in flight
+      across 5 distinct hosts simultaneously) — the live backfill ran through real
+      articles across many different hosts, so per-host serialization was exercised,
+      but wall-clock concurrency across hosts wasn't separately measured
+
+### Phase 17 Known gaps (deliberate)
+- [ ] **No robots.txt** — proportionate for a single-user, subscriber-driven,
+      once-per-URL fetch. Revisit if this ever serves more than one person
+- [ ] **No enrichment retry** — a transient fetch failure leaves an article permanently
+      on feed content. `content_source` makes it countable; the backfill endpoint
+      re-drives it manually. Delayed retry needs a TTL+DLX trick RabbitMQ won't do natively
+- [ ] **Roundups ingest as roundups** — link extraction / `parent_article_id` children
+      stay deferred (Phase 2.5 + 5.6.3), but 17.2 builds the `Fetch` primitive they were
+      always blocked on
+- [ ] **`ai.Compress` not built** — if `Distill` proves too lossy, `distilled_content`
+      is already the right seam to swap it in behind
 
 ---
 

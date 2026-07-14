@@ -24,4 +24,24 @@ type Article struct {
 	RelevanceScore 			*int `db:"relevance_score" json:"relevance_score,omitempty"`
 	RelevanceReason 		*string `db:"relevance_reason" json:"relevance_reason,omitempty"`
 	ParentArticleId			*string `db:"parent_article_id" json:"-"`
+	DistilledContent 		*string `db:"distilled_content" json:"-"`
+	ContentSource 			*string `db:"content_source" json:"content_source,omitempty"`
+}
+
+// BestText returns the richest text available for this article, in order of
+// preference: an algorithmically distilled body, the full content (fetched
+// article or feed content:encoded), then the feed's <description> teaser as a
+// last resort. Callers that previously hand-rolled this Content-else-Summary
+// fallback (worker.go, ranker.go) should use this instead.
+func (a Article) BestText() string {
+	if a.DistilledContent != nil && *a.DistilledContent != "" {
+		return *a.DistilledContent
+	}
+	if a.Content != nil && *a.Content != "" {
+		return *a.Content
+	}
+	if a.Summary != nil {
+		return *a.Summary
+	}
+	return ""
 }

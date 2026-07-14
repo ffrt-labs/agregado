@@ -74,13 +74,7 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 			if len(article.Tags) > 0 {
 				continue
 			}
-			text := ""
-			if article.Content != nil {
-				text = *article.Content
-			} else if article.Summary != nil {
-				text = *article.Summary
-			}
-			slug, err := r.categorizer.Categorize(ctx, article.Title, text)
+			slug, err := r.categorizer.Categorize(ctx, article.Title, article.BestText())
 			if err != nil {
 				log.Printf("categorize %q: %v", article.Title, err)
 				continue

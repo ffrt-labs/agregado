@@ -70,6 +70,8 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     	storage.NewSettingsRepo(db),
     	storage.NewPromptRepo(db),
     	tagRepo,
+    	articleRepo,
+    	publisher,
     	navBuilder,
     )
 
@@ -140,6 +142,8 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Post("/api/admin/tags", adminHandler.CreateTag)
 	r.Put("/api/admin/tags/{id}", adminHandler.UpdateTag)
 	r.Delete("/api/admin/tags/{id}", adminHandler.DeleteTag)
+
+	r.Post("/api/admin/enrich", adminHandler.EnrichBackfill)
 
 	return s
 }

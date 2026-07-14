@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
+	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -14,12 +16,27 @@ import (
 
 const adminLogsPerPage = 50
 
+// UnenrichedFinder is satisfied by *storage.ArticleRepo; declared as an
+// interface to keep AdminHandler's dependency narrow.
+type UnenrichedFinder interface {
+	FindUnenriched(ctx context.Context) ([]string, error)
+}
+
+// EnrichPublisher mirrors storage.EnrichPublisher's shape — the admin
+// backfill trigger publishes the same {article_id} message the storage
+// worker publishes on ingest, so the same enrich consumer picks it up.
+type EnrichPublisher interface {
+	Publish(exchange, routingKey string, body []byte) error
+}
+
 type AdminHandler struct {
-	logs     *storage.AILogRepo
-	settings *storage.SettingsRepo
-	prompts  *storage.PromptRepo
-	tags     *storage.TagRepo
-	nav      *NavBuilder
+	logs      *storage.AILogRepo
+	settings  *storage.SettingsRepo
+	prompts   *storage.PromptRepo
+	tags      *storage.TagRepo
+	articles  UnenrichedFinder
+	publisher EnrichPublisher
+	nav       *NavBuilder
 }
 
 func NewAdminHandler(
@@ -27,9 +44,11 @@ func NewAdminHandler(
 	settings *storage.SettingsRepo,
 	prompts *storage.PromptRepo,
 	tags *storage.TagRepo,
+	articles UnenrichedFinder,
+	publisher *broker.Publisher,
 	nav *NavBuilder,
 ) *AdminHandler {
-	return &AdminHandler{logs: logs, settings: settings, prompts: prompts, tags: tags, nav: nav}
+	return &AdminHandler{logs: logs, settings: settings, prompts: prompts, tags: tags, articles: articles, publisher: publisher, nav: nav}
 }
 
 type AdminLogsPageData struct {
@@ -234,4 +253,42 @@ func (h *AdminHandler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+type EnrichBackfillResult struct {
+	Republished int `json:"republished"`
+}
+
+// EnrichBackfill republishes every article with content_source still NULL
+// (never enriched — pre-Phase 17 rows, or ones whose original enrich
+// trigger was lost) onto articles.enrich. Mirrors /api/digest/refresh and
+// /api/backup/send: a manual admin trigger for work that otherwise only
+// happens as a side effect of ingest.
+func (h *AdminHandler) EnrichBackfill(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	ids, err := h.articles.FindUnenriched(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	republished := 0
+	for _, id := range ids {
+		body, err := json.Marshal(struct {
+			ArticleID string `json:"article_id"`
+		}{ArticleID: id})
+		if err != nil {
+			continue
+		}
+		if err := h.publisher.Publish("articles.enrich", "backfill", body); err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		republished++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(EnrichBackfillResult{Republished: republished})
 }

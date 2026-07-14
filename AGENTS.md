@@ -15,21 +15,30 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 3 Verification → Phase 4 (Web UI)
+**Active phase:** Phase 15 done → Phase 16 (Newsletter AI Content Pipeline)
 **Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
 
 ### Completed
-- Phases 1.1–1.10: Full foundation (config, domain, broker, storage, rss poller, health API, main wiring)
-- Phase 2: Email ingestion via webhook (Cloudflare Email Routing, HTML→text parsing, auto-source creation)
-- Phase 3.1: Digest ranker + storage (tag grouping, FindUnreadSince, TagRepo)
-- Phase 3.2: Digest generator (HTML template, plain text fallback)
-- Phase 3.3: SMTP mailer (go-mail)
-- Phase 3.4: Scheduling (robfig/cron, `/api/digest/send`, `/api/digest/preview`)
-- Refactored `internal/api/errors.go` — extracted `writeError` helper
+- Phases 1–9: Foundation, email ingestion, digest pipeline (ranker/generator/mailer/
+  scheduling), web UI (Chi + HTMX article/source/digest views), AI scoring + relevance
+  reasons, context-exhaustion fix
+- Phase 10: Stable newsletter source identity (`sources.identity`, keyed on
+  `List-Id` → `From:` header → envelope fallback, not the rotating SMTP envelope
+  sender) + silent-failure-gap fixes in broker/storage
+- Sources: OPML export/import, periodic backup email
+- Digest: dedicated reading-focused email template, relevance labels, timeAgo helper
+- Phase 15: Article open redirect (`GET /r/{id}`) + reader page (`GET /articles/{id}`)
+  — fixes the "clicking any article title does nothing" bug (htmx `hx-post`
+  `preventDefault`-ing the anchor's `href`, plus `ZgotmplZ` on newsletter
+  `external_url`s). Covered by `internal/api/articles_test.go`; live-verified
+  against the local dev stack (real RSS redirect + a temporary newsletter test row)
 
 ### Next
-- Phase 3 Verification: smoke-test the full digest pipeline end-to-end
-- Phase 4: Web UI (Chi API layer, HTMX templates, article/source views)
+- Phase 16: Newsletter AI Content Pipeline (Markdown conversion + Extractive
+  Compression so scoring/summarization sees real newsletter substance)
+- Known gap: digest-email `/r/{id}` link only confirmed by template parse +
+  `go vet`, not a live click-through (no articles currently clear the relevance
+  bar in the local DB) — re-check next time real digest candidates exist
 
 ### Key library choices (from PRD §4)
 | Purpose | Library |

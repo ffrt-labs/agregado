@@ -877,33 +877,53 @@ RSS links too); (c) newsletters have no external page (body is in `Content`).
 existing `ArticleRepo.GetById`. Pulls a subset of F11 (`/r/`) + F5 detail forward.
 
 ### 15.1 Open-tracking redirect
-- [ ] `GET /r/{article_id}` handler in `internal/api` — `GetById` → mark read →
+- [x] `GET /r/{article_id}` handler in `internal/api` — `GetById` → mark read →
       `302`: RSS/manual → `external_url`; newsletter (`external_url` has `newsletter:`
-      scheme, or `source.type == newsletter`) → `/articles/{id}`
-- [ ] Route in `internal/api/server.go` (top-level `GET /r/{id}`)
+      scheme) → `/articles/{id}`
+- [x] Route in `internal/api/server.go` (top-level `GET /r/{id}`)
 - [ ] (Defer F11 keyword/topic weight bumps to Phase 12 — this ships record+redirect)
 
 ### 15.2 Reader page
-- [ ] `GET /articles/{id}` handler → `GetById` → render reader template
-- [ ] `templates/reader.html` — renders `Article.Content` (Markdown once F14 lands),
-      title, source name, date; "open original" link for RSS
-- [ ] Add `GetById` to the `ArticleRepository` interface used by `ArticleHandler`
-      (`internal/api/articles.go`) — currently only the feedback handler uses it
+- [x] `GET /articles/{id}` handler → `GetById` → render reader template
+- [x] `templates/reader.html` — renders `Article.Content` (plain text `pre-wrap`;
+      Markdown once F14 lands), title, source name, date; "Read the original" link
+      only for non-newsletter articles (guards against re-leaking the `newsletter:`
+      scheme into `href`)
+- [x] Add `GetById` to the `ArticleRepository` interface used by `ArticleHandler`
+      (`internal/api/articles.go`)
 
 ### 15.3 Repoint title links (kills ZgotmplZ + the htmx-preventDefault bug)
-- [ ] `templates/articles.html`, `templates/article_list.html`, web
+- [x] `templates/articles.html`, `templates/article_list.html`, web
       `templates/digest.html`, email `internal/digest/templates/digest.html`,
-      `templates/bookmarks.html` — change `href="{{ .ExternalURL }}"` +
-      `hx-post=".../read"` to `href="/r/{{ .ID }}"` (plain URL; drop the hx-post so
-      the anchor navigates); read-marking now happens in `/r/{id}`
-- [ ] Keep optimistic `is-read` UI styling if desired (CSS class on click), but
-      without intercepting navigation
+      `templates/bookmarks.html` — changed `href="{{ .ExternalURL }}"` +
+      `hx-post=".../read"` to `href="/r/{{ .ID }}"` (email link is absolute:
+      `{{ $.DigestURL }}/r/{{ $item.ID }}`, since `$` is needed to reach the
+      template root from inside the nested `range`); read-marking now happens
+      in `/r/{id}`
+- [x] Kept the optimistic `is-read` UI styling (`hx-on:click` adds the class),
+      without any `hx-post`/`hx-trigger` intercepting the click
 
 ### Phase 15 Verification
-- [ ] Clicking an RSS title opens the external article (new tab) AND marks it read
-- [ ] Clicking a newsletter title opens the in-app reader with the full body
-- [ ] No `href="#ZgotmplZ"` remains in any rendered list
-- [ ] `go build ./...` && `go vet ./...` pass
+- [x] `internal/api/articles_test.go` (new): table-driven tests for `Open`
+      (RSS redirect, newsletter redirect, 404 on unknown id, mark-read failure
+      doesn't block the redirect) and `GetPage` (renders title/source/original
+      link for RSS, omits the original-link + leaks no `newsletter:`/`ZgotmplZ`
+      for newsletters, 404 on unknown id) — fakes satisfy `ArticleRepository`
+      and `NavQuerier`; `GetPage` cases `os.Chdir` to the repo root since
+      `render()` resolves templates relative to cwd
+- [x] Live-verified against the real local stack (already-running Postgres/
+      RabbitMQ/Mailpit): a real RSS article's `/r/{id}` 302'd to its
+      `external_url` and was marked read in the DB; a temporary newsletter-scheme
+      test row (inserted then deleted) 302'd to `/articles/{id}` and rendered its
+      full body with no `ZgotmplZ` and no leaked `newsletter:` URL; bad ids on
+      both routes returned clean 404s with the server still healthy afterward
+- [x] `go build ./...`, `go vet ./...`, `go test ./...` all pass
+- [ ] **Not verified live:** the digest-email `/r/{id}` link, because the local
+      DB currently has 0 articles clearing the relevance bar (`/api/digest/preview`
+      returned "0 of 0 stories") — no live data to click through. The email
+      template did parse successfully at process startup and `go vet` confirms
+      it's syntactically valid, but this is template-parse confidence, not a
+      click-through confirmation. Re-check next time real digest candidates exist.
 
 ---
 

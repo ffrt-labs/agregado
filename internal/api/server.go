@@ -57,7 +57,6 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
     articlesHandler := NewArticleHandler(articleRepo, sourceRepo, navBuilder)
     digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo, navBuilder)
     feedbackHandler := NewFeedbackHandler(
-    	webhookSecret,
      	feedbackRepo,
      	weightsRepo,
       	articleRepo,
@@ -124,7 +123,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Delete("/api/bookmarks/{id}", bookmarkHandler.Remove)
 	r.Post("/api/bookmarks", bookmarkHandler.SaveLink)
 
-	r.Get("/api/feedback", feedbackHandler.Handle)
+	r.Post("/api/articles/{id}/feedback", feedbackHandler.Handle)
 
 	// Admin console (unauthenticated in v1 — see PRD F9)
 	r.Get("/admin", func(w http.ResponseWriter, r *http.Request) {

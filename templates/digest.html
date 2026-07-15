@@ -50,11 +50,11 @@
                     {{ with .Reason }}<p class="reason">{{ . }}</p>{{ end }}
                     <div class="acts">
                         <button class="fb up" hx-ext="json-enc" hx-post="/api/articles/{{ .ID }}/feedback"
-                                hx-vals='{"direction":"up"}' hx-swap="none"
-                                hx-on::after-request="this.closest('.acts').querySelector('.confirm').textContent='boosting this topic'">&#9650; More like this</button>
+                                hx-vals='{"vote":"up"}' hx-swap="none"
+                                hx-on::after-request="this.closest('.acts').querySelector('.confirm').textContent = event.detail.successful ? 'boosting this topic' : 'feedback failed — try again'">&#9650; More like this</button>
                         <button class="fb down" hx-ext="json-enc" hx-post="/api/articles/{{ .ID }}/feedback"
-                                hx-vals='{"direction":"down"}' hx-swap="none"
-                                hx-on::after-request="this.closest('.acts').querySelector('.confirm').textContent='muting this topic'">&#9660; Less</button>
+                                hx-vals='{"vote":"down"}' hx-swap="none"
+                                hx-on::after-request="this.closest('.acts').querySelector('.confirm').textContent = event.detail.successful ? 'muting this topic' : 'feedback failed — try again'">&#9660; Less</button>
                         <span class="confirm" style="font-size:10px; color:var(--faint); letter-spacing:.03em"></span>
                         <button class="fb save{{ if .IsSaved }} on{{ end }}" title="Bookmark"
                                 hx-post="/api/articles/{{ .ID }}/bookmark" hx-swap="none"

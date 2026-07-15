@@ -2,13 +2,11 @@ package api
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
+	"encoding/json"
 	"net/http"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
+	"github.com/go-chi/chi/v5"
 )
 
 type FeedbackCreator interface {
@@ -24,42 +22,48 @@ type ArticleGetter interface {
 }
 
 type FeedbackHandler struct {
-	secret   string
 	feedback FeedbackCreator
 	weights  WeightsUpserter
 	articles ArticleGetter
 }
 
-func NewFeedbackHandler(secret string, feedback FeedbackCreator, weights WeightsUpserter, articles ArticleGetter) *FeedbackHandler {
+func NewFeedbackHandler(feedback FeedbackCreator, weights WeightsUpserter, articles ArticleGetter) *FeedbackHandler {
 	return &FeedbackHandler{
-		secret:   secret,
 		feedback: feedback,
 		weights:  weights,
 		articles: articles,
 	}
 }
 
-func (h *FeedbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	articleID := r.URL.Query().Get("article_id")
-	vote := r.URL.Query().Get("vote")
-	token := r.URL.Query().Get("token")
+type feedbackPayload struct {
+	Vote string `json:"vote"`
+}
 
-	if vote != "up" && vote != "down" {
-		writeError(w, http.StatusBadRequest, "vote must be 'up' or 'down'")
+// Handle records a vote and nudges the voted article's tag weights. This
+// replaces a GET+HMAC design (GET /api/feedback?article_id=&vote=&token=)
+// that had gone unreachable: its token generator was removed in an earlier
+// refactor, so no caller could ever produce a valid token, and the web
+// template already POSTs to a same-origin path instead. A same-origin POST
+// needs no signature — the thing HMAC was defending against (a mail client
+// prefetching and auto-triggering a GET that mutates state) doesn't apply
+// here; that hazard returns if this is ever wired into email links, which is
+// exactly why the email digest defers feedback to the web app.
+func (h *FeedbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
+	articleID := chi.URLParam(r, "id")
+
+	var payload feedbackPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	mac := hmac.New(sha256.New, []byte(h.secret))
-	mac.Write([]byte(articleID + ":" + vote))
-	expected := hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(token), []byte(expected)) {
-		writeError(w, http.StatusForbidden, "invalid token")
+	if payload.Vote != "up" && payload.Vote != "down" {
+		writeError(w, http.StatusBadRequest, "vote must be 'up' or 'down'")
 		return
 	}
 
 	ctx := r.Context()
 
-	if err := h.feedback.Create(ctx, articleID, vote); err != nil {
+	if err := h.feedback.Create(ctx, articleID, payload.Vote); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -67,7 +71,7 @@ func (h *FeedbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 	article, err := h.articles.GetById(ctx, articleID)
 	if err == nil && article != nil {
 		delta := 0.1
-		if vote == "down" {
+		if payload.Vote == "down" {
 			delta = -0.1
 		}
 		for _, tag := range article.Tags {
@@ -75,7 +79,5 @@ func (h *FeedbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "<html><body><h2>Thanks for your feedback!</h2></body></html>")
+	w.WriteHeader(http.StatusNoContent)
 }

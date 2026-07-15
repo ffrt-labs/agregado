@@ -90,7 +90,6 @@ func main() {
 		tagRepo,
 		cfg.Digest.MaxArticles,
 		cfg.Digest.MinRelevanceScore,
-		provider,
 	)
 	generator, err := digest.NewDefaultGenerator(provider, cfg.Digest.BaseURL)
 
@@ -109,7 +108,7 @@ func main() {
 	fetcher := fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent)
 
 	handler := storage.NewWorker(articleRepo, publisher)
-	enrichHandler := storage.NewEnrichHandler(articleRepo, articleRepo, fetcher, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
+	enrichHandler := storage.NewEnrichHandler(articleRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 
 	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore)
 

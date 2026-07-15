@@ -2,9 +2,7 @@ package digest
 
 import (
 	"context"
-	"log"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -19,16 +17,11 @@ type TagQuerier interface {
 	FindAll(ctx context.Context) ([]domain.Tag, error)
 }
 
-type Categorizer interface {
-	Categorize(ctx context.Context, title, content string) (string, error)
-}
-
 type Ranker struct {
 	articles           ArticleQuerier
 	tags               TagQuerier
 	maxArticles        int
 	minRelevanceScore  int
-	categorizer        Categorizer // optional; nil = skip AI categorization
 }
 
 type TaggedArticles struct {
@@ -37,13 +30,18 @@ type TaggedArticles struct {
 	Summary		string
 }
 
-func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int, minRelevanceScore int, categorizer Categorizer) *Ranker {
+// NewRanker builds a Ranker that groups already-tagged, already-scored
+// articles for the digest. Categorization used to run lazily here (a
+// re-categorize-on-every-compute cost paid by every digest, forever, since
+// nothing persisted the result) — it now runs once per article in the
+// articles.enrich stage (see internal/storage/enrich.go), so by the time
+// FindUnreadSince runs, tags are already durable and this just reads them.
+func NewRanker(articles ArticleQuerier, tags TagQuerier, maxArticles int, minRelevanceScore int) *Ranker {
 	return &Ranker{
 		articles:          articles,
 		tags:              tags,
 		maxArticles:       maxArticles,
 		minRelevanceScore: minRelevanceScore,
-		categorizer:       categorizer,
 	}
 }
 
@@ -63,26 +61,6 @@ func (r *Ranker) GetDigestArticles(ctx context.Context, lookbackHours int) ([]Ta
 	tags, err := r.tags.FindAll(ctx)
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if r.categorizer != nil {
-		slugToTag := make(map[string]domain.Tag, len(tags))
-		for _, t := range tags {
-			slugToTag[t.Slug] = t
-		}
-		for i, article := range articles {
-			if len(article.Tags) > 0 {
-				continue
-			}
-			slug, err := r.categorizer.Categorize(ctx, article.Title, article.BestText())
-			if err != nil {
-				log.Printf("categorize %q: %v", article.Title, err)
-				continue
-			}
-			if tag, ok := slugToTag[strings.TrimSpace(strings.ToLower(slug))]; ok {
-				articles[i].Tags = []domain.Tag{tag}
-			}
-		}
 	}
 
 	articlesGrouppedByTag := make(map[string][]domain.Article)

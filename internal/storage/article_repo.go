@@ -32,6 +32,12 @@ func (r *ArticleRepo) GetById(ctx context.Context, id string) (*domain.Article, 
 		return nil, err
 	}
 
+	tagMap, err := r.loadTags(ctx, []string{article.ID})
+	if err != nil {
+		return nil, err
+	}
+	article.Tags = tagMap[article.ID]
+
 	return &article, nil
 }
 
@@ -163,11 +169,27 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minS
 	ids := make([]string, len(articles))
 	for i, a := range articles { ids[i] = a.ID}
 
-	rows, err = r.db.pool.Query(ctx, `
+	tagMap, err := r.loadTags(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range articles {
+		articles[i].Tags = tagMap[articles[i].ID]
+	}
+
+	return articles, nil
+}
+
+// loadTags batch-loads tags for a set of article IDs, keyed by article ID.
+// Shared by FindUnreadSince (batch) and GetById (single-ID slice) so there is
+// one query building domain.Tag from the article_tags/tags join, not two.
+func (r *ArticleRepo) loadTags(ctx context.Context, articleIDs []string) (map[string][]domain.Tag, error) {
+	rows, err := r.db.pool.Query(ctx, `
 		SELECT article_id, tags.id, tags.name, tags.slug, tags.color,
   		tags.created_at, tags.updated_at FROM article_tags JOIN tags ON
     	article_tags.tag_id = tags.ID  WHERE article_id = ANY($1)
-    `, ids)
+    `, articleIDs)
 
 	if err != nil {
 		return nil, err
@@ -179,9 +201,9 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minS
 		return nil, err
 	}
 
-	articleMap := make(map[string][]domain.Tag)
+	tagMap := make(map[string][]domain.Tag)
 	for _, a := range articleTags {
-		articleMap[a.ArticleID] = append(articleMap[a.ArticleID], domain.Tag{
+		tagMap[a.ArticleID] = append(tagMap[a.ArticleID], domain.Tag{
 			ID: a.ID,
 			Name: a.Name,
 			Slug: a.Slug,
@@ -191,11 +213,35 @@ func (r *ArticleRepo) FindUnreadSince(ctx context.Context, since time.Time, minS
 		})
 	}
 
-	for i := range articles {
-		articles[i].Tags = articleMap[articles[i].ID]
+	return tagMap, nil
+}
+
+// SetTags replaces an article's tag assignments with exactly tagIDs
+// (delete-then-insert inside a transaction, so a reader never observes a
+// half-written state). Called from the enrich stage after Categorize —
+// article_tags previously had no writer at all, so a categorized article's
+// tag only ever existed in memory for the duration of one digest compute.
+func (r *ArticleRepo) SetTags(ctx context.Context, articleID string, tagIDs []string) error {
+	tx, err := r.db.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, "DELETE FROM article_tags WHERE article_id = $1", articleID); err != nil {
+		return err
 	}
 
-	return articles, nil
+	for _, tagID := range tagIDs {
+		if _, err := tx.Exec(ctx,
+			"INSERT INTO article_tags(article_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+			articleID, tagID,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // CountUnreadSince counts unread articles in the same window FindUnreadSince

@@ -3160,3 +3160,61 @@ discovered key," which is why a plain map + guarding mutex was the right choice 
 rather than reaching for `sync.Map` by default.
 
 ---
+
+## Session: Implementing Phase 18 (closing the personalization loop)
+
+### Topic Covered
+
+#### A feature that was 100% built and 0% functional
+
+Investigated "what's next" by verifying docs/TODO.md against actual code and live DB
+state, rather than trusting the checkboxes. Found the digest's personalization
+feature — the app's core differentiator — had never executed once:
+`topic_weights`/`article_feedback`/`article_tags` all at 0 rows, every `score` prompt
+ending with a dangling `Topic interest weights (...):` and nothing after it. Traced
+five independent, stacked breaks (tags assigned in-memory only; no persist method
+existed; GetById never loaded tags anyway; the feedback route didn't exist and its
+predecessor was already unreachable; the weights repo discarded the first vote on
+any topic). Fixed all five in one session, verified live by casting a real vote and
+watching the numbers move.
+
+### Key Learnings
+
+- **A stack of independent breaks is why nothing gets noticed.** Fixing any single
+  layer alone would have changed nothing observable — the bug was only visible by
+  tracing the full chain from UI click to AI prompt. When something "looks built but
+  isn't working," check whether you're looking at one bug or a silent chain of them.
+- **`INSERT ... ON CONFLICT DO UPDATE` needs the same formula on both branches.**
+  `topic_weights`'s insert branch hardcoded `weight = 1.0` while the conflict branch
+  computed `weight + delta` — an easy split to introduce (they're visually distant in
+  the SQL) and easy to miss because the *second* vote onward behaves correctly,
+  masking the bug for anyone who tests by voting twice.
+- **A `db:"-"` struct tag is a promise, not a guarantee.** `domain.Article.Tags` was
+  tagged to say "I'm populated by hand, not by the ORM" — but only one query
+  (`FindUnreadSince`) ever kept that promise. `GetById` returned a struct with the
+  field silently empty. The tag documents intent; it doesn't enforce it.
+- **Moving a re-derivable computation from "every render" to "once at write time" is
+  a correctness fix and a cost fix simultaneously.** `Categorize` ran lazily in the
+  digest ranker with no persistence, so every compute re-classified every article —
+  72 AI calls logged for 45 articles. Moving it to the ingest-time enrich stage (and
+  actually persisting the result) fixed both the wrong-answer bug and the
+  ever-growing AI bill in the same change.
+- **Live verification with a real click beats reasoning about code.** The clearest
+  proof in this session wasn't a passing unit test — it was `topic_weights` reading
+  exactly `1.1`, not `1.0`, after one real vote. A test can assert the formula is
+  right; only a live click proves the whole chain from button to database is wired.
+
+### Recommended reading (15–30 min)
+
+**"UPSERT" in the PostgreSQL documentation (`INSERT ... ON CONFLICT`)** — specifically
+the section on `DO UPDATE SET` and how the `EXCLUDED` pseudo-table relates to the
+values in the `VALUES` clause. The bug here (`VALUES ($1, $2)` hardcoding the insert
+value while the conflict branch computed a formula from it) is a natural trap once
+you understand that an upsert is really two different code paths sharing one
+statement — and the fix (deriving the insert value from the same formula as the
+conflict value) is the idiomatic way to keep them in sync. If you want the concrete
+Go-side pattern too, look at how `internal/storage/topic_weights_repo.go`'s `Upsert`
+does it now — both branches call the identical `GREATEST(0.1, LEAST(2.0, ...))` clamp
+against `1.0 + $2` vs `topic_weights.weight + $2`.
+
+---

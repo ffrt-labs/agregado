@@ -15,17 +15,18 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 17 — RSS Article Content Fetching + Enrichment Stage —
-**DONE, live-verified**. **Superseded Phase 16's deferred round** — TODO 16.1/16.2
-were never implemented as originally written; Phase 17 replaced them.
+**Active phase:** Phase 18 — Close the Personalization Loop — **DONE, live-verified**.
 **Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
-**Phase 17 plan:** `docs/rss-content-fetching-plan.md` + PRD **F15**.
+**Phase 18 plan:** PRD **F16** (no standalone plan doc this time — planned directly
+into the shared plan file, then implemented in the same session).
 
-> **Note on how Phase 17 was built:** the user explicitly asked for a full,
-> unattended implementation of the already-grilled plan ("Exceptionally, implement
-> this plan step-by-step for me") — the documented exception to the "user writes
-> all code" rule above. This was a one-time deviation for this phase; the default
-> guide-don't-do mode applies again starting next session unless asked again.
+> **Note on how Phases 17 and 18 were built:** the user explicitly asked for full,
+> unattended implementations ("Exceptionally, implement this plan/task/phase
+> completely for me, step-by-step") — the documented exception to the "user writes
+> all code" rule above. This has now happened twice; if it keeps recurring, consider
+> whether the exception should become the session default rather than something
+> re-confirmed each time. Absent that instruction, the default guide-don't-do mode
+> applies.
 
 ### Completed
 - Phases 1–9: Foundation, email ingestion, digest pipeline (ranker/generator/mailer/
@@ -73,12 +74,49 @@ were never implemented as originally written; Phase 17 replaced them.
   showing dense fetched Markdown (not CSS soup, not truncated at 500 chars), and
   confirmed a live `summarize` row showing title + reason + excerpt instead of a
   bare title list
+- **Phase 18: Close the Personalization Loop.** The app's core differentiator —
+  digest personalization from 👍/👎 feedback — had **never once worked**. Live
+  evidence before this phase: `topic_weights` 0 rows, `article_feedback` 0 rows,
+  `article_tags` 0 rows, every `score` prompt ending
+  `Topic interest weights (...):` followed by nothing. Five stacked breaks, each
+  invisible alone: tags were assigned in the ranker **in memory only** (no
+  `SetTags` existed); `article_tags` therefore stayed empty; `GetById` never
+  loaded tags anyway (`db:"-"`, bare `SELECT *`); the 👍/👎 buttons POSTed to a
+  route that didn't exist, and the *previous* GET+HMAC route was itself
+  unreachable (its token generator had already been deleted); and
+  `TopicWeightsRepo.Upsert`'s insert branch hardcoded `weight = 1.0`, silently
+  discarding the first vote on every topic. Fixed: `Categorize` moved from the
+  digest ranker into the `articles.enrich` stage (Phase 17) and now persists via
+  new `ArticleRepo.SetTags`/`loadTags`; the dead feedback route was deleted and
+  replaced with same-origin `POST /api/articles/{id}/feedback`; the first-vote
+  math fixed; the UI's `hx-on::after-request` now gates its message on
+  `event.detail.successful` instead of reporting success unconditionally. Also
+  fixed `?sort=relevant|recent`, a second user-visible control wired to nothing
+  (`List`/`ListBySource` took no sort argument at all). **No migration needed** —
+  every table already existed; this was pure wiring.
+  Covered by unit tests (`internal/storage/article_repo_test.go`,
+  `internal/api/feedback_test.go`); **live-verified**: `article_tags` went 0 → 5
+  (first ever) after forcing 5 articles back through enrich, with zero duplicate
+  rows or repeat `categorize` calls on re-enrichment (proving the
+  72-calls-for-45-articles cost bug is also fixed); a real 👍 click produced
+  `article_feedback` 0 → 1 and `topic_weights` 0 → 1 **at exactly 1.1, not 1.0**;
+  a subsequent `score` prompt read `- tech: 1.1` where it used to read nothing;
+  `?sort=relevant` vs `?sort=recent` returned genuinely different article orders.
+  **Not click-tested:** the UI false-success fix — Chrome extension wasn't
+  connected this session; verified instead by confirming the endpoint's real
+  status codes and matching an identical, already-working
+  `event.detail.successful` pattern elsewhere on the same template.
 
 ### Next
-- No active phase queued. Natural next candidates per `docs/TODO.md`: Phase 17's
-  own deliberate known gaps (no robots.txt, no enrichment retry, roundup link
-  extraction still deferred, `ai.Compress` not built), or resume earlier deferred
-  items (Phase 3.1 AI-detected topic clustering, Phase 4 polish, Phase 5 hardening)
+- No active phase queued. Natural next candidates per `docs/TODO.md`: Phase 12's
+  `keyword_weights` layer (now has a *verified working* `topic_weights` foundation
+  to extend, instead of building on the silently-broken one), Phase 11.2 retention
+  (nothing ever deletes an article — unbounded growth, more material now that
+  Phase 17 grew average article size from a ~200-byte teaser to 10-70KB of
+  Markdown), Phase 2.5 newsletter link extraction (Phase 17's `Fetcher` unblocked
+  most of it, but needs real newsletter data in this DB to verify live), or
+  Phase 5.1/5.2 observability (no slog, no metrics, a declared dead-letter queue
+  that's never drained)
 - Known gap: the CSS-soup fix from Phase 16 still hasn't been separately observed
   against a *newsletter* specifically (this local DB has no newsletter articles) —
   Phase 17's live verification covered RSS fetched-content, which exercises the
@@ -86,13 +124,18 @@ were never implemented as originally written; Phase 17 replaced them.
 - Known gap (carried from Phase 15): digest-email `/r/{id}` link only confirmed
   by template parse + `go vet`, not a live click-through — re-check next time
   real digest candidates exist
-- Housekeeping note: while live-verifying Phase 17, 5 pre-existing articles had
-  their `published_at`/`ingested_at` temporarily bumped to `NOW()` to pull them into
-  the digest lookback window (same technique Phase 16 used). Unlike Phase 16, the
-  original timestamps weren't captured first, so they were pushed back to
-  `NOW() - 30 days` afterward as an approximate (not exact) revert — low-impact
-  since these are pre-existing local test/seed articles, not real production data,
-  but noted here for honesty rather than silently claiming a clean revert
+- Housekeeping note (Phase 17): 5 pre-existing articles had their
+  `published_at`/`ingested_at` temporarily bumped to `NOW()` to pull them into the
+  digest lookback window during live verification, then pushed back to
+  `NOW() - 30 days` as an approximate (not exact) revert — original timestamps
+  weren't captured first. Low-impact local test data, noted for honesty.
+- Housekeeping note (Phase 18): live-verifying the feedback loop left real rows in
+  place rather than reverting them — `article_tags` (5 rows from forcing
+  re-categorization), one real `article_feedback` vote, and the resulting
+  `topic_weights` bump (`tech` → 1.1). These are genuine proof the mechanism
+  works, not corrupted test data (same reasoning as Phase 17's backfill), but
+  worth knowing about if `tech`-tagged articles start scoring very slightly
+  higher than expected.
 
 ### Key library choices (from PRD §4)
 | Purpose | Library |

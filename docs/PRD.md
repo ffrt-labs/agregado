@@ -855,6 +855,72 @@ by a separate hygiene pass.
   `content_source` recording the fallback.
 - The enrich queue drains concurrently across distinct hosts, serially per host.
 
+#### F16: Close the Personalization Loop
+**User Story:** As a user, my 👍/👎 feedback actually changes what shows up in
+tomorrow's digest.
+
+**Motivation.** This was never true. Live evidence, before this phase: `topic_weights`
+had 0 rows, `article_feedback` had 0 rows, `article_tags` had 0 rows (8 tags defined),
+and every `score` prompt in `ai_logs` ended with a dangling header —
+`Topic interest weights (1.0 = neutral, higher = more interested):` — followed by
+nothing. The infrastructure was all built and correct
+(`feedback_repo.go`, `topic_weights_repo.go`, migrations 005/006, weights threaded
+into the Score prompt, buttons rendered in the UI). Only the wiring was broken, so
+nothing errored — it silently no-opped. Same defect class as F15, a fourth time.
+
+**Five independent breaks, stacked** (each invisible on its own, which is why none
+were caught):
+1. The digest ranker assigned tags **in memory only** — no `SetTags` method existed
+   on `ArticleRepo` at all, so the result was discarded when the compute ended.
+2. → `article_tags` stayed empty forever.
+3. → `GetById` never loaded tags anyway (bare `SELECT *`, `Tags` tagged `db:"-"`).
+4. → The 👍/👎 buttons POSTed to a route that didn't exist. The *previous* route
+   (`GET /api/feedback?...&token=`, HMAC-signed) was itself unreachable — its token
+   generator had been deleted in an earlier refactor, so nothing could produce a
+   valid token.
+5. → Even reaching the DB, `TopicWeightsRepo.Upsert`'s insert branch hardcoded
+   `weight = 1.0` (exactly neutral); the delta only applied on conflict. **The first
+   vote on any topic silently discarded itself.**
+
+Plus: the UI printed "boosting this topic" via `hx-on::after-request` fired
+**unconditionally**, so a 404 rendered as success. And because tags never persisted,
+every digest compute re-categorized every article from scratch — 72 `categorize`
+calls logged for 45 articles. Phase 9 was a production incident about digest compute
+exhausting its deadline; this was a live, ongoing contributor to it.
+
+**Design decisions (confirmed):**
+1. **`Categorize` moves from the digest ranker to the `articles.enrich` stage**
+   (alongside `Score`/`Reason`, F15). Runs once per article at ingest, persists via
+   the new `ArticleRepo.SetTags`, and the ranker becomes a pure reader of already-tagged
+   articles. Fixes both the correctness bug and the 72-calls-for-45-articles cost —
+   AI calls come entirely out of the digest compute path.
+2. **The dead `GET /api/feedback` + HMAC route is deleted**, replaced by
+   `POST /api/articles/{id}/feedback` (JSON body `{"vote":"up"|"down"}`) — same-origin,
+   no signature needed. A same-origin POST doesn't face the hazard HMAC was defending
+   against (a mail client prefetching and auto-triggering a state-mutating GET); that
+   hazard returns only if feedback is ever wired into email links, which the email
+   template deliberately still defers to the web app.
+3. **`?sort=relevant|recent` fixed alongside** — same defect class (a user-visible
+   control wired to nothing): `List`/`ListBySource` took no sort argument, so the
+   value was read only to drive a CSS class.
+4. **No migration required** — `article_tags`, `topic_weights`, `article_feedback`
+   all existed already; this phase is pure wiring.
+
+**Acceptance Criteria:**
+- Clicking 👍 produces a row in `article_feedback` and a row in `topic_weights` at
+  **1.1**, not 1.0 (proves the first-vote fix).
+- The next `score` prompt in `/admin/logs` has real content under the weights header.
+- `article_tags` is populated after a backfill; a second digest compute does not
+  re-issue `categorize` calls for already-tagged articles.
+- `/articles?sort=relevant` and `?sort=recent` return genuinely different orders.
+- A failed feedback POST no longer reports success in the UI.
+
+**Known gaps, deliberately left open:** the signal is coarse (one tag per article,
+~8 tags total — Phase 12's `keyword_weights` layer extends this same mechanism once
+it's known to work); no email feedback links (prefetch hazard, needs its own design);
+no implicit feedback from `/r/{id}` opens yet (Phase 12.4); `sources.default_tag_id`
+is another dead column, noted but not fixed here.
+
 ### Post-MVP Features (Prioritized)
 
 | Priority | Feature | Learning Value | Usefulness |

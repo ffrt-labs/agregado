@@ -184,14 +184,21 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] **Group articles by tag first** (implemented in ranker — tagged + uncategorized groups, sorted by recency)
 - [x] Add `FindUnreadSince` to `ArticleRepo` (two-query approach: articles + batch tag load)
 - [x] Add `TagRepo` with `FindAll` method (satisfies `digest.TagQuerier`)
-- [ ] **Within tag, cluster by AI-detected topic** (Phase 5.5 — deferred)
-- [ ] Apply relevance scoring to filter low-value articles (Phase 5.5 — deferred)
-- [ ] Limit to configurable max articles (`maxArticles` field exists, not yet enforced)
+- [ ] **Within tag, cluster by AI-detected topic** — still absent (no "cluster" anywhere in
+      the repo). Distinct from per-article `Categorize`, which is done (Phase 18) —
+      this would group articles *within* a tag by sub-topic
+- [x] Apply relevance scoring to filter low-value articles — `FindUnreadSince` filters
+      `relevance_score >= $2` (Phase 5.6.4, done)
+- [x] Limit to configurable max articles — enforced as SQL `LIMIT` via
+      `DIGEST_MAX_ARTICLES` (Phase 5.6.4, done — see naming note there)
 
 ### 3.2 Email Generation
 - [x] Create `internal/digest/generator.go`
-- [x] Create HTML email template with **Tag → Articles** structure (topic clustering deferred to Phase 5.5)
-- [ ] Include AI-generated topic summaries in template (deferred to Phase 5.5)
+- [x] Create HTML email template with **Tag → Articles** structure (AI-detected
+      sub-topic clustering within a tag still deferred, see 3.1)
+- [x] Include AI-generated topic summaries in template — `generator.go` calls
+      `Summarize` per group (Phase 17 gave it real substance instead of titles-only);
+      rendered in both `templates/digest.html` and the email template
 - [x] Add digest-level overview: after group summaries are computed, call `provider.Digest(ctx, summaries)` → add `Overview string` to `templateData` → render at top of template (omit if AI fails)
 - [x] Create plain text fallback
 - [x] Format article summaries and links
@@ -223,10 +230,12 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Create source handlers (CRUD)
 - [x] Create article handlers (list, read/unread)
 - [x] Create search handler
-- [ ] `POST /api/articles/{id}/bookmark` — toggle `is_saved` on article (star button in list)
-- [ ] `POST /api/bookmarks` — save arbitrary URL as article (fetch title/summary)
-- [ ] `DELETE /api/bookmarks/{id}` — remove bookmark
-- [ ] `GET /api/bookmarks` — list saved articles
+- [x] `POST /api/articles/{id}/bookmark` — toggle `is_saved` on article (star button in list)
+- [x] `POST /api/bookmarks` — save arbitrary URL as article (`SaveExternalURL`; title = URL,
+      no title/summary fetch — a smaller scope than originally specced, not fixed here)
+- [x] `DELETE /api/bookmarks/{id}` — remove bookmark
+- [ ] `GET /api/bookmarks` — list saved articles as JSON. **Genuinely absent** — only
+      the HTML page `GET /bookmarks` exists (`bookmarkHandler.ListPage`)
 
 ### 4.2 Templates Setup
 - [x] Create base layout template
@@ -239,11 +248,15 @@ Progress tracker for building Agregado. Check items as you complete them.
 
 ### 4.3 Article Views
 - [x] Article list page with HTMX pagination
-- [ ] Article detail page
+- [x] Article detail page — `GET /articles/{id}` → `templates/reader.html` (Phase 15)
 - [x] Read/unread toggle (HTMX partial)
 - [x] Filter by source dropdown
 - [ ] Date range filter
-- [ ] Sort by `?sort=relevant|recent` — wire `Sort` param in `ListPage` handler and pass to template
+- [x] Sort by `?sort=relevant|recent` (Phase 18) — **was a real bug, not just unimplemented:**
+      `ListPage` read `?sort=` into the template purely to drive a CSS class; `List`/
+      `ListBySource` took no sort argument at all, so "Recent" silently returned
+      identical rows. Fixed: both repo methods take a whitelisted `sort` param
+      (`internal/storage/article_repo.go`'s `sortClause`, never interpolated into SQL)
 
 ### 4.4 Source Management
 - [x] Source list page
@@ -275,17 +288,20 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Error messages
 - [ ] Empty states
 
-### 4.8 Bookmarks
-- [ ] Add `is_saved BOOLEAN DEFAULT false` column to `articles` (migration)
-- [ ] Add `IsSaved bool` to `domain.Article`
-- [ ] `GET /bookmarks` page — renders `bookmarks.html` with saved articles
-- [ ] Bookmark list query in `ArticleRepo` (`FindSaved`)
-- [ ] Bookmark item needs `.SourceName`, `.SavedAt`, `.IsManual` — define a `BookmarkView` struct or add fields
+### 4.8 Bookmarks — DONE
+- [x] Add `is_saved BOOLEAN DEFAULT false` column to `articles` (migration `000009_is_saved`)
+- [x] Add `IsSaved bool` to `domain.Article`
+- [x] `GET /bookmarks` page — renders `bookmarks.html` with saved articles
+- [x] Bookmark list query in `ArticleRepo` (`FindSaved`)
+- [x] Bookmark item fields — rendered directly from `domain.Article` in the template
+      rather than a separate `BookmarkView` struct; simpler than specced, same result
 
-### 4.9 Daily Digest Home Page
-- [ ] Create `templates/home.html` — renders today's digest as a web page (uses `.digest-*` CSS classes already in `layout.html`)
-- [ ] `GET /` route — query today's top articles, render home template
-- [ ] Handler fetches articles since midnight, groups by tag (reuse ranker), passes to template
+### 4.9 Daily Digest Home Page — DONE (via Phase 8, different shape than specced)
+- [x] `GET /` route — `digestHandler.HomePage` using `scheduler.TodayOrTrigger` (Phase 9's
+      non-blocking cache-or-compute, not a fresh per-request query)
+- [x] Renders today's digest as a web page — `templates/digest.html`, not a separate
+      `home.html`; shares the `DigestView` view-model with the email template (Phase 8)
+- [x] Groups by tag, reuses the ranker — same `digest.Ranker` the email path uses
 
 ### 4.10 Source Backup & Restore
 - [x] Add `GET /api/sources/export` — returns all sources as OPML (RSS standard; importable into any feed reader)
@@ -351,9 +367,18 @@ Progress tracker for building Agregado. Check items as you complete them.
 ### 5.5.2 AI Features
 - [x] Per-tag group summarization in digest generator (soft failure — AI error never blocks digest)
 - [x] Integrate summaries into digest HTML template
-- [ ] `Categorize` integration — auto-assign tags to untagged articles at digest time
-- [ ] Create `internal/ai/relevance.go` — score article relevance using blocklist
-- [ ] Integrate blocklist from preferences table (`key='blocklist'`)
+- [x] `Categorize` integration — auto-assign tags to articles. **Moved from digest-time
+      to ingest-time in Phase 18**: it originally ran lazily in the ranker with no
+      persist step (`article_tags` had no writer at all), so every digest compute
+      re-categorized every article from scratch, forever (72 `categorize` calls
+      logged for 45 articles). Now runs once per article in the `articles.enrich`
+      stage and persists via `ArticleRepo.SetTags`
+- [ ] Create `internal/ai/relevance.go` — score article relevance using blocklist.
+      Functionally, relevance scoring exists (`Score`/`Reason` on the provider,
+      Phase 5.6.2) — this item is specifically about a *blocklist* factoring into
+      relevance, which is absent (see 4.6, also absent)
+- [ ] Integrate blocklist from preferences table (`key='blocklist'`) — the
+      `preferences` table exists (migration `000001`) but nothing reads/writes it
 
 ### 5.5.3 Ollama Alternative (Future)
 - [ ] Add Ollama service to `docker-compose.yml`
@@ -386,13 +411,16 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Create migration `000007_extract_links.up.sql` — add `extract_links BOOLEAN DEFAULT true` to `sources` and `parent_article_id UUID` to `articles`
 - [x] Run all migrations and verify tables exist
 
-### 5.6.2 AI Scoring at Ingest
-- [ ] Add `Score(ctx, title, content string, topicWeights map[string]float64) (int, error)` to `internal/ai/provider.go`
-- [ ] Implement `Score` in `internal/ai/cloudflare.go` (prompt: rate 1–5 for quality + global importance, return integer only)
-- [ ] Add `UpdateRelevanceScore(ctx, id, score)` to `internal/storage/article_repo.go`
-- [ ] Wire `Score` call into RSS poller after `Create`
-- [ ] Wire `Score` call into email webhook handler after article save
-- [ ] For newsletter articles: also call `Summarize` to populate `summary` field
+### 5.6.2 AI Scoring at Ingest — DONE (shape evolved through Phases 17/18)
+- [x] Add `Score(ctx, title, content string, topicWeights map[string]float64) (int, error)` to `internal/ai/provider.go`
+- [x] Implement `Score` in `internal/ai/cloudflare.go`
+- [x] Add `UpdateRelevanceScore(ctx, id, score)` to `internal/storage/article_repo.go`
+- [x] Wire `Score` — not into the RSS poller/webhook directly (as originally specced),
+      but into the `articles.enrich` stage (Phase 17) that both the poller and the
+      newsletter webhook publish into via a shared storage worker, so this covers
+      both ingest paths through one handler
+- [x] Newsletter `Summarize` — `source.Summarize` toggle calls `Summarize` in the
+      webhook handler before publish (predates Phase 17/18, unchanged)
 
 ### 5.6.3 Newsletter Link Extraction
 - [ ] Create `internal/newsletter/extractor.go` — `ExtractLinks(html string) []string` using goquery
@@ -400,34 +428,48 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [ ] Create fetch helper in same package — `FetchArticle(ctx, url) (title, content string, err error)` using go-readability
 - [ ] Wire extraction into email webhook handler: after saving newsletter article, extract links → fetch → create child Articles with `parent_article_id` set → score each
 
-### 5.6.4 Ranker Update
-- [ ] Add `DigestCap int` (`DIGEST_CAP`, default `20`) and `MinRelevanceScore int` (`DIGEST_MIN_SCORE`, default `3`) to `internal/config/config.go` `Digest` struct
-- [ ] Update `GetDigestArticles` in `internal/digest/ranker.go`:
-  - Filter: `relevance_score >= MinRelevanceScore OR relevance_score IS NULL`
-  - Sort: score DESC NULLS LAST, published_at DESC
-  - Limit: DigestCap
+### 5.6.4 Ranker Update — DONE (naming differs from spec)
+- [x] Cap + min score config exist as `DIGEST_MAX_ARTICLES` (default `20`) and
+      `DIGEST_MIN_SCORE` (default `3`) — not literally named `DIGEST_CAP`, same purpose
+- [x] `GetDigestArticles` / `FindUnreadSince`:
+  - Filter: `relevance_score >= MinRelevanceScore` (SQL `WHERE`)
+  - Sort: score DESC, then `COALESCE(published_at, ingested_at)` DESC (`ranker.go`'s
+    `lessByScoreThenDate`)
+  - Limit: SQL `LIMIT` from `DIGEST_MAX_ARTICLES`
 
-### 5.6.5 Feedback Endpoint
-- [ ] Create `internal/storage/feedback_repo.go` — `Create(ctx, articleID, vote)` inserting into `article_feedback`
-- [ ] Create `internal/storage/topic_weights_repo.go` — `Upsert(ctx, topic string, delta float64)` (clamp weight 0.1–2.0)
-- [ ] Add `GET /api/feedback` endpoint to `internal/api/server.go`:
-  - Params: `article_id`, `vote` (`up|down`), `token`
-  - Validate HMAC-SHA256 token (signed with `WEBHOOK_SECRET`, message = `article_id:vote`)
-  - Insert feedback row
-  - Fetch article tags → upsert topic_weights (up: +0.1, down: -0.1)
-  - Return HTML confirmation page
+### 5.6.5 Feedback Endpoint — DONE, but was completely non-functional until Phase 18
+- [x] `internal/storage/feedback_repo.go` — `Create(ctx, articleID, vote)`
+- [x] `internal/storage/topic_weights_repo.go` — `Upsert(ctx, topic, delta)`, clamp 0.1–2.0
+- [x] Feedback endpoint — not `GET /api/feedback` + HMAC as originally specced;
+      Phase 18 **deleted** that design (its token generator had been removed in an
+      earlier refactor, making the route permanently unreachable) and replaced it with
+      `POST /api/articles/{id}/feedback` (JSON body `{"vote":"up"|"down"}`, no
+      signature — same-origin, matches the web template's existing call). Fetches
+      article tags → upserts topic_weights (±0.1)
+- [x] **Found and fixed in Phase 18, not originally scoped:** `TopicWeightsRepo.Upsert`'s
+      insert branch hardcoded `weight = 1.0` (neutral), so the *first* vote on any
+      topic silently discarded itself — only the second vote onward had any effect
 
-### 5.6.6 Digest Template — Feedback Links
-- [ ] Add a `DigestArticle` wrapper struct (or extend `domain.Article`) with `UpToken` and `DownToken` string fields
-- [ ] Generate HMAC tokens per article in `internal/digest/generator.go` before template rendering
-- [ ] Update `internal/digest/templates/digest.html` — add per-article: relevance score badge, 👍 link, 👎 link (separate from article title link)
+### 5.6.6 Digest Template — Feedback Links — DONE (web only, HMAC dropped)
+- [x] Web template (`templates/digest.html`) renders 👍/👎 buttons calling the POST
+      endpoint above; no token needed (see 5.6.5)
+- [ ] Email template deliberately has **no** feedback links — mail clients prefetch
+      links, so a state-mutating GET would auto-vote. The email template explicitly
+      defers: "Your feedback on the web app retunes tomorrow's digest." Reviving this
+      needs its own prefetch-safe design, not a straightforward port of the web POST
 
 ### Phase 5.6 Verification
-- [ ] Insert article with `relevance_score = 1` → confirm excluded from `/api/digest/preview`
-- [ ] POST newsletter email → confirm newsletter article saved + child articles created from extracted links
-- [ ] `/api/digest/preview` returns ≤ DigestCap articles, all score ≥ MinRelevanceScore (or unscored)
-- [ ] Click 👍 feedback URL → `article_feedback` row created, `topic_weights` upserted
-- [ ] Confirm topic weight used in subsequent `Score` prompt
+- [x] `/api/digest/preview` / `FindUnreadSince` respects `MinRelevanceScore` and
+      `DigestCap` (`DIGEST_MAX_ARTICLES`)
+- [ ] Newsletter link extraction (child articles from extracted links) — still absent,
+      see Phase 2.5 / 5.6.3
+- [ ] Click 👍/👎 → `article_feedback` row created, `topic_weights` upserted (code
+      fixed in Phase 18; not yet live-verified against the real stack — both tables
+      were provably at 0 rows before this fix despite the UI existing since this
+      phase originally shipped)
+- [ ] Topic weight used in subsequent `Score` prompt — `enrich.go` passes
+      `weights.FindAll()` into `Score`; not yet confirmed live that the prompt's
+      weights block has content instead of a dangling header
 
 ---
 
@@ -1155,6 +1197,109 @@ and clustering explicitly out of scope. **Supersedes Phase 16.1/16.2.**
       always blocked on
 - [ ] **`ai.Compress` not built** — if `Distill` proves too lossy, `distilled_content`
       is already the right seam to swap it in behind
+
+---
+
+## Phase 18: Close the Personalization Loop
+
+**Goal:** Make 👍/👎 feedback and per-article tagging actually work — both were fully
+built but silently non-functional. See `docs/PRD.md` **F16**.
+
+**Root causes (verified live before any fix):** `topic_weights` 0 rows,
+`article_feedback` 0 rows, `article_tags` 0 rows (8 tags defined), and every `score`
+prompt in `ai_logs` ended with `Topic interest weights (...):` followed by nothing.
+Five independent breaks, stacked: (1) the ranker assigned tags in memory only, no
+`SetTags` existed; (2) → `article_tags` stayed empty; (3) → `GetById` never loaded
+tags anyway (`db:"-"`, bare `SELECT *`); (4) → the 👍/👎 buttons POSTed to a route
+that didn't exist, and the *previous* `GET /api/feedback` + HMAC route was itself
+unreachable (its token generator had already been deleted); (5) →
+`TopicWeightsRepo.Upsert`'s insert branch hardcoded `weight = 1.0`, discarding the
+first vote on any topic. Also: the UI reported success (`hx-on::after-request`)
+unconditionally, and untracked tags meant every digest compute re-categorized every
+article from scratch (72 `categorize` calls logged for 45 articles).
+
+**Decisions:** move `Categorize` from the digest ranker into the `articles.enrich`
+stage (Phase 17) so it persists once per article via a new `ArticleRepo.SetTags`;
+delete the dead GET+HMAC feedback route and replace with same-origin
+`POST /api/articles/{id}/feedback`; fix the first-vote math; fix the false-success UI
+report; also fix `?sort=relevant|recent` (same defect class — control wired to
+nothing). **No migration needed** — every table already existed.
+
+### 18.1 Persist tags — `internal/storage/article_repo.go`
+- [x] Extract `FindUnreadSince`'s batch tag-load into a private
+      `loadTags(ctx, ids []string) (map[string][]domain.Tag, error)`
+- [x] Reuse `loadTags` in `GetById` too — it never loaded tags before, despite `Tags`
+      being a struct field
+- [x] Add `SetTags(ctx, articleID string, tagIDs []string) error` — delete-then-insert
+      inside a transaction, so a reader never observes a half-written state
+
+### 18.2 Move `Categorize` to the enrich stage
+- [x] `internal/digest/ranker.go` — drop the lazy-categorize block, the `Categorizer`
+      interface, and the `NewRanker` param; ranker now only reads persisted tags
+- [x] `internal/storage/enrich.go` — add `Categorizer`/`TagQuerier`/`TagSetter` deps;
+      `categorizeArticle` slots between `UpdateContent` and `Score`; soft-fails
+      (unrecognized slug, AI error, or persist error all just leave the article
+      uncategorized, matching how `Score`/`Reason` already degrade)
+- [x] `cmd/agregado/main.go` — updated both `NewRanker` and `NewEnrichHandler` call sites
+- [x] Pre-existing articles catch up via the already-existing `POST /api/admin/enrich`
+      backfill (Phase 17)
+
+### 18.3 Fix the first-vote math — `internal/storage/topic_weights_repo.go`
+- [x] Insert branch now applies `GREATEST(0.1, LEAST(2.0, 1.0 + delta))` — same
+      clamp formula as the conflict branch, instead of hardcoding `weight = 1.0`
+
+### 18.4 Replace the feedback endpoint
+- [x] Rewrote `FeedbackHandler.Handle` as `POST /api/articles/{id}/feedback`
+      (`internal/api/feedback.go`), JSON body `{"vote":"up"|"down"}`, `204` on success
+- [x] Deleted the HMAC/token machinery and the `secret` field/param entirely
+- [x] `server.go` — registered the new route, removed `GET /api/feedback`
+- [x] `templates/digest.html` — `hx-vals` changed `direction` → `vote` to match
+
+### 18.5 Stop the UI reporting false success
+- [x] `templates/digest.html` — `hx-on::after-request` now branches on
+      `event.detail.successful` instead of firing the same message unconditionally
+
+### 18.6 Make `?sort=` real
+- [x] `ArticleRepository.List`/`ListBySource` (+ `article_repo.go` impl) take a
+      `sort` param; `sortClause` whitelists to one of two fixed `ORDER BY` literals
+      (`relevant` / default `recent`) — never interpolates the value into SQL
+- [x] `articles.go` — `ListPage`, `SearchPage`'s no-query branch, and the JSON
+      `List` handler all thread the query param through
+- [x] Fixed `articles_test.go`'s fake to match the new interface signature
+
+### 18.7 Tests
+- [x] `internal/storage/article_repo_test.go` — `sortClause` (relevant/recent/empty/
+      SQL-injection-shaped input, confirming it never reaches the query as text)
+- [x] `internal/api/feedback_test.go` — up vote, down vote, invalid vote value,
+      malformed JSON, repo error, untagged article (no weight bump but vote still
+      recorded) — all via fakes, reusing `fakeArticleRepo` from `articles_test.go`
+
+### Phase 18 Verification
+- [x] `go build ./...` && `go vet ./...` && `go test ./...` — all pass
+- [x] Live: `article_feedback` **0 → 1 row**; `topic_weights` **0 → 1 row at 1.1**,
+      not 1.0 — confirms the first-vote fix (18.3) applies correctly on insert
+- [x] Live: a `score` prompt captured after the vote reads
+      `Topic interest weights (...): - tech: 1.1` — real content under the header
+      that previously ended with nothing
+- [x] Live: `article_tags` **0 → 5 rows** (first ever) after forcing 5 articles back
+      through the enrich stage; re-enriching the same article twice more produced
+      **zero** additional `categorize` calls and no duplicate `article_tags` row —
+      the "skip already-tagged articles" guard (`enrich.go`'s `categorizeArticle`)
+      works, closing the 72-calls-for-45-articles cost bug
+- [x] Live: `/articles?sort=relevant` vs `?sort=recent` return genuinely different
+      first-page orderings (confirmed via distinct article ID sequences)
+- [ ] **Not click-tested:** the false-success UI fix (18.5) — Chrome extension
+      wasn't connected this session. Verified instead by (a) confirming the
+      `/feedback` endpoint returns a real `204`/`4xx`/`5xx` for htmx's
+      `event.detail.successful` to key off, and (b) the exact same
+      `event.detail.successful ? ... : ...` pattern already exists and works for
+      the neighboring "Send email" button on the same page/line style
+      (`templates/digest.html`)
+- **Disclosure:** the live verification's vote (`article_feedback`/`topic_weights`)
+  and 5 categorizations (`article_tags`) are real rows, not reverted — they're
+  genuine proof the mechanism works, not corrupted test data, and the weight bump
+  (1.0 → 1.1 on `tech`) is small enough not to distort future scoring meaningfully.
+  Left in place, same as Phase 17's backfill was.
 
 ---
 

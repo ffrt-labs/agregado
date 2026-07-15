@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/felipeafreitas/agregado/internal/opml"
@@ -157,7 +158,10 @@ func (s *SourceHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *SourceHandler) Export(w http.ResponseWriter, r *http.Request) {
-	sources, err := s.sources.List(r.Context(), 999, 0)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	sources, err := s.sources.List(ctx, 999, 0)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -176,6 +180,9 @@ func (s *SourceHandler) Export(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *SourceHandler) Import(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -202,7 +209,7 @@ func (s *SourceHandler) Import(w http.ResponseWriter, r *http.Request) {
 
 	var result ImportResult
 	for _, c := range candidates {
-		existing, err := s.sources.FindByURL(r.Context(), c.URL)
+		existing, err := s.sources.FindByURL(ctx, c.URL)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -213,7 +220,7 @@ func (s *SourceHandler) Import(w http.ResponseWriter, r *http.Request) {
 		}
 
 		url := c.URL
-		_, err = s.sources.Create(r.Context(), domain.Source{
+		_, err = s.sources.Create(ctx, domain.Source{
 			Name:     c.Name,
 			Type:     domain.Rss,
 			URL:      &url,

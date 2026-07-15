@@ -47,8 +47,22 @@ func (r *ArticleRepo) Count(ctx context.Context) (int, error) {
 	return count, err
 }
 
-func (r *ArticleRepo) List(ctx context.Context, limit, offset int) ([]domain.Article, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles LIMIT $1 OFFSET $2", limit, offset)
+// sortClause maps a sort keyword to a fixed ORDER BY clause. Only ever
+// returns one of these two literal strings — sort is never interpolated
+// into the query, so an unrecognized value just falls back to "recent"
+// rather than reaching the database as text.
+func sortClause(sort string) string {
+	if sort == "relevant" {
+		return "ORDER BY relevance_score DESC NULLS LAST, COALESCE(published_at, ingested_at) DESC"
+	}
+	return "ORDER BY COALESCE(published_at, ingested_at) DESC"
+}
+
+func (r *ArticleRepo) List(ctx context.Context, limit, offset int, sort string) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx,
+		"SELECT * FROM articles "+sortClause(sort)+" LIMIT $1 OFFSET $2",
+		limit, offset,
+	)
 
 	if err != nil {
 		return nil, err
@@ -63,8 +77,11 @@ func (r *ArticleRepo) List(ctx context.Context, limit, offset int) ([]domain.Art
 	return articles, nil
 }
 
-func (r *ArticleRepo) ListBySource(ctx context.Context, id string, limit, offset int) ([]domain.Article, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM articles WHERE source_id = $1 LIMIT $2 OFFSET $3", id, limit, offset)
+func (r *ArticleRepo) ListBySource(ctx context.Context, id string, limit, offset int, sort string) ([]domain.Article, error) {
+	rows, err := r.db.pool.Query(ctx,
+		"SELECT * FROM articles WHERE source_id = $1 "+sortClause(sort)+" LIMIT $2 OFFSET $3",
+		id, limit, offset,
+	)
 
 	if err != nil {
 		return nil, err

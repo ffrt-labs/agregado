@@ -35,8 +35,8 @@ type ArticlesPageData struct {
 }
 
 type ArticleRepository interface {
-	List(ctx context.Context, limit int, offset int) ([]domain.Article, error)
-	ListBySource(ctx context.Context, source string, limit, offset int) ([]domain.Article, error)
+	List(ctx context.Context, limit int, offset int, sort string) ([]domain.Article, error)
+	ListBySource(ctx context.Context, source string, limit, offset int, sort string) ([]domain.Article, error)
 	GetById(ctx context.Context, id string) (*domain.Article, error)
 	MarkRead(ctx context.Context, id string) error
 	MarkUnread(ctx context.Context, id string) error
@@ -66,7 +66,7 @@ func NewArticleHandler(articleRepo ArticleRepository, sourceLister SourceLister,
 
 func (a *ArticleHandler) List(w http.ResponseWriter, r *http.Request) {
 	limit, offset := ParsePagination(r)
-	articles, err := a.articles.List(r.Context(), limit, offset)
+	articles, err := a.articles.List(r.Context(), limit, offset, r.URL.Query().Get("sort"))
 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -133,12 +133,13 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceID := r.URL.Query().Get("source_id")
+	sort := r.URL.Query().Get("sort")
 	var articles []domain.Article
 
 	if sourceID != "" {
-		articles, err = a.articles.ListBySource(r.Context(), sourceID, limit + 1, offset)
+		articles, err = a.articles.ListBySource(r.Context(), sourceID, limit + 1, offset, sort)
 	} else {
-		articles, err = a.articles.List(r.Context(), limit + 1, offset)
+		articles, err = a.articles.List(r.Context(), limit + 1, offset, sort)
 	}
 
 	if err != nil {
@@ -166,7 +167,7 @@ func (a *ArticleHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 			NextOffset:     offset + limit,
 			Sources:        sources,
 			SelectedSource: sourceID,
-			Sort:           r.URL.Query().Get("sort"),
+			Sort:           sort,
 			Nav:            a.nav.Build(r.Context()),
 		},
 	)
@@ -177,7 +178,7 @@ func (a *ArticleHandler) SearchPage(w http.ResponseWriter, r *http.Request) {
 	limit, offset := ParsePagination(r)
 
 	if query == "" {
-		articles, err := a.articles.List(r.Context(), limit, offset)
+		articles, err := a.articles.List(r.Context(), limit, offset, r.URL.Query().Get("sort"))
 
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

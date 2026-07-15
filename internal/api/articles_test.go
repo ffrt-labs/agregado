@@ -23,11 +23,11 @@ type fakeArticleRepo struct {
 	markReadCalls []string
 }
 
-func (f *fakeArticleRepo) List(ctx context.Context, limit, offset int) ([]domain.Article, error) {
+func (f *fakeArticleRepo) List(ctx context.Context, limit, offset int, sort string) ([]domain.Article, error) {
 	return nil, nil
 }
 
-func (f *fakeArticleRepo) ListBySource(ctx context.Context, source string, limit, offset int) ([]domain.Article, error) {
+func (f *fakeArticleRepo) ListBySource(ctx context.Context, source string, limit, offset int, sort string) ([]domain.Article, error) {
 	return nil, nil
 }
 

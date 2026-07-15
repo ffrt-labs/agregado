@@ -294,6 +294,11 @@ Progress tracker for building Agregado. Check items as you complete them.
 - [x] Add Import file input to Sources page → POSTs OPML, refreshes list
 - [x] Add scheduled job to email OPML backup to self (`BACKUP_SCHEDULE`, `BACKUP_RECIPIENT_EMAIL`, weekly default)
 - [x] Add manual trigger endpoint `POST /api/backup/send`
+- [ ] **Known gap (found 2026-07-15, OPML import debugging session):** clicking
+      "Export OPML" over the local dev server's plain HTTP triggers Chrome's
+      "insecure download blocked" warning (any file download over unencrypted
+      HTTP, not specific to OPML/MIME type). Not fixed — tracked under
+      Post-MVP Features ("Local HTTPS for dev server")
 
 ### Phase 4 Verification
 - [ ] Can browse articles in browser
@@ -1174,6 +1179,10 @@ and clustering explicitly out of scope. **Supersedes Phase 16.1/16.2.**
 - [ ] AI summarization (for articles - separate from social)
 - [ ] Phrase-level filtering
 - [ ] Smart scheduling
+- [ ] Local HTTPS for the dev server (e.g. `mkcert` + a local reverse proxy) —
+      eliminates Chrome's "insecure download blocked" warning on any file
+      download served from `http://localhost` (surfaced by OPML export, see
+      Phase 4.10). Not needed for now — low priority, `docs/TODO.md` tracker only
 
 ---
 

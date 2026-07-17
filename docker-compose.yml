@@ -94,8 +94,20 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
       AI_MODEL: ${AI_MODEL}
     ports:
-      - 8080:8080
+      - "127.0.0.1:8080:8080"
+    networks:
+      - default
+      - edge
 
     restart: unless-stopped
 volumes:
   postgres_data:
+networks:
+  # Shared with every other app on the home server plus the homelab-edge
+  # Caddy container, which is the only thing with a published host port
+  # (443) and the sole way in from the LAN. Created by homelab-edge's own
+  # deploy (see that repo) — must already exist before this compose file
+  # runs, or `docker compose up` fails with "network edge declared as
+  # external, but could not be found".
+  edge:
+    external: true

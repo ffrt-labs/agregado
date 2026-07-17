@@ -10,11 +10,15 @@ Key constraint: this is a learning project. I write ALL the code. You guide me s
 
 To orient yourself:
 1. Run `git log --oneline -5` to see recent work
-2. Read `docs/TODO.md` — first unchecked item = where we are
-3. Read the relevant source files before guiding me on anything
+2. Run `gh issue list` — this is the live roadmap. `gh issue view <n>` for the full spec
+3. Read `docs/adr/` entries touching the area in question
+4. Read the relevant source files before guiding me on anything
+
+(`docs/ROADMAP-ARCHIVE.md` is frozen history — Phases 1–18. Read it for *why*
+something was built, never for what to do next.)
 
 Once you have context, tell me:
-- What phase we're on and what the next unchecked task is
+- Which issue we're on and what it involves
 - A brief summary of what that task involves (2-3 sentences)
 - The first question or decision I need to think through to get started
 

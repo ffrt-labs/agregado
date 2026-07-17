@@ -197,7 +197,9 @@ agregado/
 ## Documentation
 
 - [Product Requirements (PRD)](docs/PRD.md) — Full feature specifications
-- [TODO](docs/TODO.md) — Implementation checklist and progress
+- [Issues](https://github.com/ffrt-labs/agregado/issues) — Live roadmap; what's actually being worked on
+- [ADRs](docs/adr/) — Architectural decisions, including deliberate non-goals
+- [Roadmap Archive](docs/ROADMAP-ARCHIVE.md) — Frozen history of Phases 1–18
 
 ## Learning Goals
 

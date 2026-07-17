@@ -15,10 +15,10 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 18 — Close the Personalization Loop — **DONE, live-verified**.
-**Roadmap:** `docs/TODO.md` (phases + checkboxes). **PRD:** `docs/PRD.md`.
-**Phase 18 plan:** PRD **F16** (no standalone plan doc this time — planned directly
-into the shared plan file, then implemented in the same session).
+**Active phase:** Phase 19 — Fix digest links ([#1](https://github.com/ffrt-labs/agregado/issues/1)) — **specced, not started**.
+**Live work:** GitHub Issues (`gh issue list`). **PRD:** `docs/PRD.md`.
+**History:** `docs/ROADMAP-ARCHIVE.md` (frozen 2026-07-17 — Phases 1–18, read-only).
+**Decisions:** `docs/adr/` — read the ones touching your area before changing it.
 
 > **Note on how Phases 17 and 18 were built:** the user explicitly asked for full,
 > unattended implementations ("Exceptionally, implement this plan/task/phase
@@ -108,22 +108,33 @@ into the shared plan file, then implemented in the same session).
   `event.detail.successful` pattern elsewhere on the same template.
 
 ### Next
-- No active phase queued. Natural next candidates per `docs/TODO.md`: Phase 12's
-  `keyword_weights` layer (now has a *verified working* `topic_weights` foundation
-  to extend, instead of building on the silently-broken one), Phase 11.2 retention
-  (nothing ever deletes an article — unbounded growth, more material now that
-  Phase 17 grew average article size from a ~200-byte teaser to 10-70KB of
-  Markdown), Phase 2.5 newsletter link extraction (Phase 17's `Fetcher` unblocked
-  most of it, but needs real newsletter data in this DB to verify live), or
-  Phase 5.1/5.2 observability (no slog, no metrics, a declared dead-letter queue
-  that's never drained)
+Specced and ready, in dependency order (`gh issue view <n>`):
+- **[#1](https://github.com/ffrt-labs/agregado/issues/1) Phase 19 — Fix digest links.** `PUBLIC_BASE_URL` was never
+  set in prod, so **every digest link ever sent points at `http://localhost:8080`**.
+  Also widens the tunnel ingress (see `docs/adr/0001`) and adds a banner guard.
+  Small, deployable, unblocks #2's verification.
+- **[#2](https://github.com/ffrt-labs/agregado/issues/2) Phase 20 — Newsletter canonical URL** + persist raw email HTML.
+  Newsletters open in the in-app reader because they have no real URL to redirect to.
+- **[#3](https://github.com/ffrt-labs/agregado/issues/3) Phase 21 — Kill the `newsletter:` sentinel.** Pure refactor
+  of what #2 leaves behind; nullable `external_url`, discriminate on `sources.type`.
+
+Not specced, described only in `docs/ROADMAP-ARCHIVE.md` — open an issue when you
+pick one up: Phase 12 `keyword_weights` (now has a *verified working*
+`topic_weights` foundation to extend), Phase 6 social media (57 items, never
+begun), Phase 13 Vocabulário. Deliberate non-goals — retention, observability,
+robots.txt, enrichment retry, roundup fan-out — are in `docs/adr/0003`, each with
+a revisit trigger. **They are decisions, not backlog.**
+
 - Known gap: the CSS-soup fix from Phase 16 still hasn't been separately observed
   against a *newsletter* specifically (this local DB has no newsletter articles) —
   Phase 17's live verification covered RSS fetched-content, which exercises the
-  same `textutil.Strip`/`Clean` path, but not the newsletter ingestion branch
+  same `textutil.Strip`/`Clean` path, but not the newsletter ingestion branch.
+  **#2 closes this**: its verification synthesizes real newsletters through the
+  live Worker → webhook path, giving this DB its first newsletter articles.
 - Known gap (carried from Phase 15): digest-email `/r/{id}` link only confirmed
-  by template parse + `go vet`, not a live click-through — re-check next time
-  real digest candidates exist
+  by template parse + `go vet`, not a live click-through. **Now three phases old,
+  and it's why #1 exists** — nobody ever clicked that link from a phone, so nobody
+  saw it was a localhost URL. #1's acceptance criterion is that exact click.
 - Housekeeping note (Phase 17): 5 pre-existing articles had their
   `published_at`/`ingested_at` temporarily bumped to `NOW()` to pull them into the
   digest lookback window during live verification, then pushed back to
@@ -146,8 +157,13 @@ into the shared plan file, then implemented in the same session).
 
 ### How to orient in a new session
 1. Run `git log --oneline -5` to see latest work.
-2. Skim `docs/TODO.md` — checked items = done; first unchecked = where we are.
-3. Read the relevant existing package before touching it.
+2. Run `gh issue list` — this is the live roadmap. `gh issue view <n>` for the spec.
+3. Read `docs/adr/` entries touching the area you're about to change.
+4. Read the relevant existing package before touching it.
+
+`docs/ROADMAP-ARCHIVE.md` is **frozen history** (Phases 1–18). Read it for *why*
+something was built, never to find out what to do next — its unchecked boxes are
+a mix of dead non-goals and never-started ideas, not a queue.
 
 ---
 
@@ -203,7 +219,11 @@ Always confirm before writing substantial code.
 
 **The agent IS responsible for updating documentation files** (`docs/*.md`, `AGENTS.md`).
 This includes:
-- Updating `docs/TODO.md` when phases are completed or added
+- Filing/updating GitHub Issues when work is specced, completed, or added
+  (`gh issue list`; see `docs/agents/issue-tracker.md`). **Never add to
+  `docs/ROADMAP-ARCHIVE.md`** — it's frozen history
+- Writing an ADR in `docs/adr/` when a decision resolves, especially a deliberate
+  *non*-goal. Non-goals are decisions, not backlog items — don't file them as issues
 - Updating `docs/PRD.md` when schema or design changes
 - Updating `docs/STUDY_LOG.md` with learning topics during the session
 - Keeping `AGENTS.md` current state section accurate
@@ -230,7 +250,7 @@ Do this unprompted whenever the last TODO checkbox in a phase is checked off.
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`felipeafreitas/agregado`). See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`ffrt-labs/agregado`). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

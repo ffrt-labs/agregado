@@ -1,6 +1,28 @@
-# Agregado - Implementation TODO
+# Agregado — Roadmap Archive (frozen 2026-07-17)
 
-Progress tracker for building Agregado. Check items as you complete them.
+> **This file is frozen. Do not add items to it.**
+>
+> Live work lives in **[GitHub Issues](https://github.com/ffrt-labs/agregado/issues)**.
+> Run `gh issue list` to see what's active. To start something that's only
+> described here, open an issue for it *then* — deciding to do the work is what
+> creates the issue.
+>
+> **Why this file still exists:** it's the record of how Agregado actually got
+> built — Phases 1–18, every checked item, and the reasoning captured alongside
+> them. That history is worth keeping verbatim, and nothing in it was deleted.
+>
+> **How to read it:** a checked box means it shipped. An **unchecked box does not
+> mean "todo"** — this file overloaded `- [ ]` to mean at least three different
+> things, and that ambiguity is why it was retired:
+>
+> | Unchecked box | What it actually is |
+> |---|---|
+> | `**No robots.txt** — proportionate for…` | a deliberate non-goal — will never be checked (now in `docs/adr/`) |
+> | `A score row in /admin/logs shows dense content` | an acceptance check for a phase that already shipped |
+> | `Create migration 000005_add_social_sources.up.sql` | genuinely unstarted work (Phase 6, never begun) |
+>
+> Deliberate non-goals have been extracted to `docs/adr/`. Unstarted work stays
+> here until someone decides to do it.
 
 ---
 

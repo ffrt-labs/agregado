@@ -745,7 +745,7 @@ approach for the AI's content input.
 #### F15: RSS Article Content Fetching + Enrichment Stage
 
 > **Status: DONE, live-verified.** Implemented and confirmed against the real local
-> stack (see `docs/TODO.md` Phase 17 for the checklist). One deviation from the
+> stack (see `docs/ROADMAP-ARCHIVE.md` Phase 17 for the checklist). One deviation from the
 > design below: `go-shiori/go-readability` is deprecated upstream, so the
 > implementation uses **`codeberg.org/readeck/go-readability/v2`** instead (same
 > Mozilla-Readability-derived approach, actively maintained). Live backfill of 45

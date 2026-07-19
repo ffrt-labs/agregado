@@ -15,18 +15,18 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 19 — Fix digest links ([#1](https://github.com/ffrt-labs/agregado/issues/1)) — **specced, not started**.
+**Active phase:** Phase 19 — Fix digest links ([#1](https://github.com/ffrt-labs/agregado/issues/1)) — **repo-side work committed (local, unpushed); issue stays open pending the Cloudflare dashboard change and live phone verification**.
 **Live work:** GitHub Issues (`gh issue list`). **PRD:** `docs/PRD.md`.
 **History:** `docs/ROADMAP-ARCHIVE.md` (frozen 2026-07-17 — Phases 1–18, read-only).
 **Decisions:** `docs/adr/` — read the ones touching your area before changing it.
 
-> **Note on how Phases 17 and 18 were built:** the user explicitly asked for full,
-> unattended implementations ("Exceptionally, implement this plan/task/phase
-> completely for me, step-by-step") — the documented exception to the "user writes
-> all code" rule above. This has now happened twice; if it keeps recurring, consider
-> whether the exception should become the session default rather than something
-> re-confirmed each time. Absent that instruction, the default guide-don't-do mode
-> applies.
+> **Note on how Phases 17, 18, and the Phase 19/#1 repo-side work were built:** the
+> user explicitly asked for full, unattended implementations ("Exceptionally,
+> implement this plan/task/phase completely for me, step-by-step") — the
+> documented exception to the "user writes all code" rule above. This has now
+> happened three times; if it keeps recurring, consider whether the exception
+> should become the session default rather than something re-confirmed each time.
+> Absent that instruction, the default guide-don't-do mode applies.
 
 ### Completed
 - Phases 1–9: Foundation, email ingestion, digest pipeline (ranker/generator/mailer/

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -43,6 +44,10 @@ type emailData struct {
 	SourcesURL     string
 	ClearedCount   int
 	CandidateCount int
+	// LocalhostWarning is non-empty when BaseURL is a loopback origin, which
+	// means the digest's own links won't resolve for a reader off the home
+	// network. See NewGenerator's isLocalBaseURL for what counts as loopback.
+	LocalhostWarning string
 }
 
 type emailGroup struct {
@@ -73,6 +78,20 @@ func NewGenerator(templateSrc string, provider ai.Provider, baseURL string) (*Ge
 
 func NewDefaultGenerator(provider ai.Provider, baseURL string) (*Generator, error) {
 	return NewGenerator(digestTemplate, provider, baseURL)
+}
+
+// isLocalBaseURL reports whether baseURL points at a loopback origin
+// (localhost or 127.0.0.1, regardless of port), the config's envDefault and
+// the shape a forgotten PUBLIC_BASE_URL falls back to in production. An
+// unparsable baseURL is not treated as local — Render still has a link to
+// render, and this check only decides whether to also show a warning.
+func isLocalBaseURL(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1"
 }
 
 func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles, candidateCount int) ComputedDigest {
@@ -121,16 +140,23 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 		groups[i] = emailGroup{Topic: group.Topic, Summary: group.Summary, Items: group.Items}
 	}
 
+	var localhostWarning string
+	if isLocalBaseURL(g.baseURL) {
+		localhostWarning = "PUBLIC_BASE_URL is unset (or still localhost) — links in this email will not work off your home network."
+		log.Printf("digest: PUBLIC_BASE_URL is a loopback origin (%s); rendering localhost warning banner", g.baseURL)
+	}
+
 	data := emailData{
-		Greeting:       view.Greeting,
-		DeliveryTime:   view.DeliveryTime,
-		Date:           c.Date.Format("Monday, January 2, 2006"),
-		Intro:          view.Intro,
-		Groups:         groups,
-		DigestURL:      g.baseURL,
-		SourcesURL:     g.baseURL + "/sources",
-		ClearedCount:   view.ClearedCount,
-		CandidateCount: view.CandidateCount,
+		Greeting:         view.Greeting,
+		DeliveryTime:     view.DeliveryTime,
+		Date:             c.Date.Format("Monday, January 2, 2006"),
+		Intro:            view.Intro,
+		Groups:           groups,
+		DigestURL:        g.baseURL,
+		SourcesURL:       g.baseURL + "/sources",
+		ClearedCount:     view.ClearedCount,
+		CandidateCount:   view.CandidateCount,
+		LocalhostWarning: localhostWarning,
 	}
 
 	var html strings.Builder

@@ -127,20 +127,17 @@
   {{ end }}
   {{ end }}
 
-  <!-- CTA -->
-  <tr><td class="pad" align="center" style="padding:40px 32px 0;">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="btn-bg" bgcolor="#b07150" style="border-radius:9px;">
-        <a href="{{ .DigestURL }}" target="_blank" class="btn-text" style="display:block; padding:15px 28px; font-family:'Courier New', Courier, monospace; font-size:13px; letter-spacing:0.04em; font-weight:bold; color:#faf6ec; border-radius:9px;">Open today&rsquo;s digest &rarr;</a>
-      </td></tr>
-    </table>
-  </td></tr>
+  <!--
+    No CTA / "Manage sources" links here by design. Only /r/{uuid} and
+    /articles/{uuid} are published through the tunnel (docs/adr/0001); "/" and
+    "/sources" are denied at Cloudflare's edge, so linking them from the email
+    would render taps that silently dead-end off-network. See issue #1.
+  -->
 
   <!-- Footer -->
   <tr><td class="pad" align="center" style="padding:34px 32px 40px;">
     <div class="text-muted" style="font-family:'Courier New', Courier, monospace; font-size:11px; color:#a89f8b; line-height:1.9;">
-      Your feedback on the web app retunes tomorrow&rsquo;s digest.<br>
-      <a href="{{ .SourcesURL }}" class="text-muted" style="color:#a89f8b; text-decoration:underline;">Manage sources</a>
+      Your feedback on the web app retunes tomorrow&rsquo;s digest.
     </div>
   </td></tr>
 

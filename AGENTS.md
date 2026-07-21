@@ -111,8 +111,19 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 Specced and ready, in dependency order (`gh issue view <n>`):
 - **[#1](https://github.com/ffrt-labs/agregado/issues/1) Phase 19 — Fix digest links.** `PUBLIC_BASE_URL` was never
   set in prod, so **every digest link ever sent points at `http://localhost:8080`**.
-  Also widens the tunnel ingress (see `docs/adr/0001`) and adds a banner guard.
+  Also opens a second tunnel hostname (see `docs/adr/0001`) and adds a banner guard.
   Small, deployable, unblocks #2's verification.
+  **Amended 2026-07-21** (see the issue comment): the ingress is now *two public
+  hostnames on one tunnel* — the existing one stays frozen at `^/webhook/email/?$`,
+  a new `read.<domain>` serves `^/(r|articles)/[0-9a-f-]{36}/?$`, and
+  `PUBLIC_BASE_URL` points at the read host. `email-worker/` is untouched. User
+  story 4 was struck (its "Open today's digest" button targets `/`, which
+  contradicts story 8); the two now-unreachable email links are deleted instead.
+- **[#10](https://github.com/ffrt-labs/agregado/issues/10) Phase 22 — Explicit feedback from the email.** Not yet
+  fully specced (3 open questions). After #1 the 👍/👎 buttons are unreachable from
+  a phone by design — only the implicit `/r/{id}` read-signal survives off-network.
+  Proposed fix is a narrow `GET /f/{uuid}/{up|down}` link in the email itself.
+  Depends on #1.
 - **[#2](https://github.com/ffrt-labs/agregado/issues/2) Phase 20 — Newsletter canonical URL** + persist raw email HTML.
   Newsletters open in the in-app reader because they have no real URL to redirect to.
 - **[#3](https://github.com/ffrt-labs/agregado/issues/3) Phase 21 — Kill the `newsletter:` sentinel.** Pure refactor

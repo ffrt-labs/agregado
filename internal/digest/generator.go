@@ -35,13 +35,16 @@ type Generator struct {
 // a point-in-time artifact (unlike the always-live web page), so it spells out
 // the full date including the year.
 type emailData struct {
-	Greeting       string
-	DeliveryTime   string
-	Date           string
-	Intro          string
-	Groups         []emailGroup
+	Greeting     string
+	DeliveryTime string
+	Date         string
+	Intro        string
+	Groups       []emailGroup
+	// DigestURL is the public origin (PUBLIC_BASE_URL). It is used only as the
+	// prefix for per-article links ({{.DigestURL}}/r/{{.ID}}) — the email
+	// deliberately links nothing else, since no other path is published
+	// through the tunnel. See docs/adr/0001.
 	DigestURL      string
-	SourcesURL     string
 	ClearedCount   int
 	CandidateCount int
 	// LocalhostWarning is non-empty when BaseURL is a loopback origin, which
@@ -153,7 +156,6 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 		Intro:            view.Intro,
 		Groups:           groups,
 		DigestURL:        g.baseURL,
-		SourcesURL:       g.baseURL + "/sources",
 		ClearedCount:     view.ClearedCount,
 		CandidateCount:   view.CandidateCount,
 		LocalhostWarning: localhostWarning,

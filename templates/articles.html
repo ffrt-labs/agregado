@@ -70,6 +70,20 @@
             </li>
             {{ end }}
         </ul>
+        {{ if or .HasPrev .HasMore }}
+        <nav class="pager">
+            {{ if .HasPrev }}
+            <a class="pager-link prev" href="/articles?source_id={{ .SelectedSource }}&amp;sort={{ .Sort }}&amp;offset={{ .PrevOffset }}">&larr; Prev</a>
+            {{ else }}
+            <span class="pager-link disabled">&larr; Prev</span>
+            {{ end }}
+            {{ if .HasMore }}
+            <a class="pager-link next" href="/articles?source_id={{ .SelectedSource }}&amp;sort={{ .Sort }}&amp;offset={{ .NextOffset }}">Next &rarr;</a>
+            {{ else }}
+            <span class="pager-link disabled">Next &rarr;</span>
+            {{ end }}
+        </nav>
+        {{ end }}
         {{ else }}
         <div class="empty">
             <h2>Nothing here</h2>

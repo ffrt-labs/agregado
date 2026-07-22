@@ -15,7 +15,7 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 19 — Fix digest links ([#1](https://github.com/ffrt-labs/agregado/issues/1)) — **repo-side work committed (local, unpushed); issue stays open pending the Cloudflare dashboard change and live phone verification**.
+**Active phase:** none — between phases. **Phase 19 ([#1](https://github.com/ffrt-labs/agregado/issues/1)) closed 2026-07-22**, verified 4/4 live (redirect, `/admin` refused, phone tap off-WiFi, `is_read` flip). First-ever verified off-network click from a phone — closes the Phase-15 gap. Next up: pick from #2 (newsletter canonical URL), #3 (kill `newsletter:` sentinel), or the #5–#9 logging cluster.
 **Live work:** GitHub Issues (`gh issue list`). **PRD:** `docs/PRD.md`.
 **History:** `docs/ROADMAP-ARCHIVE.md` (frozen 2026-07-17 — Phases 1–18, read-only).
 **Decisions:** `docs/adr/` — read the ones touching your area before changing it.
@@ -109,25 +109,19 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ### Next
 Specced and ready, in dependency order (`gh issue view <n>`):
-- **[#1](https://github.com/ffrt-labs/agregado/issues/1) Phase 19 — Fix digest links.** `PUBLIC_BASE_URL` was never
-  set in prod, so **every digest link ever sent points at `http://localhost:8080`**.
-  Also opens a second tunnel hostname (see `docs/adr/0001`) and adds a banner guard.
-  Small, deployable, unblocks #2's verification.
-  **Amended 2026-07-21** (see the issue comment): the ingress is now *two public
-  hostnames on one tunnel* — the existing one stays frozen at `^/webhook/email/?$`,
-  a new `read.<domain>` serves `^/(r|articles)/[0-9a-f-]{36}/?$`, and
-  `PUBLIC_BASE_URL` points at the read host. `email-worker/` is untouched. User
-  story 4 was struck (its "Open today's digest" button targets `/`, which
-  contradicts story 8); the two now-unreachable email links are deleted instead.
-- **[#10](https://github.com/ffrt-labs/agregado/issues/10) Phase 22 — Explicit feedback from the email.** Not yet
-  fully specced (3 open questions). After #1 the 👍/👎 buttons are unreachable from
-  a phone by design — only the implicit `/r/{id}` read-signal survives off-network.
-  Proposed fix is a narrow `GET /f/{uuid}/{up|down}` link in the email itself.
-  Depends on #1.
 - **[#2](https://github.com/ffrt-labs/agregado/issues/2) Phase 20 — Newsletter canonical URL** + persist raw email HTML.
   Newsletters open in the in-app reader because they have no real URL to redirect to.
 - **[#3](https://github.com/ffrt-labs/agregado/issues/3) Phase 21 — Kill the `newsletter:` sentinel.** Pure refactor
   of what #2 leaves behind; nullable `external_url`, discriminate on `sources.type`.
+
+Also open, spun off from #1's implementation (not on the #2→#3 dependency chain):
+- **[#10](https://github.com/ffrt-labs/agregado/issues/10) Explicit 👍/👎 feedback from the digest email.** Not yet
+  fully specced (3 open questions). After #1 the thumbs buttons are unreachable from
+  a phone by design — only the implicit `/r/{id}` read-signal survives off-network.
+  Proposed fix is a narrow `GET /f/{uuid}/{up|down}` link in the email itself.
+- **[#11](https://github.com/ffrt-labs/agregado/issues/11) Digest text/plain part bypasses `/r/{id}`.** The plain-text
+  alternative links `ExternalURL` directly, so it never marks articles read and
+  emits the raw `newsletter:` sentinel for newsletters. Independently shippable.
 
 Not specced, described only in `docs/ROADMAP-ARCHIVE.md` — open an issue when you
 pick one up: Phase 12 `keyword_weights` (now has a *verified working*
@@ -142,10 +136,9 @@ a revisit trigger. **They are decisions, not backlog.**
   same `textutil.Strip`/`Clean` path, but not the newsletter ingestion branch.
   **#2 closes this**: its verification synthesizes real newsletters through the
   live Worker → webhook path, giving this DB its first newsletter articles.
-- Known gap (carried from Phase 15): digest-email `/r/{id}` link only confirmed
-  by template parse + `go vet`, not a live click-through. **Now three phases old,
-  and it's why #1 exists** — nobody ever clicked that link from a phone, so nobody
-  saw it was a localhost URL. #1's acceptance criterion is that exact click.
+- ~~Known gap (carried from Phase 15): digest-email `/r/{id}` link only confirmed
+  by template parse, not a live click.~~ **Closed 2026-07-22 by #1** — the link was
+  clicked from a phone off-WiFi and the `is_read` flip confirmed in the DB.
 - Housekeeping note (Phase 17): 5 pre-existing articles had their
   `published_at`/`ingested_at` temporarily bumped to `NOW()` to pull them into the
   digest lookback window during live verification, then pushed back to

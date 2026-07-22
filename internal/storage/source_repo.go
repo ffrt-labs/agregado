@@ -34,6 +34,22 @@ func (r *SourceRepo) List(ctx context.Context, limit int, offset int) ([]domain.
 	return sources, nil
 }
 
+func (r *SourceRepo) ListAll(ctx context.Context) ([]domain.Source, error) {
+	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources ORDER BY name ASC")
+
+	if err != nil {
+		return nil, err
+	}
+
+	sources, err := pgx.CollectRows(rows, pgx.RowToStructByName[domain.Source])
+
+	if err != nil {
+		return nil, err
+	}
+
+	return sources, nil
+}
+
 func (r *SourceRepo) ListActive(ctx context.Context) ([]domain.Source, error) {
 	rows, err := r.db.pool.Query(ctx, "SELECT * FROM sources WHERE is_active = true")
 

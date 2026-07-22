@@ -15,7 +15,7 @@ Agregado is a newsletter/RSS aggregator with pub/sub architecture. It aggregates
 
 ## Current State (update this each session)
 
-**Active phase:** Phase 19 — Fix digest links ([#1](https://github.com/ffrt-labs/agregado/issues/1)) — **repo-side work committed (local, unpushed); issue stays open pending the Cloudflare dashboard change and live phone verification**.
+**Active phase:** Phase 19 — Fix digest links ([#1](https://github.com/ffrt-labs/agregado/issues/1)) — **code committed & deployed; Cloudflare read-host live. Verification 3/4 done (redirect ✅, `/admin` refused ✅, live phone tap ✅); closing held on ④ — confirm `is_read`/`read_at` flips for the tapped article (the read-signal-through-tunnel check).** Do not re-run ①–③; they passed 2026-07-22 (see issue comment).
 **Live work:** GitHub Issues (`gh issue list`). **PRD:** `docs/PRD.md`.
 **History:** `docs/ROADMAP-ARCHIVE.md` (frozen 2026-07-17 — Phases 1–18, read-only).
 **Decisions:** `docs/adr/` — read the ones touching your area before changing it.

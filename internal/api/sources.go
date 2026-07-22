@@ -31,6 +31,7 @@ type SourcePatch struct {
 
 type SourceRepository interface {
 	List(ctx context.Context, limit int, offset int) ([]domain.Source, error)
+	ListAll(ctx context.Context) ([]domain.Source, error)
 	Create(ctx context.Context, source domain.Source) (*domain.Source, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, source domain.Source) error
@@ -123,8 +124,7 @@ func (s *SourceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *SourceHandler) ListPage(w http.ResponseWriter, r *http.Request) {
-	limit, offset := ParsePagination(r)
-	sources, err := s.sources.List(r.Context(), limit, offset)
+	sources, err := s.sources.ListAll(r.Context())
 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

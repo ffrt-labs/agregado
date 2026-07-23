@@ -26,6 +26,16 @@ type Article struct {
 	ParentArticleId			*string `db:"parent_article_id" json:"-"`
 	DistilledContent 		*string `db:"distilled_content" json:"-"`
 	ContentSource 			*string `db:"content_source" json:"content_source,omitempty"`
+	// CanonicalURL is the newsletter's real web home, extracted at parse time
+	// (Archived-At header or a "view in browser" anchor). Nullable: newsletters
+	// with no web version keep it nil and fall back to the reader page. RSS
+	// articles leave it nil — their ExternalURL is already the canonical page.
+	CanonicalURL 			*string `db:"canonical_url" json:"canonical_url,omitempty"`
+	// RawHTML is transient ingestion provenance: the newsletter's original email
+	// HTML, carried through the queue so the worker can persist it in the
+	// newsletter_raw_html table after Create yields an id. Never a column on
+	// articles (db:"-") — see issue #2, Storage — raw HTML.
+	RawHTML 				string `db:"-" json:"raw_html,omitempty"`
 }
 
 // BestText returns the richest text available for this article, in order of

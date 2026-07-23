@@ -49,11 +49,27 @@ type ArticleRepository interface {
 // /articles/{id} is its only destination, since Article.Content holds the body.
 const newsletterURLPrefix = "newsletter:"
 
+// webURL returns the article's real web home and whether one exists. Precedence
+// (issue #2): the canonical URL extracted at parse time, else external_url when
+// it is a real page. A newsletter with no web version — external_url is still
+// the newsletter:<uuid> placeholder and no canonical URL was found — returns
+// ("", false), meaning the in-app reader page is its only destination.
+func webURL(a *domain.Article) (string, bool) {
+	if a.CanonicalURL != nil && *a.CanonicalURL != "" {
+		return *a.CanonicalURL, true
+	}
+	if !strings.HasPrefix(a.ExternalURL, newsletterURLPrefix) {
+		return a.ExternalURL, true
+	}
+	return "", false
+}
+
 type ArticleReaderData struct {
 	Article     domain.Article
 	SourceName  string
 	OriginalURL string // empty for newsletter: articles, which have no real page to link to
-	Nav         NavData
+	// No Nav: the reader page renders through the sidebar-free layout_reader.html
+	// so it leaks no nav counts or admin links off-network (issue #2).
 }
 
 func NewArticleHandler(articleRepo ArticleRepository, sourceLister SourceLister, nav *NavBuilder) *ArticleHandler {
@@ -216,8 +232,8 @@ func (a *ArticleHandler) Open(w http.ResponseWriter, r *http.Request) {
 		log.Printf("articles: mark read failed id=%s: %v", id, err)
 	}
 
-	target := article.ExternalURL
-	if strings.HasPrefix(target, newsletterURLPrefix) {
+	target, ok := webURL(article)
+	if !ok {
 		target = "/articles/" + article.ID
 	}
 
@@ -250,15 +266,11 @@ func (a *ArticleHandler) GetPage(w http.ResponseWriter, r *http.Request) {
 		sourceName = sourceMap[*article.SourceID]
 	}
 
-	originalURL := ""
-	if !strings.HasPrefix(article.ExternalURL, newsletterURLPrefix) {
-		originalURL = article.ExternalURL
-	}
+	originalURL, _ := webURL(article)
 
-	render(w, "reader.html", ArticleReaderData{
+	renderReader(w, "reader.html", ArticleReaderData{
 		Article:     *article,
 		SourceName:  sourceName,
 		OriginalURL: originalURL,
-		Nav:         a.nav.Build(r.Context()),
 	})
 }

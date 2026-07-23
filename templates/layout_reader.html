@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {{ template "head" . }}
+</head>
+<body>
+    <!-- Reader shell: deliberately no sidebar/nav. This page is served through
+         the tunnel on read.<domain> for newsletter headlines tapped from a
+         phone; the admin/library nav would only leak read-counts and expose
+         dead /admin links off-network (issue #2 / ADR-0001). -->
+    <main class="main">
+        {{ template "content" . }}
+    </main>
+</body>
+</html>

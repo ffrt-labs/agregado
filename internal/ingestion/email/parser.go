@@ -3,8 +3,10 @@ package email
 import (
 	"fmt"
 	"net/mail"
+	"net/url"
 	"strings"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jaytaylor/html2text"
@@ -50,7 +52,149 @@ func (p *Parser) Parse(payload Payload) (*domain.Article, SenderInfo, error) {
 		Content: &content,
 		ExternalURL: fmt.Sprintf("newsletter:%s", uuid.New().String()),
 		Author: &author,
+		CanonicalURL: resolveCanonicalURL(payload.Headers, payload.Html),
+		// Persist the raw HTML as ingestion provenance so the extraction
+		// heuristic above can be re-run against real mail later (issue #2).
+		RawHTML: payload.Html,
 	}, sender, nil
+}
+
+// resolveCanonicalURL derives the newsletter's real web home from the parsed
+// email, mirroring resolveSender's priority chain. Priority: the Archived-At
+// header (RFC 5064 — the per-message archive URL, an exact answer when the
+// sender provides one and free to try since the Worker already forwards every
+// header) > a "view in browser" anchor scraped from the HTML body
+// (Substack/Ghost/beehiiv) > nothing (nil → /r/{id} falls back to the reader
+// page). List-Archive (RFC 2369) is deliberately not tried: it points at the
+// archive index, not the specific issue. See issue #2.
+func resolveCanonicalURL(headers Headers, html string) *string {
+	// RFC 5064: the value is a URL, conventionally wrapped in angle brackets.
+	if raw := strings.TrimSpace(headers["archived-at"]); raw != "" {
+		candidate := strings.TrimSpace(strings.Trim(raw, "<>"))
+		if isCanonicalCandidate(candidate) {
+			return &candidate
+		}
+	}
+
+	if link := scrapeViewInBrowser(html); link != "" {
+		return &link
+	}
+
+	return nil
+}
+
+// scrapeViewInBrowser looks for the "view this email in your browser" anchor
+// that Substack/Ghost/beehiiv emit, returning the first href whose link text
+// reads like a browser-view link and whose URL passes isCanonicalCandidate.
+func scrapeViewInBrowser(html string) string {
+	if strings.TrimSpace(html) == "" {
+		return ""
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return ""
+	}
+
+	var found string
+	doc.Find("a[href]").EachWithBreak(func(_ int, s *goquery.Selection) bool {
+		if !isViewInBrowserText(strings.ToLower(strings.TrimSpace(s.Text()))) {
+			return true // not this anchor — keep scanning
+		}
+		href := strings.TrimSpace(s.AttrOr("href", ""))
+		if isCanonicalCandidate(href) {
+			found = href
+			return false // stop
+		}
+		return true
+	})
+	return found
+}
+
+// isViewInBrowserText reports whether an anchor's visible text reads like a
+// "view in browser" link. Matched on the human label rather than the href so a
+// tracking-wrapped URL still resolves — the label is what senders keep readable.
+func isViewInBrowserText(text string) bool {
+	if text == "" || strings.Contains(text, "unsubscribe") {
+		return false
+	}
+	phrases := []string{
+		"view in browser",
+		"view this email",
+		"view in your browser",
+		"view email in browser",
+		"view online",
+		"view it online",
+		"see it in your browser",
+		"read online",
+		"read in browser",
+		"web version",
+	}
+	for _, p := range phrases {
+		if strings.Contains(text, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// isCanonicalCandidate reports whether a header- or HTML-sourced URL is a
+// legitimate canonical link rather than the junk that shares the same email:
+// tracking pixels, unsubscribe links, mailto: addresses, and social share
+// buttons. Used by both branches of resolveCanonicalURL, so a rejected URL in
+// either place falls through to the next step of the chain.
+func isCanonicalCandidate(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+
+	// http(s) only — rejects mailto:, ftp:, tel:, and relative/empty hrefs.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+
+	// Tracking pixels and unsubscribe links share the newsletter's HTML. Match
+	// on host/path *segments*, not a raw substring, so junk like pixel.gif and
+	// /unsubscribe is rejected while a legitimate post whose slug merely contains
+	// the word (e.g. /pixel-art-in-css) still resolves.
+	if hasBlockedSegment(u) {
+		return false
+	}
+
+	lower := strings.ToLower(rawURL)
+
+	// Social share buttons — a tapped headline must never open a share dialog.
+	shareMarkers := []string{
+		"twitter.com/intent", "x.com/intent",
+		"facebook.com/sharer", "linkedin.com/share",
+		"t.me/share", "/share?", "/sharer",
+	}
+	for _, m := range shareMarkers {
+		if strings.Contains(lower, m) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// hasBlockedSegment reports whether the URL's host or path contains a discrete
+// "unsubscribe" or "pixel" segment, splitting on both "/" and "." so a filename
+// like pixel.gif is caught while a hyphenated slug like pixel-art is not.
+func hasBlockedSegment(u *url.URL) bool {
+	splitter := func(r rune) bool { return r == '/' || r == '.' }
+	segments := append(
+		strings.FieldsFunc(u.Host, splitter),
+		strings.FieldsFunc(u.Path, splitter)...,
+	)
+	for _, seg := range segments {
+		switch strings.ToLower(seg) {
+		case "unsubscribe", "pixel":
+			return true
+		}
+	}
+	return false
 }
 
 // resolveSender derives the stable newsletter identity from the parsed email

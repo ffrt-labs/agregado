@@ -3218,3 +3218,41 @@ does it now — both branches call the identical `GREATEST(0.1, LEAST(2.0, ...))
 against `1.0 + $2` vs `topic_weights.weight + $2`.
 
 ---
+
+## Phase 20 — Newsletter canonical URL + raw HTML persistence (issue #2)
+
+- **Lossy ingestion is a shape, not a one-off bug.** The parser ran `html2text`
+  and threw the HTML away because "the AI only wants text." Reasonable — but it
+  narrowed the data at the boundary *before anyone knew what would be needed from
+  it*. "Which URL is this newsletter's canonical home?" lives in structure, and
+  structure was gone. The rule that falls out: **store the raw artifact at the
+  ingestion boundary, derive downstream.** Text is derivable from HTML; HTML is
+  never derivable from text.
+- **A sentinel value is a type discriminator smuggled into a data field.**
+  `external_url = newsletter:<uuid>` answered "where does this live on the web?"
+  *and* "what kind of article is this?" *and* "should I HTTP-fetch this?" — three
+  meanings, three files agreeing by convention with nothing enforcing it. The
+  real discriminator (`sources.type`) existed the whole time. Once a sentinel
+  exists, code starts reading meaning into it.
+- **The queue dictates where data can be written.** Raw HTML is keyed by article
+  id, but the id doesn't exist until `Create` runs in a *different* process. So
+  the HTML had to ride through RabbitMQ on the `Article` and be persisted by the
+  worker — a `db:"-"` transient field, present in JSON, absent from the table.
+- **Where a test seam goes is a design decision.** Extraction is tested through
+  `Parse`'s public surface (what a caller observes), not by poking the header
+  lookup or the scraper individually — exactly like `TestResolveSender`. Raw-HTML
+  persistence has *no* seam (ADR-0002) and is live-verified instead. Choosing the
+  highest honest seam and accepting "no seam, verify live" for the rest is the
+  skill, not seaming everything.
+
+### Recommended reading (15–30 min)
+
+**RFC 5064, "The Archived-At Message Header Field"** — it's short (~10 pages) and
+directly under this phase's extraction chain. Read §2-3 on the syntax (a single
+URL, angle-bracket wrapped) and the note that it names *one specific message*,
+then contrast with **RFC 2369's `List-Archive`**, which names the archive index.
+That distinction is the whole reason this phase tried `Archived-At` first and
+rejected `List-Archive` — the difference between "the post you were reading" and
+"the newsletter's homepage." Understanding *why the standards separate these two*
+is what makes the priority chain in `resolveCanonicalURL` obvious rather than
+arbitrary.

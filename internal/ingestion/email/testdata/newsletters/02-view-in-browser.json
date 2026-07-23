@@ -1,0 +1,11 @@
+{
+  "from": "bounces+7731-8a63@em.beehiiv.example.com",
+  "to": "you@read.example.com",
+  "subject": "The Overflow — the view-in-browser case",
+  "headers": {
+    "from": "The Overflow <newsletter@overflow.example.com>",
+    "list-id": "The Overflow <overflow.example.com>"
+  },
+  "text": "View online: https://overflow.example.com/p/issue-108",
+  "html": "<html><body><table><tr><td><a href=\"https://track.overflow.example.com/pixel.gif?o=1\">&nbsp;</a></td></tr></table><p><a href=\"https://overflow.example.com/p/issue-108\">View this email in your browser</a></p><p>No Archived-At header — extraction should scrape the anchor above and reject the pixel and the share link below.</p><p><a href=\"https://twitter.com/intent/tweet?url=x\">Share on Twitter</a></p></body></html>"
+}

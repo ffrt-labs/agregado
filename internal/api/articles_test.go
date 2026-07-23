@@ -81,9 +81,15 @@ func requestWithID(id string) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
+func strptr(s string) *string { return &s }
+
 func TestArticleHandler_Open(t *testing.T) {
 	rssArticle := &domain.Article{ID: "rss-1", ExternalURL: "https://example.com/post"}
 	newsletterArticle := &domain.Article{ID: "news-1", ExternalURL: "newsletter:abc-123"}
+	newsletterWithCanonical := &domain.Article{
+		ID: "news-2", ExternalURL: "newsletter:def-456",
+		CanonicalURL: strptr("https://newsletter.example.com/p/issue-42"),
+	}
 
 	cases := []struct {
 		name         string
@@ -102,11 +108,19 @@ func TestArticleHandler_Open(t *testing.T) {
 			wantMarkRead: true,
 		},
 		{
-			name:         "newsletter article redirects to reader page",
+			name:         "newsletter without canonical url redirects to reader page",
 			repo:         &fakeArticleRepo{articles: map[string]*domain.Article{"news-1": newsletterArticle}},
 			id:           "news-1",
 			wantStatus:   http.StatusFound,
 			wantLocation: "/articles/news-1",
+			wantMarkRead: true,
+		},
+		{
+			name:         "newsletter with canonical url redirects to the canonical url",
+			repo:         &fakeArticleRepo{articles: map[string]*domain.Article{"news-2": newsletterWithCanonical}},
+			id:           "news-2",
+			wantStatus:   http.StatusFound,
+			wantLocation: "https://newsletter.example.com/p/issue-42",
 			wantMarkRead: true,
 		},
 		{
@@ -203,6 +217,13 @@ func TestArticleHandler_GetPage(t *testing.T) {
 		}
 		if len(repo.markReadCalls) != 1 || repo.markReadCalls[0] != "rss-1" {
 			t.Errorf("expected MarkRead(rss-1), got %v", repo.markReadCalls)
+		}
+		// The reader page is served publicly through the tunnel; it must leak
+		// no admin links or nav read-counts off-network (issue #2).
+		for _, leak := range []string{"/admin/logs", "/admin/prompts", "/admin/tags", "Daily Digest", "scored today"} {
+			if strings.Contains(body, leak) {
+				t.Errorf("reader page leaked nav element %q: %s", leak, body)
+			}
 		}
 	})
 

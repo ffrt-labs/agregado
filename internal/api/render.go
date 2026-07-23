@@ -45,9 +45,25 @@ func (n *NavBuilder) Build(ctx context.Context) NavData {
 	}
 }
 
+// render wraps a content template in the full app shell (sidebar + nav).
 func render(w http.ResponseWriter, filename string, data any) {
-	tmpl, err := template.New("layout.html").Funcs(tmplfunc.Map).ParseFiles(
-		"templates/layout.html",
+	renderWithLayout(w, "layout.html", filename, data)
+}
+
+// renderReader wraps a content template in the sidebar-free reader shell, used
+// by the public /articles/{id} page so it leaks no nav counts or admin links
+// off-network (issue #2).
+func renderReader(w http.ResponseWriter, filename string, data any) {
+	renderWithLayout(w, "layout_reader.html", filename, data)
+}
+
+// renderWithLayout parses the chosen layout, the shared head partial, and the
+// content template, then executes the layout. The layout basename doubles as
+// the top-level template name ExecuteTemplate targets.
+func renderWithLayout(w http.ResponseWriter, layout, filename string, data any) {
+	tmpl, err := template.New(layout).Funcs(tmplfunc.Map).ParseFiles(
+		"templates/"+layout,
+		"templates/head.html",
 		"templates/"+filename,
 	)
 	if err != nil {
@@ -56,7 +72,7 @@ func render(w http.ResponseWriter, filename string, data any) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, layout, data); err != nil {
 		log.Printf("template execute error (%s): %v", filename, err)
 	}
 }

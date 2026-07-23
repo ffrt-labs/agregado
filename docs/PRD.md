@@ -1057,7 +1057,8 @@ CREATE TABLE sources (
 CREATE TABLE articles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_id UUID REFERENCES sources(id) ON DELETE CASCADE,  -- NULL = manually added
-    external_url VARCHAR(2048) NOT NULL UNIQUE,  -- Dedupe key
+    external_url VARCHAR(2048) NOT NULL UNIQUE,  -- Dedupe key. Newsletters use a newsletter:<uuid> placeholder (F3.5)
+    canonical_url TEXT,                   -- F3.5: newsletter's real web home, extracted at parse time; NULL = reader-page fallback
     title VARCHAR(500) NOT NULL,
     author VARCHAR(255),
     summary TEXT,                         -- Short preview
@@ -1071,6 +1072,17 @@ CREATE TABLE articles (
     word_count INTEGER,
     estimated_read_minutes INTEGER,
     created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- F3.5: raw email HTML kept as ingestion provenance so the canonical-URL
+-- extraction heuristic can be re-run against real stored mail. Separate table,
+-- not a column on articles: articles is SELECT *'d at six call sites (would pay
+-- the 50-200KB transfer on every page load) and raw HTML needs an independent
+-- retention lifetime. Forward-only — existing newsletters have no stored HTML.
+CREATE TABLE newsletter_raw_html (
+    article_id UUID PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
+    html TEXT NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Junction table for article-tag relationship (many-to-many)
@@ -1274,7 +1286,7 @@ POST   /api/digest/send          - Manually trigger digest
 POST   /webhook/email            - Cloudflare Email Routing webhook
 
 # Personalization & Reading (F10–F13)
-GET    /r/{article_id}           - Record open + mark read, 302 → external_url (RSS) or /articles/{id} (newsletter). F5.3 ships record+redirect; F11 adds keyword/topic weight bumps.
+GET    /r/{article_id}           - Record open + mark read, 302 → canonical_url if set (F3.5 newsletters), else external_url (RSS), else /articles/{id} (newsletter with no web home). F5.3 ships record+redirect; F11 adds keyword/topic weight bumps.
 GET    /cloud                    - Render the topic cloud from keyword_weights (F11)
 GET    /feed                     - Full-screen scrollable reading feed of bookmarks (F13)
 POST   /api/retention/run        - Manually trigger the 24h retention delete (F10b)

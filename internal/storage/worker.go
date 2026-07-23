@@ -12,6 +12,14 @@ type ArticleCreator interface {
 	Create(ctx context.Context, article domain.Article) (string, error)
 }
 
+// RawHTMLStorer persists a newsletter's original email HTML keyed by the
+// article id. Satisfied by *RawHTMLRepo. The worker only has an id to key on
+// after Create, which is why raw HTML rides through the queue on the Article
+// (domain.Article.RawHTML) rather than being written at parse time.
+type RawHTMLStorer interface {
+	Store(ctx context.Context, articleID, html string) error
+}
+
 // AIScorer, ScoreUpdater and WeightsQuerier are used by the enrich handler
 // (enrich.go), not this worker — kept here since worker.go originally
 // defined them and other files in this package still reference them.
@@ -44,7 +52,7 @@ type enrichTrigger struct {
 // best-effort enrichment with a different failure profile and live in their
 // own articles.enrich stage (see enrich.go) — this handler's only job after
 // a successful Create is to trigger that stage.
-func NewWorker(repo ArticleCreator, publisher EnrichPublisher) func([]byte) error {
+func NewWorker(repo ArticleCreator, rawHTML RawHTMLStorer, publisher EnrichPublisher) func([]byte) error {
 	return func(body []byte) error {
 		ctx := context.Background()
 		var article domain.Article
@@ -59,6 +67,16 @@ func NewWorker(repo ArticleCreator, publisher EnrichPublisher) func([]byte) erro
 		if id == "" {
 			log.Printf("worker: skipped duplicate article external_url=%q title=%q", article.ExternalURL, article.Title)
 			return nil
+		}
+
+		// Best-effort provenance: persist the raw newsletter HTML now that we
+		// have an id to key on. A failure here must not fail the message — the
+		// article is already durably stored and raw HTML only buys later
+		// iteration on the extraction heuristic (issue #2), not correctness.
+		if article.RawHTML != "" {
+			if err := rawHTML.Store(ctx, id, article.RawHTML); err != nil {
+				log.Printf("worker: failed to store raw html id=%s: %v", id, err)
+			}
 		}
 
 		msg, err := json.Marshal(enrichTrigger{ArticleID: id})

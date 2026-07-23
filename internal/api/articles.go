@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/go-chi/chi/v5"
@@ -44,22 +43,19 @@ type ArticleRepository interface {
 	Count(ctx context.Context) (int, error)
 }
 
-// newsletterURLPrefix marks an article whose ExternalURL has no real page to
-// link to (see internal/ingestion/email/parser.go) — the reader page at
-// /articles/{id} is its only destination, since Article.Content holds the body.
-const newsletterURLPrefix = "newsletter:"
-
 // webURL returns the article's real web home and whether one exists. Precedence
-// (issue #2): the canonical URL extracted at parse time, else external_url when
-// it is a real page. A newsletter with no web version — external_url is still
-// the newsletter:<uuid> placeholder and no canonical URL was found — returns
-// ("", false), meaning the in-app reader page is its only destination.
+// (issue #2, preserved through Phase 21): the canonical URL extracted at parse
+// time, else external_url when it is a real page. A newsletter with no web
+// version has a nil canonical URL and a nil external_url (Phase 21 replaced the
+// newsletter:<uuid> sentinel with NULL), so it returns ("", false), meaning the
+// in-app reader page is its only destination. Type is not consulted here — both
+// URL fields being empty is itself the answer.
 func webURL(a *domain.Article) (string, bool) {
 	if a.CanonicalURL != nil && *a.CanonicalURL != "" {
 		return *a.CanonicalURL, true
 	}
-	if !strings.HasPrefix(a.ExternalURL, newsletterURLPrefix) {
-		return a.ExternalURL, true
+	if a.ExternalURL != nil && *a.ExternalURL != "" {
+		return *a.ExternalURL, true
 	}
 	return "", false
 }
@@ -67,7 +63,7 @@ func webURL(a *domain.Article) (string, bool) {
 type ArticleReaderData struct {
 	Article     domain.Article
 	SourceName  string
-	OriginalURL string // empty for newsletter: articles, which have no real page to link to
+	OriginalURL string // empty for newsletters with no web home, which have no real page to link to
 	// No Nav: the reader page renders through the sidebar-free layout_reader.html
 	// so it leaks no nav counts or admin links off-network (issue #2).
 }
@@ -218,7 +214,7 @@ func (a *ArticleHandler) SearchPage(w http.ResponseWriter, r *http.Request) {
 // Open is the click-through target for every article title link (GET /r/{id}):
 // it marks the article read, then redirects to wherever the content actually
 // lives — the original page for RSS/manual articles, or our own reader page
-// for newsletters, which have no real page of their own (see newsletterURLPrefix).
+// for newsletters, which have no real page of their own (nil external_url).
 func (a *ArticleHandler) Open(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 

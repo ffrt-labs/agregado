@@ -84,10 +84,13 @@ func requestWithID(id string) *http.Request {
 func strptr(s string) *string { return &s }
 
 func TestArticleHandler_Open(t *testing.T) {
-	rssArticle := &domain.Article{ID: "rss-1", ExternalURL: "https://example.com/post"}
-	newsletterArticle := &domain.Article{ID: "news-1", ExternalURL: "newsletter:abc-123"}
+	rssArticle := &domain.Article{ID: "rss-1", ExternalURL: strptr("https://example.com/post")}
+	// A newsletter with no web home: nil external_url, nil canonical (Phase 21
+	// replaced the newsletter:<uuid> sentinel with NULL). The reader page is its
+	// only destination.
+	newsletterArticle := &domain.Article{ID: "news-1", ExternalURL: nil}
 	newsletterWithCanonical := &domain.Article{
-		ID: "news-2", ExternalURL: "newsletter:def-456",
+		ID: "news-2", ExternalURL: nil,
 		CanonicalURL: strptr("https://newsletter.example.com/p/issue-42"),
 	}
 
@@ -189,10 +192,10 @@ func TestArticleHandler_GetPage(t *testing.T) {
 
 	sourceID := "src-1"
 	rssArticle := &domain.Article{
-		ID: "rss-1", SourceID: &sourceID, Title: "An RSS Post", ExternalURL: "https://example.com/post",
+		ID: "rss-1", SourceID: &sourceID, Title: "An RSS Post", ExternalURL: strptr("https://example.com/post"),
 	}
 	newsletterArticle := &domain.Article{
-		ID: "news-1", Title: "A Newsletter Issue", ExternalURL: "newsletter:abc-123",
+		ID: "news-1", Title: "A Newsletter Issue", ExternalURL: nil,
 	}
 	sources := &fakeSourceLister{sources: []domain.Source{{ID: "src-1", Name: "Example Feed"}}}
 
@@ -240,8 +243,11 @@ func TestArticleHandler_GetPage(t *testing.T) {
 		if !strings.Contains(body, "A Newsletter Issue") {
 			t.Errorf("body missing article title: %s", body)
 		}
-		if strings.Contains(body, "newsletter:abc-123") {
-			t.Errorf("body leaked the internal newsletter: scheme URL: %s", body)
+		// The newsletter: sentinel is gone entirely as of Phase 21; a newsletter
+		// with no web home must render no original-article link at all rather
+		// than a link to a bogus target.
+		if strings.Contains(body, "newsletter:") {
+			t.Errorf("body leaked a newsletter: scheme URL: %s", body)
 		}
 		if strings.Contains(body, "ZgotmplZ") {
 			t.Errorf("body contains html/template's unsafe-URL sentinel: %s", body)

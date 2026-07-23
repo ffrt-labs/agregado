@@ -111,9 +111,10 @@ func (p *Poller) pollSource(ctx context.Context, source domain.Source) {
 	    	content = &item.Content
 		}
 
+		link := item.Link
 		article := &domain.Article{
 			SourceID: &id,
-			ExternalURL: item.Link,
+			ExternalURL: &link,
 			Title: item.Title,
 			Author: author,
 			Summary: summary,

@@ -67,7 +67,7 @@ func (h *BookmarkHandler) ListPage(w http.ResponseWriter, r *http.Request) {
 		bookmarks[i] = BookmarkView{
 			ID:          a.ID,
 			Title:       a.Title,
-			ExternalURL: a.ExternalURL,
+			ExternalURL: a.ExternalURLOr(""),
 			Summary:     a.Summary,
 			SourceName:  sourceName,
 			SavedAt:     a.SavedAt,

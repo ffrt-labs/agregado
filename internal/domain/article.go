@@ -5,7 +5,12 @@ import "time"
 type Article struct {
 	ID       				string `json:"-"`
 	SourceID 				*string `db:"source_id" json:"source_id"`
-	ExternalURL 			string `db:"external_url" json:"external_url"`
+	// ExternalURL is the article's real web home, or nil when it has no page of
+	// its own (newsletters whose body arrived by email). Nullable since Phase 21
+	// (issue #3): before, newsletters carried a synthetic 'newsletter:<uuid>'
+	// sentinel here because the column was NOT NULL. "Is this a newsletter?" is
+	// now answered by sources.type, never by inspecting this field.
+	ExternalURL 			*string `db:"external_url" json:"external_url"`
 	Title 					string `json:"title"`
 	Author 					*string `json:"author"`
 	Summary 				*string `json:"summary"`
@@ -36,6 +41,19 @@ type Article struct {
 	// newsletter_raw_html table after Create yields an id. Never a column on
 	// articles (db:"-") — see issue #2, Storage — raw HTML.
 	RawHTML 				string `db:"-" json:"raw_html,omitempty"`
+}
+
+// ExternalURLOr returns the article's external URL, or fallback when it has no
+// web home (ExternalURL is nil — a newsletter, since Phase 21). Keeps the
+// nil-unwrap in one place so log lines and view structs, which want a plain
+// string, don't each re-derive "no web home" from the nil. The redirect uses
+// webURL instead, which needs the canonical-URL precedence and a found/not
+// distinction this helper deliberately flattens away.
+func (a Article) ExternalURLOr(fallback string) string {
+	if a.ExternalURL != nil {
+		return *a.ExternalURL
+	}
+	return fallback
 }
 
 // BestText returns the richest text available for this article, in order of

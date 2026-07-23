@@ -65,7 +65,7 @@ func NewWorker(repo ArticleCreator, rawHTML RawHTMLStorer, publisher EnrichPubli
 			return err
 		}
 		if id == "" {
-			log.Printf("worker: skipped duplicate article external_url=%q title=%q", article.ExternalURL, article.Title)
+			log.Printf("worker: skipped duplicate article external_url=%q title=%q", article.ExternalURLOr(""), article.Title)
 			return nil
 		}
 

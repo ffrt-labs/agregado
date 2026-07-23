@@ -11,17 +11,21 @@ import (
 	"github.com/felipeafreitas/agregado/internal/textutil"
 )
 
-// newsletterURLScheme marks an article whose ExternalURL is not a real page
-// to fetch — the newsletter's own body is already the article (see the
-// Phase 15 /r/{id} redirect, which special-cases this same scheme).
-const newsletterURLScheme = "newsletter:"
-
 // wordsPerMinute is the reading-speed constant used to derive
 // estimated_read_minutes from a word count.
 const wordsPerMinute = 200
 
 type ArticleGetter interface {
 	GetById(ctx context.Context, id string) (*domain.Article, error)
+}
+
+// SourceGetter resolves an article's source so the enrichment stage can ask
+// sources.type "is this a newsletter?". This is the discriminator that
+// replaced the external_url 'newsletter:' sentinel (issue #3): the guard's
+// condition changed from a URL prefix to the source's real type; its effect —
+// newsletters keep their email body and are never HTTP-fetched — must not.
+type SourceGetter interface {
+	FindByID(ctx context.Context, id string) (*domain.Source, error)
 }
 
 type ContentUpdater interface {
@@ -63,7 +67,7 @@ type TagSetter interface {
 // articles/DB infrastructure (GetById, UpdateContent) is returned, which
 // NACKs the message to the dead-letter queue. AI failures soft-fail (log +
 // ACK), matching the storage worker's prior behavior.
-func NewEnrichHandler(articles ArticleGetter, content ContentUpdater, fetcher Fetcher, categorizer Categorizer, tags TagQuerier, tagSetter TagSetter, scorer AIScorer, scoreUpdater ScoreUpdater, weights WeightsQuerier, minScore, distillMaxChars int) func([]byte) error {
+func NewEnrichHandler(articles ArticleGetter, sources SourceGetter, content ContentUpdater, fetcher Fetcher, categorizer Categorizer, tags TagQuerier, tagSetter TagSetter, scorer AIScorer, scoreUpdater ScoreUpdater, weights WeightsQuerier, minScore, distillMaxChars int) func([]byte) error {
 	return func(body []byte) error {
 		ctx := context.Background()
 
@@ -77,7 +81,12 @@ func NewEnrichHandler(articles ArticleGetter, content ContentUpdater, fetcher Fe
 			return err
 		}
 
-		finalContent, source := resolveContent(ctx, fetcher, *article)
+		isNewsletter, err := resolveIsNewsletter(ctx, sources, *article)
+		if err != nil {
+			return err
+		}
+
+		finalContent, source := resolveContent(ctx, fetcher, *article, isNewsletter)
 		distilled := textutil.Distill(finalContent, distillMaxChars)
 		wordCount := len(strings.Fields(finalContent))
 		readMinutes := max(1, (wordCount+wordsPerMinute-1)/wordsPerMinute)
@@ -117,23 +126,46 @@ func NewEnrichHandler(articles ArticleGetter, content ContentUpdater, fetcher Fe
 	}
 }
 
+// resolveIsNewsletter answers "is this article a newsletter?" from the source's
+// type — the discriminator Phase 21 uses in place of the external_url sentinel
+// (issue #3). It is kept separate from resolveContent so that function stays a
+// pure, fetcher-substitutable unit; the source lookup lives here.
+//
+// An article with no source cannot be a newsletter: newsletters arrive via an
+// email source, so a nil SourceID resolves to false by definition. A source
+// lookup that errors is infrastructure failure — it returns the error so the
+// caller NACKs, rather than defaulting to "not a newsletter" and silently
+// HTTP-fetching a newsletter (the regression this whole issue guards against).
+func resolveIsNewsletter(ctx context.Context, sources SourceGetter, article domain.Article) (bool, error) {
+	if article.SourceID == nil {
+		return false, nil
+	}
+
+	source, err := sources.FindByID(ctx, *article.SourceID)
+	if err != nil {
+		return false, err
+	}
+
+	return source.Type == domain.Newsletter, nil
+}
+
 // resolveContent picks the best available body for an article and reports
 // where it came from. Newsletters skip the fetch entirely (their body is
 // already the article). Otherwise it fetches the external link and keeps
 // whichever of {fetched, feed} is longer — a consent wall, SPA shell or
 // paywall all return HTTP 200, so length is the only signal available after
 // the fact that extraction actually got real content.
-func resolveContent(ctx context.Context, fetcher Fetcher, article domain.Article) (text, source string) {
+func resolveContent(ctx context.Context, fetcher Fetcher, article domain.Article, isNewsletter bool) (text, source string) {
 	feedPlain := textutil.Strip(article.BestText())
 
-	if strings.HasPrefix(article.ExternalURL, newsletterURLScheme) {
+	if isNewsletter {
 		return feedPlain, "newsletter"
 	}
 
-	if fetcher != nil {
-		result, err := fetcher.Fetch(ctx, article.ExternalURL)
+	if fetcher != nil && article.ExternalURL != nil {
+		result, err := fetcher.Fetch(ctx, *article.ExternalURL)
 		if err != nil {
-			log.Printf("enrich: fetch fallback id=%s url=%s: %v", article.ID, article.ExternalURL, err)
+			log.Printf("enrich: fetch fallback id=%s url=%s: %v", article.ID, *article.ExternalURL, err)
 		} else if result.Length > len([]rune(feedPlain)) {
 			return result.Markdown, "fetched"
 		}

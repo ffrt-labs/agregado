@@ -56,11 +56,14 @@ func BuildView(computed ComputedDigest, sourceNames map[string]string) DigestVie
 			if a.SourceID != nil {
 				sourceName = sourceNames[*a.SourceID]
 			}
+			// Newsletters have no web home (external_url is nil since Phase 21);
+			// the digest links via /r/{id} in the HTML template regardless, and
+			// the plain-text fallback omits the URL for them (ExternalURLOr).
 			items[i] = DigestItemView{
 				Position:             i + 1,
 				SourceName:           sourceName,
 				Title:                a.Title,
-				ExternalURL:          a.ExternalURL,
+				ExternalURL:          a.ExternalURLOr(""),
 				ID:                   a.ID,
 				Summary:              a.Summary,
 				PublishedAt:          a.PublishedAt,

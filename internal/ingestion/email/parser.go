@@ -1,14 +1,12 @@
 package email
 
 import (
-	"fmt"
 	"net/mail"
 	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/felipeafreitas/agregado/internal/domain"
-	"github.com/google/uuid"
 	"github.com/jaytaylor/html2text"
 )
 
@@ -50,7 +48,10 @@ func (p *Parser) Parse(payload Payload) (*domain.Article, SenderInfo, error) {
 	return &domain.Article{
 		Title: title,
 		Content: &content,
-		ExternalURL: fmt.Sprintf("newsletter:%s", uuid.New().String()),
+		// ExternalURL is left nil: a newsletter has no web page of its own. Its
+		// canonical URL (a "view in browser" link, if any) is resolved below and
+		// lives in CanonicalURL. Before Phase 21 this held a 'newsletter:<uuid>'
+		// sentinel only to satisfy a NOT NULL column (issue #3).
 		Author: &author,
 		CanonicalURL: resolveCanonicalURL(payload.Headers, payload.Html),
 		// Persist the raw HTML as ingestion provenance so the extraction

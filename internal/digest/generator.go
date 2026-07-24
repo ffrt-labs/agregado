@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -101,7 +101,7 @@ func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles, cand
 	for i, group := range articles {
 		summary, err := g.provider.Summarize(ctx, group.Articles)
 		if err != nil {
-			log.Printf("summarize failed for group: %v", err)
+			slog.Warn("summarize failed for group", "component", "digest", "err", err)
 		} else {
 			articles[i].Summary = summary
 		}
@@ -119,7 +119,7 @@ func (g *Generator) Compute(ctx context.Context, articles []TaggedArticles, cand
 		if s, err := g.provider.Digest(ctx, summaries); err == nil {
 			overview = s
 		} else {
-			log.Printf("digest overview failed: %v", err)
+			slog.Warn("digest overview failed", "component", "digest", "err", err)
 		}
 	}
 
@@ -146,7 +146,7 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 	var localhostWarning string
 	if isLocalBaseURL(g.baseURL) {
 		localhostWarning = "PUBLIC_BASE_URL is unset (or still localhost) — links in this email will not work off your home network."
-		log.Printf("digest: PUBLIC_BASE_URL is a loopback origin (%s); rendering localhost warning banner", g.baseURL)
+		slog.Warn("PUBLIC_BASE_URL is a loopback origin; rendering localhost warning banner", "component", "digest", "base_url", g.baseURL)
 	}
 
 	data := emailData{

@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/felipeafreitas/agregado/internal/tmplfunc"
@@ -73,7 +73,7 @@ func renderWithLayout(w http.ResponseWriter, layout, filename string, data any) 
 
 	w.Header().Set("Content-Type", "text/html")
 	if err := tmpl.ExecuteTemplate(w, layout, data); err != nil {
-		log.Printf("template execute error (%s): %v", filename, err)
+		slog.Error("template execute error", "component", "api", "template", filename, "err", err)
 	}
 }
 

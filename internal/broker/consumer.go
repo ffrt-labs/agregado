@@ -1,7 +1,7 @@
 package broker
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/rabbitmq/amqp091-go"
 )
@@ -61,7 +61,7 @@ func (c *Consumer) Consume(queueName string, prefetch, numWorkers int, handler f
 	}
 
 	for w := 1; w <= numWorkers; w++ {
-		go worker(msgs, handler)
+		go worker(queueName, msgs, handler)
 	}
 
 	return nil
@@ -71,16 +71,25 @@ func (c *Consumer) Consume(queueName string, prefetch, numWorkers int, handler f
 // newsletter article doesn't flood the log — just enough to identify it.
 const maxNackBodyLog = 300
 
-func worker(msgs <-chan amqp091.Delivery, handler func([]byte) error) {
+func worker(queueName string, msgs <-chan amqp091.Delivery, handler func([]byte) error) {
+	logger := slog.With("component", "broker", "queue", queueName)
 	for msg := range msgs {
 		err := handler(msg.Body)
 
 		if err != nil {
 			msg.Nack(false, false)
-			fmt.Printf("Message NACK'd: %v (body=%s)\n", err, truncateBody(msg.Body, maxNackBodyLog))
+			// The real failure surfaces here, at ERROR, the moment it happens —
+			// with the handler's error and enough of the body to identify the
+			// victim — instead of vanishing silently into the dead-letter queue.
+			logger.Error("message nack'd (dead-lettered)",
+				"err", err,
+				"body", truncateBody(msg.Body, maxNackBodyLog),
+			)
 		} else {
 			msg.Ack(false)
-			fmt.Println("Message ACK'd")
+			// Success is routine chatter: demoted below the default level so a
+			// line per successful message never buries the ERRORs that matter.
+			logger.Debug("message ack'd")
 		}
 	}
 }

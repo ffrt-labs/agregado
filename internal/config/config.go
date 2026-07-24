@@ -25,6 +25,15 @@ type Http struct {
 	Port string `env:"HTTP_PORT" envDefault:"8080"`
 }
 
+// Logging configures the process-wide structured logger. Level is one of the
+// canonical slog level strings (debug/info/warn/error); Format is "json" for
+// the real deploy (what the future collector parses) or "text" for readable
+// local development.
+type Logging struct {
+	Level  string `env:"LOG_LEVEL" envDefault:"info"`
+	Format string `env:"LOG_FORMAT" envDefault:"json"`
+}
+
 type Pooler struct {
 	Interval time.Duration `env:"RSS_POLL_INTERVAL" envDefault:"15m"`
 }
@@ -95,6 +104,7 @@ type Config struct {
 	Database
 	Queue
 	Http
+	Logging
 	Pooler
 	Webhook
 	Digest

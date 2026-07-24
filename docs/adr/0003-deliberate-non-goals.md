@@ -79,18 +79,34 @@ to disk. Described in the archive as Phase 11.2.
 persistence ships (each newsletter adds 50–200KB) — which is why that HTML lives
 in its own table, so retention can be applied to it independently of article rows.
 
-### No structured logging, metrics, or alerting
+### No structured logging, metrics, or alerting — *partially superseded (issue #4)*
 
-No slog, no metrics, and a declared dead-letter queue that is never drained.
-Described in the archive as Phases 5.1/5.2.
+Originally: no slog, no metrics, and a declared dead-letter queue that is never
+drained. Described in the archive as Phases 5.1/5.2.
 
-The consequence is load-bearing elsewhere: because there is no channel that
-reliably reaches the operator, warnings must be routed to where the operator
-already is. This is why Phase 19's misconfiguration guard renders a banner **in
-the digest email** rather than logging — the email is the one artifact guaranteed
-to be seen.
+**The structured-logging and dead-letter halves are now built** (issue #4 /
+Phase 22). The revisit trigger below fired: the app is being run in a homelab
+alongside other personal apps, feeding a central log collector — i.e. it now
+runs for an operator, not just its author. Agregado became a telemetry
+*producer* — every diagnostic is a structured `slog` record emitted as JSON to
+stdout (`internal/logging`), and `articles.dlq` now has a consumer that logs and
+drains every dead-lettered message (`internal/broker/deadletter.go`). The
+producer contract is deliberately narrow: structured JSON on stdout, nothing
+more.
 
-**Revisit if** the app ever runs unattended for someone other than its author.
+**Still not built:** metrics (`/metrics`), alerting, and the central
+Loki/Alloy/Grafana collector itself — those live in a separate repository and
+are revisited alongside that stack.
+
+Note the load-bearing consequence has shifted, not vanished. Phase 19's
+misconfiguration guard still renders a banner **in the digest email**, and that
+is still justified for the *email recipient* (who never sees stdout). But the
+banner is no longer the *only* channel that reaches the operator: the same
+condition is now also a `slog.Warn` (`internal/digest/generator.go`), visible in
+the log stream.
+
+**Revisit metrics/alerting if** stdout logs prove insufficient to diagnose a
+failure after the fact — that is the trigger for the collector session.
 
 ### App-level authentication
 

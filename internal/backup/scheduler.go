@@ -3,7 +3,7 @@ package backup
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/config"
@@ -35,7 +35,7 @@ func NewScheduler(sources SourceLister, mailer *mail.Mailer, cfg config.Backup) 
 
 func (s *Scheduler) sendBackup(ctx context.Context) error {
 	if s.config.RecipientEmail == "" {
-		log.Println("backup: BACKUP_RECIPIENT_EMAIL not set, skipping")
+		slog.Info("backup: BACKUP_RECIPIENT_EMAIL not set, skipping", "component", "backup")
 		return nil
 	}
 
@@ -65,7 +65,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	c := cron.New()
 	c.AddFunc(s.config.Schedule, func() {
 		if err := s.sendBackup(ctx); err != nil {
-			log.Printf("backup: send failed: %v", err)
+			slog.Error("backup: send failed", "component", "backup", "err", err)
 		}
 	})
 	c.Start()

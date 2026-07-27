@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
 )
@@ -53,6 +53,7 @@ type enrichTrigger struct {
 // own articles.enrich stage (see enrich.go) — this handler's only job after
 // a successful Create is to trigger that stage.
 func NewWorker(repo ArticleCreator, rawHTML RawHTMLStorer, publisher EnrichPublisher) func([]byte) error {
+	logger := slog.With("component", "storage")
 	return func(body []byte) error {
 		ctx := context.Background()
 		var article domain.Article
@@ -65,7 +66,7 @@ func NewWorker(repo ArticleCreator, rawHTML RawHTMLStorer, publisher EnrichPubli
 			return err
 		}
 		if id == "" {
-			log.Printf("worker: skipped duplicate article external_url=%q title=%q", article.ExternalURLOr(""), article.Title)
+			logger.Debug("skipped duplicate article", "external_url", article.ExternalURLOr(""), "title", article.Title)
 			return nil
 		}
 
@@ -75,13 +76,13 @@ func NewWorker(repo ArticleCreator, rawHTML RawHTMLStorer, publisher EnrichPubli
 		// iteration on the extraction heuristic (issue #2), not correctness.
 		if article.RawHTML != "" {
 			if err := rawHTML.Store(ctx, id, article.RawHTML); err != nil {
-				log.Printf("worker: failed to store raw html id=%s: %v", id, err)
+				logger.Error("failed to store raw html", "article_id", id, "err", err)
 			}
 		}
 
 		msg, err := json.Marshal(enrichTrigger{ArticleID: id})
 		if err != nil {
-			log.Printf("worker: failed to marshal enrich trigger id=%s: %v", id, err)
+			logger.Error("failed to marshal enrich trigger", "article_id", id, "err", err)
 			return nil
 		}
 
@@ -93,7 +94,7 @@ func NewWorker(repo ArticleCreator, rawHTML RawHTMLStorer, publisher EnrichPubli
 		// returns "" (looks like a duplicate), so the retry would silently
 		// skip publishing too, leaving the article stuck un-enriched forever.
 		if err := publisher.Publish("articles.enrich", "new", msg); err != nil {
-			log.Printf("worker: failed to publish enrich trigger id=%s: %v", id, err)
+			logger.Error("failed to publish enrich trigger", "article_id", id, "err", err)
 		}
 
 		return nil

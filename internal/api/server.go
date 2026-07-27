@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -210,7 +210,7 @@ func (s *Server) Send(w http.ResponseWriter, r *http.Request) {
 	err := s.scheduler.Send(ctx)
 
 	if err != nil{
-		log.Println("digest send error:", err)
+		slog.Error("digest send error", "component", "api", "err", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
@@ -225,7 +225,7 @@ func (s *Server) SendBackup(w http.ResponseWriter, r *http.Request) {
 	err := s.backupScheduler.Send(ctx)
 
 	if err != nil {
-		log.Println("backup send error:", err)
+		slog.Error("backup send error", "component", "api", "err", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}

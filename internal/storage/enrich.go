@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -68,6 +68,7 @@ type TagSetter interface {
 // NACKs the message to the dead-letter queue. AI failures soft-fail (log +
 // ACK), matching the storage worker's prior behavior.
 func NewEnrichHandler(articles ArticleGetter, sources SourceGetter, content ContentUpdater, fetcher Fetcher, categorizer Categorizer, tags TagQuerier, tagSetter TagSetter, scorer AIScorer, scoreUpdater ScoreUpdater, weights WeightsQuerier, minScore, distillMaxChars int) func([]byte) error {
+	logger := slog.With("component", "enrich")
 	return func(body []byte) error {
 		ctx := context.Background()
 
@@ -86,7 +87,7 @@ func NewEnrichHandler(articles ArticleGetter, sources SourceGetter, content Cont
 			return err
 		}
 
-		finalContent, source := resolveContent(ctx, fetcher, *article, isNewsletter)
+		finalContent, source := resolveContent(ctx, logger, fetcher, *article, isNewsletter)
 		distilled := textutil.Distill(finalContent, distillMaxChars)
 		wordCount := len(strings.Fields(finalContent))
 		readMinutes := max(1, (wordCount+wordsPerMinute-1)/wordsPerMinute)
@@ -96,7 +97,7 @@ func NewEnrichHandler(articles ArticleGetter, sources SourceGetter, content Cont
 		}
 
 		if categorizer != nil {
-			categorizeArticle(ctx, categorizer, tags, tagSetter, *article, finalContent)
+			categorizeArticle(ctx, logger, categorizer, tags, tagSetter, *article, finalContent)
 		}
 
 		topicWeights, err := weights.FindAll(ctx)
@@ -106,17 +107,17 @@ func NewEnrichHandler(articles ArticleGetter, sources SourceGetter, content Cont
 
 		score, err := scorer.Score(ctx, article.Title, finalContent, topicWeights)
 		if err != nil {
-			log.Printf("enrich: scoring failed id=%s title=%q: %v", article.ID, article.Title, err)
+			logger.Warn("scoring failed", "article_id", article.ID, "title", article.Title, "err", err)
 			return nil
 		}
 
-		log.Printf("enrich: scored id=%s score=%d source=%s title=%q", article.ID, score, source, article.Title)
+		logger.Debug("article scored", "article_id", article.ID, "score", score, "source", source, "title", article.Title)
 		scoreUpdater.UpdateRelevanceScore(ctx, article.ID, score)
 
 		if score >= minScore {
 			reason, err := scorer.Reason(ctx, article.Title, finalContent)
 			if err != nil {
-				log.Printf("enrich: reason failed id=%s title=%q: %v", article.ID, article.Title, err)
+				logger.Warn("reason failed", "article_id", article.ID, "title", article.Title, "err", err)
 				return nil
 			}
 			scoreUpdater.UpdateRelevanceReason(ctx, article.ID, reason)
@@ -155,7 +156,7 @@ func resolveIsNewsletter(ctx context.Context, sources SourceGetter, article doma
 // whichever of {fetched, feed} is longer — a consent wall, SPA shell or
 // paywall all return HTTP 200, so length is the only signal available after
 // the fact that extraction actually got real content.
-func resolveContent(ctx context.Context, fetcher Fetcher, article domain.Article, isNewsletter bool) (text, source string) {
+func resolveContent(ctx context.Context, logger *slog.Logger, fetcher Fetcher, article domain.Article, isNewsletter bool) (text, source string) {
 	feedPlain := textutil.Strip(article.BestText())
 
 	if isNewsletter {
@@ -165,7 +166,10 @@ func resolveContent(ctx context.Context, fetcher Fetcher, article domain.Article
 	if fetcher != nil && article.ExternalURL != nil {
 		result, err := fetcher.Fetch(ctx, *article.ExternalURL)
 		if err != nil {
-			log.Printf("enrich: fetch fallback id=%s url=%s: %v", article.ID, *article.ExternalURL, err)
+			// A failed fetch is normal operation, not a handler failure — it
+			// degrades to feed content. Debug, not Error, so it doesn't drown
+			// the real ERRORs at the default level.
+			logger.Debug("fetch fallback", "article_id", article.ID, "url", *article.ExternalURL, "err", err)
 		} else if result.Length > len([]rune(feedPlain)) {
 			return result.Markdown, "fetched"
 		}
@@ -183,20 +187,20 @@ func resolveContent(ctx context.Context, fetcher Fetcher, article domain.Article
 // Soft-fails throughout: an AI miss, an unrecognized slug, or a persist
 // error all just leave the article uncategorized rather than blocking
 // Score/Reason, matching how those two already degrade.
-func categorizeArticle(ctx context.Context, categorizer Categorizer, tags TagQuerier, tagSetter TagSetter, article domain.Article, content string) {
+func categorizeArticle(ctx context.Context, logger *slog.Logger, categorizer Categorizer, tags TagQuerier, tagSetter TagSetter, article domain.Article, content string) {
 	if len(article.Tags) > 0 {
 		return
 	}
 
 	slug, err := categorizer.Categorize(ctx, article.Title, content)
 	if err != nil {
-		log.Printf("enrich: categorize failed id=%s title=%q: %v", article.ID, article.Title, err)
+		logger.Warn("categorize failed", "article_id", article.ID, "title", article.Title, "err", err)
 		return
 	}
 
 	allTags, err := tags.FindAll(ctx)
 	if err != nil {
-		log.Printf("enrich: tag lookup failed id=%s: %v", article.ID, err)
+		logger.Error("tag lookup failed", "article_id", article.ID, "err", err)
 		return
 	}
 
@@ -206,9 +210,9 @@ func categorizeArticle(ctx context.Context, categorizer Categorizer, tags TagQue
 			continue
 		}
 		if err := tagSetter.SetTags(ctx, article.ID, []string{t.ID}); err != nil {
-			log.Printf("enrich: set tags failed id=%s: %v", article.ID, err)
+			logger.Error("set tags failed", "article_id", article.ID, "err", err)
 		}
 		return
 	}
-	log.Printf("enrich: categorize returned unknown slug %q id=%s", slug, article.ID)
+	logger.Debug("categorize returned unknown slug", "slug", slug, "article_id", article.ID)
 }

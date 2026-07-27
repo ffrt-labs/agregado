@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -225,7 +225,7 @@ func (a *ArticleHandler) Open(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.articles.MarkRead(r.Context(), id); err != nil {
-		log.Printf("articles: mark read failed id=%s: %v", id, err)
+		slog.Error("articles: mark read failed", "component", "api", "article_id", id, "err", err)
 	}
 
 	target, ok := webURL(article)
@@ -248,7 +248,7 @@ func (a *ArticleHandler) GetPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.articles.MarkRead(r.Context(), id); err != nil {
-		log.Printf("articles: mark read failed id=%s: %v", id, err)
+		slog.Error("articles: mark read failed", "component", "api", "article_id", id, "err", err)
 	}
 
 	sources, _ := a.sources.List(r.Context(), 100, 0)

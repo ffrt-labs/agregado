@@ -2,7 +2,7 @@ package digest
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -85,7 +85,7 @@ func (s *Scheduler) TodayOrTrigger(ctx context.Context) (computed ComputedDigest
 	if !alreadyRunning {
 		go func() {
 			if _, err := s.awaitCompute(today); err != nil {
-				log.Printf("digest: background compute failed: %v", err)
+				slog.Error("digest: background compute failed", "component", "digest", "err", err)
 			}
 		}()
 	}
@@ -156,9 +156,9 @@ func (s *Scheduler) runCompute(today string) (ComputedDigest, error) {
 		return ComputedDigest{}, err
 	}
 
-	log.Printf("digest: computing for %d groups", len(articles))
+	slog.Debug("digest: computing", "component", "digest", "groups", len(articles))
 	computed := s.generator.Compute(computeCtx, articles, candidateCount)
-	log.Printf("digest: computed overview=%t groups=%d", computed.Overview != "", len(computed.Groups))
+	slog.Debug("digest: computed", "component", "digest", "overview", computed.Overview != "", "groups", len(computed.Groups))
 	return computed, nil
 }
 

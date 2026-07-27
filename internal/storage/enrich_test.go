@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -96,7 +97,7 @@ func TestResolveContent(t *testing.T) {
 			ExternalURL: nil,
 		}
 
-		text, source := resolveContent(ctx, fetcher, article, true)
+		text, source := resolveContent(ctx, slog.Default(), fetcher, article, true)
 
 		if fetcher.calls != 0 {
 			t.Errorf("fetcher called %d times for a newsletter, want 0", fetcher.calls)
@@ -118,7 +119,7 @@ func TestResolveContent(t *testing.T) {
 			ExternalURL: strptr("https://example.com/post"),
 		}
 
-		text, source := resolveContent(ctx, fetcher, article, false)
+		text, source := resolveContent(ctx, slog.Default(), fetcher, article, false)
 
 		if fetcher.calls != 1 {
 			t.Errorf("fetcher called %d times for an rss article, want 1", fetcher.calls)

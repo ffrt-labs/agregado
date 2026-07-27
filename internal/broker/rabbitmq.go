@@ -8,6 +8,12 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
+// DeadLetterQueue is the queue every failed message lands on, routed there by
+// the articles.dlx dead-letter exchange. Declared in DeclareTopology, drained
+// by NewDeadLetterHandler, and consumed from cmd/agregado — a single name all
+// three must agree on, so it lives here rather than as scattered literals.
+const DeadLetterQueue = "articles.dlq"
+
 type Broker struct {
 	conn *amqp091.Connection
 	config *config.Queue
@@ -123,7 +129,7 @@ func (b *Broker) DeclareTopology() error {
 	}
 
 	_, err = ch.QueueDeclare(
-		"articles.dlq",
+		DeadLetterQueue,
 		true,
 		false,
 		false,
@@ -148,7 +154,7 @@ func (b *Broker) DeclareTopology() error {
 	}
 
 	err = ch.QueueBind(
-		"articles.dlq",
+		DeadLetterQueue,
 		"",
 		"articles.dlx",
 		false,

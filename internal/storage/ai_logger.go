@@ -2,7 +2,7 @@ package storage
 
 import (
 	"context"
-	"log"
+	"log/slog"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
 )
@@ -21,13 +21,13 @@ func NewAILogger(settings *SettingsRepo, logs *AILogRepo) *AILogger {
 func (l *AILogger) Record(ctx context.Context, entry ai.LogEntry) {
 	enabled, err := l.settings.AILoggingEnabled(ctx)
 	if err != nil {
-		log.Printf("ai logger: reading flag: %v", err)
+		slog.Error("ai logger: reading flag", "component", "ai", "err", err)
 		return
 	}
 	if !enabled {
 		return
 	}
 	if err := l.logs.Insert(ctx, entry); err != nil {
-		log.Printf("ai logger: insert: %v", err)
+		slog.Error("ai logger: insert", "component", "ai", "err", err)
 	}
 }

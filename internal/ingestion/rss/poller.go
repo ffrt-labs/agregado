@@ -3,6 +3,7 @@ package rss
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 	"errors"
@@ -10,6 +11,16 @@ import (
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/domain"
 )
+
+// log returns the poller's component-bound child of the process default
+// logger. "poller" is a low-cardinality subsystem label the future collector
+// can index on; source ids and feed URLs stay as per-line fields.
+//
+// This is a function, not a package-level var: slog.With resolves
+// slog.Default() at the moment it's called, and a package var would capture
+// the pre-Setup default at init time — before main installs the configured
+// handler — silently pinning every poller line to the wrong destination.
+func log() *slog.Logger { return slog.With("component", "poller") }
 
 type SourceLister interface {
 	ListActive(ctx context.Context) ([]domain.Source, error)
@@ -53,6 +64,10 @@ func (p *Poller) poll(ctx context.Context) {
 	sources, err := p.sources.ListActive(ctx)
 
 	if err != nil {
+		// A failure here skips an entire poll cycle for every source. It used
+		// to return in total silence — the feed simply stopped updating with
+		// nothing anywhere to say why.
+		log().Error("listing active sources failed; skipping poll cycle", "err", err)
 		return
 	}
 
@@ -66,13 +81,20 @@ func (p *Poller) poll(ctx context.Context) {
 }
 
 func (p *Poller) pollSource(ctx context.Context, source domain.Source) {
+	logger := log().With("source_id", source.ID, "url", *source.URL)
+
 	feed, err := p.parser.Parse(*source.URL)
 	if err != nil {
 		errMsg := err.Error()
 		source.LastError = &errMsg
 		source.ErrorCount++
-		p.sources.Update(ctx, source)
+		logger.Error("parsing feed failed", "err", err, "error_count", source.ErrorCount)
 
+		if uerr := p.sources.Update(ctx, source); uerr != nil {
+			// sources.last_error is the only other record of this failure, so
+			// losing the write means it survives nowhere but the line above.
+			logger.Error("recording feed error on source failed", "err", uerr)
+		}
 		return
 	}
 
@@ -124,11 +146,26 @@ func (p *Poller) pollSource(ctx context.Context, source domain.Source) {
 
 		body, err := json.Marshal(article)
 		if err != nil {
+			// Warn, not error: a single malformed item is a data problem, not
+			// a broken poller. The remaining items are abandoned regardless —
+			// say so, because the reader will not guess it from the error.
+			logger.Warn("encoding article failed; abandoning rest of feed",
+				"err", err,
+				"article_url", item.Link,
+				"title", item.Title,
+			)
 			return
 		}
 
 		err = p.pub.Publish("articles.ingest", "rss", body)
 		if err != nil {
+			// Error: publishing fails when the broker is unreachable, which
+			// stops ingestion for every source, not just this one.
+			logger.Error("publishing article failed; abandoning rest of feed",
+				"err", err,
+				"article_url", item.Link,
+				"title", item.Title,
+			)
 			return
 		}
 	}
@@ -137,7 +174,16 @@ func (p *Poller) pollSource(ctx context.Context, source domain.Source) {
 	source.ErrorCount = 0
 	now := time.Now()
 	source.LastFetchedAt = &now
-	p.sources.Update(ctx, source)
+	if err := p.sources.Update(ctx, source); err != nil {
+		// LastFetchedAt is the cursor that suppresses already-seen items, so a
+		// dropped write here silently re-publishes the whole feed next cycle.
+		logger.Error("updating source after poll failed", "err", err)
+		return
+	}
+
+	// Routine chatter: below the default level so a healthy poll cycle never
+	// buries the ERRORs that matter.
+	logger.Debug("source polled", "items", len(feed.Items))
 }
 
 func (p *Poller) RefreshSource(ctx context.Context, id string) error {

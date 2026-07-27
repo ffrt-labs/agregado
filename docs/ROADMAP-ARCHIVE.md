@@ -351,13 +351,13 @@
 ## Phase 5: Hardening
 
 ### 5.1 Monitoring
-- [ ] Add structured logging with slog
-- [ ] Add Prometheus metrics endpoint
-- [ ] Track key metrics (articles ingested, stored, etc.)
-- [ ] Monitor queue depths
+- [x] Add structured logging with slog — Phase 22 (F17), issues #5/#8
+- [ ] Add Prometheus metrics endpoint — deferred to the collector session
+- [ ] Track key metrics (articles ingested, stored, etc.) — deferred to the collector session
+- [ ] Monitor queue depths — deferred to the collector session
 
 ### 5.2 Error Handling
-- [ ] Dead-letter queue consumer (log failed messages)
+- [x] Dead-letter queue consumer (log failed messages) — Phase 22 (F17), issue #6
 - [ ] Retry logic for transient failures
 - [ ] Circuit breaker for external services (optional)
 
@@ -368,9 +368,9 @@
 - [ ] Integration tests for RabbitMQ flow
 
 ### Phase 5 Verification
-- [ ] Metrics endpoint returns Prometheus format
-- [ ] Failed messages appear in dead-letter queue
-- [ ] Logs are structured JSON
+- [ ] Metrics endpoint returns Prometheus format — deferred to the collector session
+- [x] Failed messages appear in dead-letter queue — and are now drained and logged (Phase 22)
+- [x] Logs are structured JSON — Phase 22 (F17)
 - [ ] Tests pass
 
 ---

@@ -169,6 +169,41 @@ docker-compose up
 
 ---
 
+## Observability
+
+Agregado is a telemetry **producer**: every diagnostic is a structured record
+emitted as **JSON on stdout**. Where those logs end up is a collector's problem —
+the app ships no agent and stores no logs itself.
+
+| Variable | Default | Values |
+|----------|---------|--------|
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` — anything unrecognized falls back to `info` |
+| `LOG_FORMAT` | `json` | `json` for the deploy, `text` for readable local development |
+
+```bash
+# readable lines while developing
+LOG_FORMAT=text LOG_LEVEL=debug make dev
+
+# what the deploy emits
+{"time":"...","level":"INFO","msg":"agregado starting","component":"main","http_port":"8080"}
+```
+
+Every record carries a `component` field (`main`, `broker`, `deadletter`,
+`storage`, `enrich`, `ai`, `digest`, `api`, `backup`, `poller`) — deliberately
+low-cardinality, so it can become a log-store label. High-cardinality
+identifiers like `article_id` and `url` are line fields, never labels.
+
+Failures surface at `ERROR` the moment they happen: a handler error is logged
+with its queue and a truncated body *before* the message is dead-lettered, and a
+consumer drains `articles.dlq` — logging each dead message and acking it, with
+no retry. Startup logs a short list of non-sensitive fields; the `Config` struct
+is never serialized, so the database password and Cloudflare API token stay out
+of the log stream.
+
+See [F17 in the PRD](docs/PRD.md) for the design decisions behind this.
+
+---
+
 ## Project Structure
 
 ```
@@ -183,13 +218,14 @@ agregado/
 │   ├── domain/            # Business entities (Article, Source, Tag)
 │   ├── ingestion/
 │   │   ├── email/         # Webhook handler, email parser
+│   │   ├── fetch/         # Link extractor + article fetcher
 │   │   └── rss/           # Feed parser, poller
-│   ├── newsletter/        # Link extractor + article fetcher
+│   ├── logging/           # slog setup — the single logging seam
 │   └── storage/           # PostgreSQL repositories
 ├── migrations/            # Database migrations (golang-migrate)
 ├── templates/             # HTMX + Go HTML templates
 ├── docker/                # Dockerfile
-└── docs/                  # PRD, TODO, ADRs
+└── docs/                  # PRD, ADRs, roadmap archive, study log
 ```
 
 ---

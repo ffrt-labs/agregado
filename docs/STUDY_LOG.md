@@ -3256,3 +3256,69 @@ rejected `List-Archive` — the difference between "the post you were reading" a
 "the newsletter's homepage." Understanding *why the standards separate these two*
 is what makes the priority chain in `resolveCanonicalURL` obvious rather than
 arbitrary.
+
+---
+
+## Phase 22 — Structured logging + failure visibility, producer side (issues #5–#9)
+
+- **Four features silently broken in a row is one missing capability, not four
+  bugs.** F5.3, F14, F15 and F16 each shipped, each no-opped, and each was found
+  by accident weeks later — a stray click, a hand-written `SELECT count(*)`.
+  Every one of those got debugged individually and none of the fixes made the
+  *next* one easier to find. The pattern only resolves when you stop asking "why
+  did this feature break?" and start asking "why did it take three weeks to
+  notice?" Those are different problems with different fixes, and only the second
+  one compounds. The tell was in the dead-letter queue the whole time: a real
+  failure sitting in `articles.dlq` with no consumer attached, so nothing would
+  *ever* have read it.
+- **The observability contract is one line, and keeping it one line is what
+  makes the collector a separate project.** `internal/logging` emits structured
+  JSON to stdout and knows nothing else — no transport, no agent, no in-app
+  `failures` table. That table was genuinely tempting: it's Postgres, it's
+  already there, `SELECT * FROM failures` is a satisfying answer. But it would
+  have made every future collector decision an Agregado migration. "Where the
+  logs end up is the collector's problem" is a boundary that costs nothing to
+  hold now and would be expensive to reclaim later.
+- **Cardinality is a design decision you make at emit time or not at all.**
+  `component` (`main`, `broker`, `digest`, `api`, …) is a closed set of ten
+  strings and is meant to become a log-store *label*. `article_id` and `url` are
+  unbounded and stay line fields. In Loki every distinct label-value combination
+  is its own stream, so labelling `article_id` doesn't make queries slower in the
+  ordinary way — it multiplies the index by the number of articles that have ever
+  existed. What's sharp here is that the collector doesn't exist yet: this had to
+  be decided by a phase that couldn't test the consequence, because re-emitting
+  every log line later is the alternative.
+- **A handler at the end of a failure path has to be total.** `NewDeadLetterHandler`
+  returns `nil` for malformed JSON, an empty body, and a `nil` body — it drains
+  anything. The instinct is the opposite: malformed input is *exactly* what you'd
+  normally reject. But an error return here re-dead-letters the message, and a
+  message that fails parsing will fail it again forever. The queue position is
+  what inverts the rule — this is the last stop, so the log record is the durable
+  artifact and the ack is unconditional. The test pins that directly: every case
+  asserts `err == nil`, which reads like a weak test until you know what a
+  non-nil return would do.
+- **The global is what made the seam.** `Setup()` touches `os.Stdout` and
+  `slog.SetDefault` — two process globals, untestable by construction. Splitting
+  out `buildHandler(w io.Writer, level, format string)` moved the entire decision
+  (level parsing, JSON vs text) into a function that takes its writer as a
+  parameter and returns a value, so the unit test drives it with `io.Discard` and
+  the "no I/O" in the acceptance criteria became structural rather than a promise.
+  Same move as Phase 20's "choose the highest honest seam": the untestable part
+  shrank to two lines that are obviously correct by inspection.
+
+### Recommended reading (15–30 min)
+
+**Grafana's "Label best practices" for Loki** (the Loki docs page on labels and
+cardinality) — read the section on *dynamic labels* and the worked example of how
+one high-cardinality label explodes the stream count. This phase committed to a
+label/field split before the collector that consumes it exists, which means the
+decision was made on theory alone; this page is the theory, and it's short. Pay
+attention to the "labels are indexed, log content is not" framing and then look
+back at the `slog.With("component", …)` calls — the reason `article_id` sits in
+the message body rather than beside `component` should stop feeling like a style
+choice and start feeling like the only option. If you have time left over, skim
+the `log/slog` package documentation on **`Handler` and `WithAttrs`** to see what
+the child-logger pattern is actually doing: `slog.With` isn't string
+concatenation, it pre-formats the attributes once per component rather than per
+record, which is why binding a component logger at construction beats passing
+fields at every call site.

@@ -921,6 +921,82 @@ it's known to work); no email feedback links (prefetch hazard, needs its own des
 no implicit feedback from `/r/{id}` opens yet (Phase 12.4); `sources.default_tag_id`
 is another dead column, noted but not fixed here.
 
+#### F17: Producer-Side Observability (Structured Logging + Failure Visibility)
+**User Story:** As the operator, I can tell when Agregado breaks — from stdout
+alone, at the moment it happens, without a manual `SELECT count(*)`.
+
+**Motivation.** Four features in a row shipped and then silently never worked
+(F5.3's open redirect, F14's newsletter AI content budget, F15's RSS content
+fetching, F16's whole personalization loop) — each discovered by accident, weeks
+later, by a stray click or a hand-written query. That is not four unlucky bugs;
+it is one missing capability. Every diagnostic in the app was an unstructured
+`fmt.Printf`/`log.Printf` with no level, no timestamp and no fields, so there was
+nothing to filter on and nothing to grep for a specific article. A real failure
+was sitting in the `articles.dlq` dead-letter queue with **no consumer attached**
+— it would never have been read. And on every boot the app printed its entire
+`Config` struct to stdout, database password and Cloudflare API token included.
+
+**The contract.** Agregado becomes a well-behaved telemetry *producer* and
+nothing more: **structured JSON on stdout**. Where those logs end up is the
+collector's problem, not the app's — no transport, no agent, no in-app failures
+table. That one-line contract is what lets the collector be a separate project
+that this app never has to know about.
+
+**Design decisions (confirmed):**
+1. **`internal/logging` is the single logging seam.** `Setup(level, format)`
+   builds an slog handler and installs it as the *process default*; downstream
+   code uses `slog.With("component", …)` child loggers rather than threading a
+   logger through every constructor. Full logger dependency injection was
+   considered and rejected — it would have touched every constructor in the app
+   to buy testability that ADR-0002's live-verification posture doesn't need.
+2. **`LOG_LEVEL` and `LOG_FORMAT` are env-driven**, defaulting to `info` and
+   `json`. `LOG_FORMAT=text` gives readable lines for local dev. An unrecognized
+   `LOG_LEVEL` **falls back to `info`** rather than silencing or crashing the
+   process — a misconfigured level must never be the reason a failure went
+   unseen.
+3. **Cardinality discipline, decided now rather than at collector time.**
+   `component` is low-cardinality and is the field intended to become a log-store
+   *label* (`main`, `broker`, `deadletter`, `storage`, `enrich`, `ai`, `digest`,
+   `api`, `backup`, `poller`). High-cardinality identifiers — `article_id`,
+   `url`, `queue` bodies — stay as *line fields*, never labels. Getting this
+   backwards is the classic way to melt a Loki index, and it is far cheaper to
+   decide at emit time than to re-emit later.
+4. **The NACK path logs the real error, at ERROR, before the message is
+   dead-lettered** — with the queue name and a body truncated to 300 bytes, so a
+   large newsletter can't flood the log while still identifying the victim. The
+   per-successful-message line is demoted to `Debug` so routine chatter never
+   buries the failures.
+5. **The dead-letter consumer drains, it does not retry.** `articles.dlq`
+   messages are logged at ERROR and acked. Returning an error there would
+   re-dead-letter the message and let a poison message loop forever — so the
+   handler is deliberately *total*: it drains malformed JSON and empty bodies
+   exactly like valid ones. The log record is the durable artifact.
+6. **Startup logs discrete non-sensitive fields**, never whole structs, and
+   `log.Fatal` becomes an ERROR record plus a non-zero exit — fail-fast
+   preserved, but structured and visible in the same stream as everything else.
+
+**Acceptance Criteria:**
+- App boot emits valid JSON on stdout; `LOG_FORMAT=text` yields readable lines.
+- An unrecognized `LOG_LEVEL` degrades to `info`.
+- Grepping the running process's stdout for the API token value yields zero hits.
+- A handler failure produces an ERROR record naming the queue, the error, and a
+  truncated body — before the message is dead-lettered.
+- `articles.dlq` goes 1 → 0 on the next run, with one ERROR record identifying
+  the drained message.
+- No unstructured `fmt.Print*`/`log.Print*` diagnostic remains in storage,
+  digest, api or backup.
+
+**Known gaps, deliberately left open — and the natural next work:** the central
+**Loki + Alloy + Grafana** collector this phase produces *for* is a separate
+session and a separate project. A Prometheus **`/metrics` endpoint** and the
+counters behind it (articles ingested/stored, queue depths) stay unchecked and
+deferred to that same session — logs answer "what broke", metrics answer "how
+often", and only the first was needed to stop losing features silently. **DLQ
+retry/reprocessing** is explicitly not built: draining makes failures *visible*,
+which is the actual problem; re-driving them is a different feature with its own
+poison-message design. A per-app `failures` table was considered and rejected —
+it duplicates in Postgres what the collector exists to do.
+
 ### Post-MVP Features (Prioritized)
 
 | Priority | Feature | Learning Value | Usefulness |

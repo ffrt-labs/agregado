@@ -145,9 +145,19 @@ func main() {
 	go server.Start(ctx, cfg.Http.Port)
 	go scheduler.Start(ctx)
 	go backupScheduler.Start(ctx)
-	consumer.Consume("articles.store", 1, 5, handler)
-	enrichConsumer.Consume("articles.enrich", 5, 5, enrichHandler)
-	dlqConsumer.Consume(broker.DeadLetterQueue, 1, 1, dlqHandler)
+	// A consumer that fails to attach leaves its queue with no reader: messages
+	// pile up silently and the process looks healthy the whole time — the exact
+	// failure mode the dead-letter drain exists to close, one level up. Fail
+	// fast instead, like every other startup step.
+	if err := consumer.Consume("articles.store", 1, 5, handler); err != nil {
+		fatal("failed to consume articles.store", err)
+	}
+	if err := enrichConsumer.Consume("articles.enrich", 5, 5, enrichHandler); err != nil {
+		fatal("failed to consume articles.enrich", err)
+	}
+	if err := dlqConsumer.Consume(broker.DeadLetterQueue, 1, 1, dlqHandler); err != nil {
+		fatal("failed to consume "+broker.DeadLetterQueue, err)
+	}
 
 	<-ctx.Done()
 

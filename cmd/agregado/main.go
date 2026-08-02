@@ -41,18 +41,8 @@ func main() {
 	}
 
 	logging.Setup(cfg.Level, cfg.Format)
-	// Startup emits a short list of non-sensitive fields only — never the whole
-	// Config/db/broker structs, which carry the database password and
-	// Cloudflare API token. Shipping logs to a central store must not leak
-	// credentials.
-	slog.Info("agregado starting",
-		"component", "main",
-		"http_port", cfg.Http.Port,
-		"ai_model", cfg.AI.Model,
-		"log_level", cfg.Level,
-		"log_format", cfg.Format,
-		"rss_poll_interval", cfg.Pooler.Interval.String(),
-	)
+	// Non-sensitive fields only — see startupFields.
+	slog.Info("agregado starting", startupFields(cfg)...)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -62,12 +52,14 @@ func main() {
 	if err != nil {
 		fatal("failed to load database", err)
 	}
+	slog.Info("database connected", databaseFields(cfg)...)
 
 	b, err := broker.NewBroker(&cfg.Queue)
 
 	if err != nil {
 		fatal("failed to load broker", err)
 	}
+	slog.Info("broker connected", brokerFields(cfg)...)
 	if err := b.DeclareTopology(); err != nil {
 		fatal("failed to declare broker topology", err)
 	}

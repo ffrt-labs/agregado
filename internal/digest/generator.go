@@ -35,16 +35,11 @@ type Generator struct {
 // a point-in-time artifact (unlike the always-live web page), so it spells out
 // the full date including the year.
 type emailData struct {
-	Greeting     string
-	DeliveryTime string
-	Date         string
-	Intro        string
-	Groups       []emailGroup
-	// DigestURL is the public origin (PUBLIC_BASE_URL). It is used only as the
-	// prefix for per-article links ({{.DigestURL}}/r/{{.ID}}) — the email
-	// deliberately links nothing else, since no other path is published
-	// through the tunnel. See docs/adr/0001.
-	DigestURL      string
+	Greeting       string
+	DeliveryTime   string
+	Date           string
+	Intro          string
+	Groups         []emailGroup
 	ClearedCount   int
 	CandidateCount int
 	// LocalhostWarning is non-empty when BaseURL is a loopback origin, which
@@ -56,7 +51,27 @@ type emailData struct {
 type emailGroup struct {
 	Topic   string
 	Summary string
-	Items   []DigestItemView
+	Items   []emailItem
+}
+
+// emailItem is a digest item with its click-through link already resolved.
+// Both alternatives of the email render Link rather than each rebuilding the
+// URL from the base origin and the article ID — that per-surface re-derivation
+// is what let the text part drift onto the publisher URL and silently skip
+// read-tracking (issue #11).
+type emailItem struct {
+	DigestItemView
+	Link string
+}
+
+// redirectURL is the one place an article's click-through link is built, from
+// the public origin (PUBLIC_BASE_URL). It always points at /r/{id}, never the
+// publisher: the redirect is what marks the article read, and it is the only
+// link that resolves for a newsletter, which has no web home of its own. The
+// email links nothing but this and never a bare origin, since no other path is
+// published through the tunnel — see docs/adr/0001.
+func redirectURL(baseURL, id string) string {
+	return strings.TrimSuffix(baseURL, "/") + "/r/" + id
 }
 
 type ComputedDigest struct {
@@ -140,7 +155,11 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 
 	groups := make([]emailGroup, len(view.Groups))
 	for i, group := range view.Groups {
-		groups[i] = emailGroup{Topic: group.Topic, Summary: group.Summary, Items: group.Items}
+		items := make([]emailItem, len(group.Items))
+		for j, item := range group.Items {
+			items[j] = emailItem{DigestItemView: item, Link: redirectURL(g.baseURL, item.ID)}
+		}
+		groups[i] = emailGroup{Topic: group.Topic, Summary: group.Summary, Items: items}
 	}
 
 	var localhostWarning string
@@ -155,7 +174,6 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 		Date:             c.Date.Format("Monday, January 2, 2006"),
 		Intro:            view.Intro,
 		Groups:           groups,
-		DigestURL:        g.baseURL,
 		ClearedCount:     view.ClearedCount,
 		CandidateCount:   view.CandidateCount,
 		LocalhostWarning: localhostWarning,
@@ -166,6 +184,8 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 		return nil, err
 	}
 
+	// The text part renders item.Link — the same value the HTML part renders —
+	// so the two alternatives cannot disagree about where a headline points.
 	var text strings.Builder
 	if data.Intro != "" {
 		text.WriteString(data.Intro + "\n\n")
@@ -173,7 +193,7 @@ func (g *Generator) Render(c ComputedDigest, sourceNames map[string]string) (*Di
 	for _, group := range data.Groups {
 		text.WriteString(group.Topic + "\n")
 		for _, item := range group.Items {
-			text.WriteString(item.Title + " - " + item.ExternalURL + "\n")
+			text.WriteString(item.Title + " - " + item.Link + "\n")
 		}
 		text.WriteString("\n")
 	}

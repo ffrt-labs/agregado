@@ -26,7 +26,6 @@ type DigestItemView struct {
 	Position             int
 	SourceName           string
 	Title                string
-	ExternalURL          string
 	ID                   string
 	Summary              *string
 	PublishedAt          *time.Time
@@ -56,14 +55,15 @@ func BuildView(computed ComputedDigest, sourceNames map[string]string) DigestVie
 			if a.SourceID != nil {
 				sourceName = sourceNames[*a.SourceID]
 			}
-			// Newsletters have no web home (external_url is nil since Phase 21);
-			// the digest links via /r/{id} in the HTML template regardless, and
-			// the plain-text fallback omits the URL for them (ExternalURLOr).
+			// No publisher URL here by design: both digest surfaces link
+			// /r/{ID} and let the redirect resolve where the article actually
+			// lives (issue #11). That is what marks the article read, and it is
+			// the only link that works for newsletters, which have no web home
+			// of their own (external_url is nil since Phase 21).
 			items[i] = DigestItemView{
 				Position:             i + 1,
 				SourceName:           sourceName,
 				Title:                a.Title,
-				ExternalURL:          a.ExternalURLOr(""),
 				ID:                   a.ID,
 				Summary:              a.Summary,
 				PublishedAt:          a.PublishedAt,

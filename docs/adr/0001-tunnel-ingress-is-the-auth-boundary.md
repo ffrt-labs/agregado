@@ -4,6 +4,9 @@
 **Date:** 2026-07-17
 **Amended:** 2026-07-21 — the allowlist was split across two public hostnames
 (ingest vs. read) rather than widening the single existing regex. See Decision.
+**Amended:** 2026-08-30 — Tailscale was reconsidered and adopted, but for
+personal access to the homelab as a whole, not as a replacement for this
+tunnel. See "Amendment, 2026-08-30" below.
 **Supersedes the implicit reading of:** PRD F9 ("admin console unauthenticated in v1")
 
 ## Context
@@ -127,9 +130,18 @@ proxied DNS record.
 - **App-level auth middleware in Chi.** Rejected: more code, weaker guarantee than
   an edge ACL (a route you forget to wrap is exposed; a path you forget to publish
   is not), and PRD F9 already deferred it.
-- **Tailscale instead of a public tunnel.** Rejected: the tunnel already exists and
-  is required for the email Worker regardless, so Tailscale would be a second
-  network path to maintain for no additional benefit.
+- **Tailscale instead of a public tunnel.** Rejected at the time for the question
+  this ADR was answering — anonymous public reach for digest links and the email
+  Worker, which Tailscale cannot serve at all. That rejection stands for that
+  question. It does not stand for personal access to the homelab in general;
+  see "Amendment, 2026-08-30" below for what changed and why the tunnel was
+  kept anyway.
+- **Tailscale Funnel instead of the tunnel, once Tailscale was adopted for
+  personal access.** Rejected: Funnel would mean rebuilding, in front of an
+  app with no auth middleware at all, the exact path allowlist this ADR calls
+  the auth boundary — trading a boundary that already exists and works for one
+  that would have to be reconstructed on a different platform. See
+  "Amendment, 2026-08-30" below.
 
 ## Notes
 
@@ -152,3 +164,31 @@ so it is only as good as the assumption that a published path is safe to expose.
 is intended — the read signal is the point — but it means the public surface
 already includes a state mutation. Any future "just publish one more path"
 should be checked for writes, not assumed idempotent because it is a `GET`.
+
+## Amendment, 2026-08-30: Tailscale reconsidered, tunnel retained
+
+`homelab-edge` has since put the host this app runs on onto a Tailscale
+tailnet, and moved the wildcard DNS record for personal access to a tailnet
+address (`homelab-edge#10`, recorded in that repo's
+`docs/adr/0001-tailnet-membership-is-the-access-boundary.md`). That is exactly
+the "Tailscale instead of a public tunnel" alternative this ADR rejected above
+— reconsidered, and this time adopted. A future reader landing on the flat
+"rejected" line in Alternatives considered would be misled into thinking
+Tailscale was tried and dismissed for this purpose; it wasn't. It was adopted,
+for a different purpose, and this tunnel was kept anyway. Both are true at
+once, which is precisely the trap this ADR's own Notes section already warns
+about.
+
+**The tunnel is retained deliberately, not by inertia.** Tailscale cannot
+serve the consumers this ADR's tunnel exists for: the Cloudflare Worker that
+bridges Email Routing to the app, and anyone who clicks a digest link without
+being an enrolled tailnet device — both are, by definition, off the tailnet.
+Collapsing onto Tailscale Funnel instead was considered and rejected; see
+Alternatives considered above.
+
+**This changes nothing about the boundary this ADR defines.** The ingress
+allowlist — the two-hostname split, the frozen ingest regex, the UUID-scoped
+read regex — is unchanged. This amendment widens nothing; it only records that
+the personal-access question and the anonymous-access question this ADR
+answers are separate questions, now visibly answered by separate mechanisms,
+on purpose.

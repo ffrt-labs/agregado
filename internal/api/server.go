@@ -13,6 +13,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/digest"
+	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/storage"
@@ -28,7 +29,7 @@ type Server struct {
 	backupScheduler *backup.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -90,6 +91,10 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Post("/webhook/email", emailHandler.HandleWebhook)
 	if articleIndexHandler != nil {
 		r.Post("/api/private/articles/enrich", articleIndexHandler.Handle)
+	}
+	if digestArtifactHandler != nil {
+		r.Post("/api/private/digests", digestArtifactHandler.Handle)
+		r.Post("/api/private/digests/{date}", digestArtifactHandler.Handle)
 	}
 
 	r.Post("/api/digest/send", s.Send)

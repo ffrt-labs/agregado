@@ -44,10 +44,11 @@ Two facts constrain the answer:
    duplicated and genuinely uninteresting.
 
 3. **Scoring stays in Agregado**, outside the library, and `PREFERENCES.md` is
-   an explicit runtime input to it. Its location is set through `PREFERENCES_PATH`
-   and is deliberately outside the repository: the profile is personal editable
-   data, not application source. The library never loads, parses, or knows about
-   the preference profile.
+   an explicit runtime input to it. Google Drive holds the authoritative personal
+   document; n8n validates and synchronizes it to the absolute `PREFERENCES_PATH`
+   cache on the homelab, which Agregado reads. The profile is personal editable data,
+   not application source. The library never loads, parses, or knows about the
+   preference profile.
 
 4. **Conditional on [#56](https://github.com/ffrt-labs/agregado/issues/56).**
    The library is *shared* only if the Bookmarker is built in Go. If Karakeep is

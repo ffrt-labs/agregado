@@ -31,21 +31,21 @@ var defaultCategorySlugs = []string{"tech", "business", "personal", "politics", 
 const defaultRequestTimeout = 30 * time.Second
 
 type CloudflareProvider struct {
-	accountID	string
-	apiToken	string
-	model		string
-	client		*http.Client
-	requestTimeout	time.Duration
-	maxContentChars	int
+	accountID       string
+	apiToken        string
+	model           string
+	client          *http.Client
+	requestTimeout  time.Duration
+	maxContentChars int
 
-	prompts	PromptStore // editable system prompts; nil → in-code defaults
-	tags	TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
-	logs	AILogSink   // request/response logging; nil → no logging
+	prompts PromptStore // editable system prompts; nil → in-code defaults
+	tags    TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
+	logs    AILogSink   // request/response logging; nil → no logging
 }
 
 type Messages struct {
-	Role	string	`json:"role"`
-	Content	string	`json:"content"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, maxContentChars int, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
@@ -56,15 +56,15 @@ func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout tim
 		maxContentChars = defaultMaxContentChars
 	}
 	return &CloudflareProvider{
-		accountID: accountID,
-		apiToken: apiToken,
-		model: model,
-		client: &http.Client{Timeout: requestTimeout},
-		requestTimeout: requestTimeout,
+		accountID:       accountID,
+		apiToken:        apiToken,
+		model:           model,
+		client:          &http.Client{Timeout: requestTimeout},
+		requestTimeout:  requestTimeout,
 		maxContentChars: maxContentChars,
-		prompts: prompts,
-		tags: tags,
-		logs: logs,
+		prompts:         prompts,
+		tags:            tags,
+		logs:            logs,
 	}
 }
 
@@ -136,15 +136,15 @@ func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt
 func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", p.accountID, p.model)
 	body := struct {
-      Messages []Messages `json:"messages"`
-  	}{
-   		Messages: []Messages{
-     		{ Role: "system", Content: systemPrompt },
-     		{ Role: "user", Content: userPrompt },
-     	},
-   	}
-    data, err := json.Marshal(body)
-   	if err != nil {
+		Messages []Messages `json:"messages"`
+	}{
+		Messages: []Messages{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
 		return "", err
 	}
 
@@ -154,7 +154,7 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	}
 
 	req.Header.Set("Authorization", "Bearer "+p.apiToken)
-  	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 	response, err := p.client.Do(req)
 
 	if err != nil {
@@ -163,19 +163,19 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	defer response.Body.Close()
 
 	var result struct {
-      Result struct {
-          Choices []struct {
-              Message struct {
-                  Content string `json:"content"`
-              } `json:"message"`
-          } `json:"choices"`
-      } `json:"result"`
-      Success bool `json:"success"`
-      Errors []struct {
-          Code    int    `json:"code"`
-          Message string `json:"message"`
-      } `json:"errors"`
-  	}
+		Result struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		} `json:"result"`
+		Success bool `json:"success"`
+		Errors  []struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
 
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("Error decoding result")
@@ -186,8 +186,8 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	}
 
 	if len(result.Result.Choices) == 0 {
-         return "", fmt.Errorf("cloudflare AI returned no choices")
-    }
+		return "", fmt.Errorf("cloudflare AI returned no choices")
+	}
 
 	return result.Result.Choices[0].Message.Content, nil
 }
@@ -267,14 +267,28 @@ func (p *CloudflareProvider) Score(ctx context.Context, title, content string, t
 		return 0, err
 	}
 
+	return parseScore(result)
+}
+
+// ScoreWithPreferences scores a Reader Article against the accepted
+// PREFERENCES.md verbatim. It is separate from the legacy topic-weight scorer
+// because preference scoring belongs to Agregado, not shared enrichment code.
+func (p *CloudflareProvider) ScoreWithPreferences(ctx context.Context, title, content, preferences string) (int, error) {
+	userPrompt := fmt.Sprintf("PREFERENCES.md:\n%s\n\nTitle: %s\n\nContent: %s", preferences, title, textutil.Clean(content, p.maxContentChars))
+	result, err := p.complete(ctx, OpPreferenceScore, p.systemPrompt(ctx, OpPreferenceScore), userPrompt)
+	if err != nil {
+		return 0, err
+	}
+	return parseScore(result)
+}
+
+func parseScore(result string) (int, error) {
 	score, err := strconv.Atoi(strings.TrimSpace(result))
 	if err != nil {
 		return 0, err
 	}
-
 	if score < 1 || score > 5 {
-      return 0, fmt.Errorf("score out of range: %d", score)
-  	}
-
+		return 0, fmt.Errorf("score out of range: %d", score)
+	}
 	return score, nil
 }

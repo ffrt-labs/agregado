@@ -10,6 +10,7 @@ import (
 
 	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/api"
+	"github.com/felipeafreitas/agregado/internal/articleindex"
 	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
@@ -94,6 +95,7 @@ func main() {
 
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
+	articleIndexRepo := storage.NewArticleIndexRepo(db)
 	rawHTMLRepo := storage.NewRawHTMLRepo(db)
 	weightsRepo := storage.NewTopicWeightsRepo(db)
 	tagRepo := storage.NewTagRepo(db)
@@ -105,6 +107,12 @@ func main() {
 	aiLogger := storage.NewAILogger(settingsRepo, aiLogRepo)
 
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger)
+	articleIndexHandler := articleindex.NewHandler(cfg.Enrichment.Secret, articleindex.NewService(
+		articleIndexRepo,
+		fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent),
+		articleindex.NewCloudflareModel(provider),
+		articleindex.FilePreferences{Path: "PREFERENCES.md"},
+	))
 
 	ranker := digest.NewRanker(
 		articleRepo,
@@ -131,7 +139,7 @@ func main() {
 	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 	dlqHandler := broker.NewDeadLetterHandler()
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
@@ -155,7 +163,7 @@ func main() {
 
 	// Shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-  	defer shutdownCancel()
+	defer shutdownCancel()
 
 	server.Shutdown(shutdownCtx)
 	publisher.Close()

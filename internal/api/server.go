@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
+	"github.com/felipeafreitas/agregado/internal/articleindex"
 	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/digest"
@@ -20,14 +21,14 @@ import (
 )
 
 type Server struct {
-	broker *broker.Broker
-	db *storage.DB
-	httpServer *http.Server
-	scheduler *digest.Scheduler
+	broker          *broker.Broker
+	db              *storage.DB
+	httpServer      *http.Server
+	scheduler       *digest.Scheduler
 	backupScheduler *backup.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -47,38 +48,38 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	publisher, err := broker.NewPublisher(b)
 
 	if err != nil {
-          panic(err)
-    }
+		panic(err)
+	}
 
-    navBuilder := NewNavBuilder(articleRepo, sourceRepo, minRelevanceScore)
+	navBuilder := NewNavBuilder(articleRepo, sourceRepo, minRelevanceScore)
 
-    emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
-    sourcesHandler := NewSourceHandler(sourceRepo, pooler, navBuilder)
-    articlesHandler := NewArticleHandler(articleRepo, sourceRepo, navBuilder)
-    digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo, navBuilder)
-    feedbackHandler := NewFeedbackHandler(
-     	feedbackRepo,
-     	weightsRepo,
-      	articleRepo,
-    )
-    bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
+	emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
+	sourcesHandler := NewSourceHandler(sourceRepo, pooler, navBuilder)
+	articlesHandler := NewArticleHandler(articleRepo, sourceRepo, navBuilder)
+	digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo, navBuilder)
+	feedbackHandler := NewFeedbackHandler(
+		feedbackRepo,
+		weightsRepo,
+		articleRepo,
+	)
+	bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
 
-    tagRepo := storage.NewTagRepo(db)
-    adminHandler := NewAdminHandler(
-    	storage.NewAILogRepo(db),
-    	storage.NewSettingsRepo(db),
-    	storage.NewPromptRepo(db),
-    	tagRepo,
-    	articleRepo,
-    	publisher,
-    	navBuilder,
-    )
+	tagRepo := storage.NewTagRepo(db)
+	adminHandler := NewAdminHandler(
+		storage.NewAILogRepo(db),
+		storage.NewSettingsRepo(db),
+		storage.NewPromptRepo(db),
+		tagRepo,
+		articleRepo,
+		publisher,
+		navBuilder,
+	)
 
 	s := &Server{
-		broker: b,
-		db: db,
-		httpServer: &httpServer,
-		scheduler: scheduler,
+		broker:          b,
+		db:              db,
+		httpServer:      &httpServer,
+		scheduler:       scheduler,
 		backupScheduler: backupScheduler,
 	}
 
@@ -87,6 +88,9 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/health/rabbit", s.rabbitHealthHandler)
 	r.Get("/health/db", s.dbHealthHandler)
 	r.Post("/webhook/email", emailHandler.HandleWebhook)
+	if articleIndexHandler != nil {
+		r.Post("/api/private/articles/enrich", articleIndexHandler.Handle)
+	}
 
 	r.Post("/api/digest/send", s.Send)
 	r.Get("/api/digest/preview", s.Preview)
@@ -150,7 +154,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status":"ok"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 func (s *Server) rabbitHealthHandler(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +164,7 @@ func (s *Server) rabbitHealthHandler(w http.ResponseWriter, r *http.Request) {
 		ch.Close()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status":"ok"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}
 
@@ -176,7 +180,7 @@ func (s *Server) dbHealthHandler(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status":"ok"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}
 
@@ -209,7 +213,7 @@ func (s *Server) Send(w http.ResponseWriter, r *http.Request) {
 
 	err := s.scheduler.Send(ctx)
 
-	if err != nil{
+	if err != nil {
 		slog.Error("digest send error", "component", "api", "err", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return

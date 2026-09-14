@@ -46,9 +46,11 @@ Sources alike. It is never logged into as a UI.**
    spin out into its own standalone tool; not designed here — see the map's Not yet
    specified.)
 
-4. **The enrichment library always re-fetches content itself**, via the existing
+4. **The enrichment library re-fetches every ordinary Article itself**, via the existing
    readability extractor (`internal/fetch`), rather than trusting whatever Miniflux
-   already fetched via its own scraper rules. Keeps content quality — one of the map's
+   already fetched via its own scraper rules. An Email-only Article is the exception: it
+   has no ordinary canonical page, so the newsletter bridge may supply its readable
+   content directly for transient enrichment. Keeps content quality — one of the map's
    "opinions that are the dev's own" — entirely in Agregado's hands, and keeps Miniflux a
    pure black box for the one job it is kept for.
 

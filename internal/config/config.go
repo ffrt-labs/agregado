@@ -42,62 +42,69 @@ type Webhook struct {
 	Secret string `env:"WEBHOOK_SECRET" envDefault:"dev-secret-change-in-production"`
 }
 
+// Enrichment protects the n8n-to-Agregado ingress. It is intentionally
+// distinct from the email bridge secret: the two callers have different trust
+// boundaries and must be independently revocable.
+type Enrichment struct {
+	Secret string `env:"ENRICHMENT_SECRET,required"`
+}
+
 type Digest struct {
-	RecipientEmail 		string	`env:"DIGEST_RECIPIENT_EMAIL" envDefault:""`
-	Schedule 			string	`env:"DIGEST_SCHEDULE" envDefault:"0 8 * * *"`
-	MaxArticles 		int		`env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
-	LookbackHours 		int		`env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
-	MinRelevanceScore 	int 	`env:"DIGEST_MIN_SCORE" envDefault:"3"`
+	RecipientEmail    string `env:"DIGEST_RECIPIENT_EMAIL" envDefault:""`
+	Schedule          string `env:"DIGEST_SCHEDULE" envDefault:"0 8 * * *"`
+	MaxArticles       int    `env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
+	LookbackHours     int    `env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
+	MinRelevanceScore int    `env:"DIGEST_MIN_SCORE" envDefault:"3"`
 	// BaseURL is the public origin (e.g. https://agregado.example.com) used to
 	// build absolute links in the digest email — relative links don't resolve
 	// inside a mail client.
-	BaseURL 			string	`env:"PUBLIC_BASE_URL" envDefault:"http://localhost:8080"`
+	BaseURL string `env:"PUBLIC_BASE_URL" envDefault:"http://localhost:8080"`
 }
 
 type SMTP struct {
-	Host		string	`env:"SMTP_HOST" envDefault:"smtp.gmail.com"`
-	Port		int		`env:"SMTP_PORT" envDefault:"587"`
-	Username	string	`env:"SMTP_USERNAME" envDefault:""`
-	Password	string	`env:"SMTP_PASSWORD" envDefault:""`
-	FromName	string	`env:"SMTP_FROM_NAME" envDefault:"Agregado Digest"`
-	FromMail	string	`env:"SMTP_FROM_MAIL" envDefault:""`
+	Host     string `env:"SMTP_HOST" envDefault:"smtp.gmail.com"`
+	Port     int    `env:"SMTP_PORT" envDefault:"587"`
+	Username string `env:"SMTP_USERNAME" envDefault:""`
+	Password string `env:"SMTP_PASSWORD" envDefault:""`
+	FromName string `env:"SMTP_FROM_NAME" envDefault:"Agregado Digest"`
+	FromMail string `env:"SMTP_FROM_MAIL" envDefault:""`
 }
 
 type Backup struct {
-	RecipientEmail	string	`env:"BACKUP_RECIPIENT_EMAIL" envDefault:""`
+	RecipientEmail string `env:"BACKUP_RECIPIENT_EMAIL" envDefault:""`
 	// Schedule defaults to weekly (Sun 03:00) — sources change rarely, unlike
 	// the daily digest content.
-	Schedule		string	`env:"BACKUP_SCHEDULE" envDefault:"0 3 * * 0"`
+	Schedule string `env:"BACKUP_SCHEDULE" envDefault:"0 3 * * 0"`
 }
 
 type AI struct {
-	Provider			string	`env:"AI_PROVIDER" envDefault:"cloudflare"`
-	CloudflareAccountID	string	`env:"CLOUDFLARE_ACCOUNT_ID"`
-	CloudflareAPIToken	string	`env:"CLOUDFLARE_API_TOKEN"`
-	Model				string	`env:"AI_MODEL" envDefault:"@cf/google/gemma-4-26b-a4b-it"`
+	Provider            string `env:"AI_PROVIDER" envDefault:"cloudflare"`
+	CloudflareAccountID string `env:"CLOUDFLARE_ACCOUNT_ID"`
+	CloudflareAPIToken  string `env:"CLOUDFLARE_API_TOKEN"`
+	Model               string `env:"AI_MODEL" envDefault:"@cf/google/gemma-4-26b-a4b-it"`
 	// RequestTimeout bounds a single AI call. Digest compute makes several
 	// calls back to back under one overall budget, so this caps how much of
 	// that budget one slow call can consume.
-	RequestTimeout		time.Duration	`env:"AI_REQUEST_TIMEOUT" envDefault:"30s"`
+	RequestTimeout time.Duration `env:"AI_REQUEST_TIMEOUT" envDefault:"30s"`
 	// MaxContentChars caps how much article body Score/Categorize/Reason feed
 	// the model. 8000 is a rough per-call budget, not a model-specific window.
-	MaxContentChars		int	`env:"AI_MAX_CONTENT_CHARS" envDefault:"8000"`
+	MaxContentChars int `env:"AI_MAX_CONTENT_CHARS" envDefault:"8000"`
 }
 
 type Fetch struct {
 	// Timeout bounds a single article-page fetch.
-	Timeout			time.Duration	`env:"FETCH_TIMEOUT" envDefault:"15s"`
+	Timeout time.Duration `env:"FETCH_TIMEOUT" envDefault:"15s"`
 	// MaxBytes caps how much of a response body is read, regardless of
 	// Content-Length — a defensive limit against oversized/misbehaving pages.
-	MaxBytes		int64	`env:"FETCH_MAX_BYTES" envDefault:"5242880"`
+	MaxBytes int64 `env:"FETCH_MAX_BYTES" envDefault:"5242880"`
 	// MinContentChars is the quality-gate floor: extracted plain text shorter
 	// than this is treated as a failed fetch (consent wall, SPA shell,
 	// paywall) and the article falls back to feed content.
-	MinContentChars	int	`env:"FETCH_MIN_CONTENT_CHARS" envDefault:"500"`
-	UserAgent		string	`env:"FETCH_USER_AGENT" envDefault:"Agregado/1.0 (+https://github.com/felipeafreitas/agregado)"`
+	MinContentChars int    `env:"FETCH_MIN_CONTENT_CHARS" envDefault:"500"`
+	UserAgent       string `env:"FETCH_USER_AGENT" envDefault:"Agregado/1.0 (+https://github.com/felipeafreitas/agregado)"`
 	// DistillMaxChars caps the algorithmic extractive pass (internal/textutil.Distill)
 	// that produces articles.distilled_content.
-	DistillMaxChars	int	`env:"DISTILL_MAX_CHARS" envDefault:"2000"`
+	DistillMaxChars int `env:"DISTILL_MAX_CHARS" envDefault:"2000"`
 }
 
 type Config struct {
@@ -107,6 +114,7 @@ type Config struct {
 	Logging
 	Pooler
 	Webhook
+	Enrichment
 	Digest
 	SMTP
 	AI

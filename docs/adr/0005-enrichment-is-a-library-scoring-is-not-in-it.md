@@ -43,9 +43,11 @@ Two facts constrain the answer:
    LLM at all. This surface is opinion-free: it is the part that is genuinely
    duplicated and genuinely uninteresting.
 
-3. **Scoring stays in Agregado**, outside the library, and `PREFERENCES.md` goes
-   with it. The library never loads, parses, or knows about the preference
-   profile.
+3. **Scoring stays in Agregado**, outside the library, and `PREFERENCES.md` is
+   an explicit runtime input to it. Its location is set through `PREFERENCES_PATH`
+   and is deliberately outside the repository: the profile is personal editable
+   data, not application source. The library never loads, parses, or knows about
+   the preference profile.
 
 4. **Conditional on [#56](https://github.com/ffrt-labs/agregado/issues/56).**
    The library is *shared* only if the Bookmarker is built in Go. If Karakeep is
@@ -90,7 +92,8 @@ Two facts constrain the answer:
 
 ## Consequences
 
-- **`PREFERENCES.md` has an unambiguous home: Agregado.** This is an input to
+- **`PREFERENCES.md` has an unambiguous consumer: Agregado.** Its storage location
+  is intentionally independent of the application checkout. This is an input to
   [#59](https://github.com/ffrt-labs/agregado/issues/59), not a decision it gets
   to revisit.
 - **The Bookmarker never scores.** If ranking the Pile ever becomes a want, it is

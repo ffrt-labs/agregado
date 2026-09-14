@@ -46,7 +46,8 @@ type Webhook struct {
 // distinct from the email bridge secret: the two callers have different trust
 // boundaries and must be independently revocable.
 type Enrichment struct {
-	Secret string `env:"ENRICHMENT_SECRET,required"`
+	Secret          string `env:"ENRICHMENT_SECRET,required"`
+	PreferencesPath string `env:"PREFERENCES_PATH,required"`
 }
 
 type Digest struct {

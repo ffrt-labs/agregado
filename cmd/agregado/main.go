@@ -111,7 +111,7 @@ func main() {
 		articleIndexRepo,
 		fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent),
 		articleindex.NewCloudflareModel(provider),
-		articleindex.FilePreferences{Path: "PREFERENCES.md"},
+		articleindex.FilePreferences{Path: cfg.Enrichment.PreferencesPath},
 	))
 
 	ranker := digest.NewRanker(

@@ -55,12 +55,12 @@ _Avoid_: Sync, Update (too generic — Decorate is one-directional, Agregado to 
 
 **PREFERENCES.md**:
 The preference profile a Score is judged against: structured prose (topics wanted,
-topics skipped, sources trusted) describing your taste. Lives in Agregado alone — the
-Bookmarker never scores, so it has no reason to read it (ADR-0005). Regenerated, never
-hand-edited in place: a nightly job rewrites it from scratch from the feedback log
-(Save-signals, votes, opens) and commits the draft for you to review like any other
-change to the repo. Distinct from CONTEXT.md, which is this project's glossary, not a
-taste profile.
+topics skipped, sources trusted) describing your taste. Agregado reads it from the
+explicit `PREFERENCES_PATH` outside this repository — the Bookmarker never scores, so
+it has no reason to read it (ADR-0005). It is personal, editable data, not deployment
+configuration. A nightly job may propose a complete replacement for your review, but
+never overwrites the accepted document. Distinct from CONTEXT.md, which is this
+project's glossary, not a taste profile.
 _Avoid_: Preferences (too vague — always the file), Profile (ambiguous outside context), Weights (the old `topic_weights` shape this replaces)
 
 **Digest**:

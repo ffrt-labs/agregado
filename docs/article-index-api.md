@@ -23,6 +23,10 @@ The canonical URL is the idempotency key. A first request returns `201`; any
 repeat returns `200` with the existing processing status and makes no fetch or
 model call. The Index stores its identifying fields, summary, tags, score, and status only.
 
+Agregado reads the hand-seeded PREFERENCES.md from the required `PREFERENCES_PATH`.
+The profile is personal editable data outside this repository; scoring receives it
+verbatim.
+
 ## Live verification
 
 After applying migration `000017`, send one real Miniflux Article through n8n

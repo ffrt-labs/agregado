@@ -15,6 +15,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/digest"
+	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/logging"
@@ -113,6 +114,9 @@ func main() {
 		articleindex.NewCloudflareModel(provider),
 		articleindex.FilePreferences{Path: cfg.Enrichment.PreferencesPath},
 	))
+	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
+		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,
+	))
 
 	ranker := digest.NewRanker(
 		articleRepo,
@@ -139,7 +143,7 @@ func main() {
 	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 	dlqHandler := broker.NewDeadLetterHandler()
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)

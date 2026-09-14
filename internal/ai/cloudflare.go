@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/felipeafreitas/agregado/internal/textutil"
 )
@@ -229,6 +230,36 @@ func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string
 	userPrompt := "Topic summaries:\n" + strings.Join(topicSummaries, "\n") + "\n\nIntroduction:"
 
 	return p.complete(ctx, OpDigest, systemPrompt, userPrompt)
+}
+
+// Select performs the Digest's single frontier-model call. Selection and its
+// explanations travel together so a retry can persist one coherent artifact.
+func (p *CloudflareProvider) Select(ctx context.Context, candidates []digestartifact.Candidate) ([]digestartifact.Choice, error) {
+	type candidate struct {
+		ID, Title, Summary string
+		Score              int
+		Topics             []string
+		Exploration        bool
+	}
+	payload := make([]candidate, len(candidates))
+	for i, c := range candidates {
+		payload[i] = candidate{c.ID, c.Title, c.Summary, c.Score, c.Topics, c.Exploration}
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := p.complete(ctx, OpDigestSelect, p.systemPrompt(ctx, OpDigestSelect), "Candidates:\n"+string(data))
+	if err != nil {
+		return nil, err
+	}
+	var response struct {
+		Choices []digestartifact.Choice `json:"choices"`
+	}
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		return nil, fmt.Errorf("decode digest selection: %w", err)
+	}
+	return response.Choices, nil
 }
 
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {

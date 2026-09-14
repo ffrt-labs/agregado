@@ -10,6 +10,7 @@ const (
 	OpDigest          = "digest"
 	OpReason          = "reason"
 	OpPreferenceScore = "preference_score"
+	OpDigestSelect    = "digest_select"
 )
 
 // DefaultPrompts are the in-code fallback system prompts, used when the DB has no
@@ -23,6 +24,7 @@ var DefaultPrompts = map[string]string{
 	OpDigest:          "You are a news digest assistant. Write a 2-sentence introduction for a daily digest email. Mention the main themes and why they matter. Be concise and direct. No bullet points.",
 	OpReason:          "You are a news analyst. Given an article title and content, explain in one short sentence (max 20 words) why this article matters to a curious reader. Return only that sentence — no preamble, no quotes, no explanation of your reasoning.",
 	OpPreferenceScore: "You are a personal content score giver. Given an article and the reader's PREFERENCES.md, return only a relevance score from 1 to 5. 1=not relevant, 3=worth reading, 5=essential. Follow the preferences rather than general significance.",
+	OpDigestSelect:    "You are a daily Digest editor. Select and order the supplied candidate IDs. For every selected ID return a concise why. Return only JSON: {\"choices\":[{\"article_id\":\"...\",\"why\":\"...\"}]}. Do not add IDs that were not supplied.",
 }
 
 // PromptStore supplies editable system prompts by operation. Implemented by the

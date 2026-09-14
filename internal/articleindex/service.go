@@ -26,6 +26,7 @@ const (
 type Record struct {
 	ID              string
 	MinifluxEntryID int64
+	SourceID        string
 	CanonicalURL    string
 	Title           string
 	Author          string
@@ -62,6 +63,7 @@ type Preferences interface{ Read() (string, error) }
 
 type Request struct {
 	MinifluxEntryID int64      `json:"entry_id"`
+	SourceID        string     `json:"source_id,omitempty"`
 	CanonicalURL    string     `json:"canonical_url"`
 	Title           string     `json:"title"`
 	Author          string     `json:"author,omitempty"`
@@ -100,7 +102,7 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 	}
 	record, created, err := s.store.Create(ctx, Record{
 		MinifluxEntryID: request.MinifluxEntryID, CanonicalURL: request.CanonicalURL,
-		Title: request.Title, Author: request.Author, PublishedAt: request.PublishedAt,
+		SourceID: request.SourceID, Title: request.Title, Author: request.Author, PublishedAt: request.PublishedAt,
 	})
 	if err != nil || !created {
 		return record, created, err

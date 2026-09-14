@@ -17,10 +17,10 @@ func NewArticleIndexRepo(db *DB) *ArticleIndexRepo { return &ArticleIndexRepo{db
 
 func (r *ArticleIndexRepo) Create(ctx context.Context, record articleindex.Record) (articleindex.Record, bool, error) {
 	row := r.db.pool.QueryRow(ctx, `
-		INSERT INTO article_index(miniflux_entry_id, canonical_url, title, author, published_at, processing_status)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, 'processing')
+		INSERT INTO article_index(miniflux_entry_id, source_id, canonical_url, title, author, published_at, processing_status)
+		VALUES ($1, NULLIF($2, ''), $3, $4, NULLIF($5, ''), $6, 'processing')
 		ON CONFLICT (canonical_url) DO NOTHING
-		RETURNING id, processing_status`, record.MinifluxEntryID, record.CanonicalURL, record.Title, record.Author, record.PublishedAt)
+		RETURNING id, processing_status`, record.MinifluxEntryID, record.SourceID, record.CanonicalURL, record.Title, record.Author, record.PublishedAt)
 	err := row.Scan(&record.ID, &record.Status)
 	if err == nil {
 		return record, true, nil
@@ -31,10 +31,10 @@ func (r *ArticleIndexRepo) Create(ctx context.Context, record articleindex.Recor
 
 	var tags []byte
 	err = r.db.pool.QueryRow(ctx, `
-		SELECT id, miniflux_entry_id, canonical_url, title, COALESCE(author, ''), published_at,
+		SELECT id, miniflux_entry_id, COALESCE(source_id, ''), canonical_url, title, COALESCE(author, ''), published_at,
 		       COALESCE(summary, ''), tags, COALESCE(score, 0), processing_status, COALESCE(failure_reason, '')
 		FROM article_index WHERE canonical_url = $1`, record.CanonicalURL).Scan(
-		&record.ID, &record.MinifluxEntryID, &record.CanonicalURL, &record.Title, &record.Author,
+		&record.ID, &record.MinifluxEntryID, &record.SourceID, &record.CanonicalURL, &record.Title, &record.Author,
 		&record.PublishedAt, &record.Summary, &tags, &record.Score, &record.Status, &record.FailureReason)
 	if err != nil {
 		return articleindex.Record{}, false, err

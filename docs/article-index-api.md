@@ -25,7 +25,9 @@ model call. The Index stores its identifying fields, summary, tags, score, and s
 
 Agregado reads the hand-seeded PREFERENCES.md from the required `PREFERENCES_PATH`.
 The profile is personal editable data outside this repository; scoring receives it
-verbatim.
+verbatim. In production, n8n is the sole writer for the read-only Agregado cache at
+`/srv/agregado/preferences/PREFERENCES.md`: it syncs the accepted Google Drive document
+every five minutes and atomically replaces the cache only after validation.
 
 ## Live verification
 

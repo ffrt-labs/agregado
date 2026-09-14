@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/caarlos0/env/v10"
@@ -127,6 +129,9 @@ func Load() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		return nil, err
+	}
+	if !filepath.IsAbs(cfg.Enrichment.PreferencesPath) {
+		return nil, fmt.Errorf("PREFERENCES_PATH must be an absolute path")
 	}
 
 	return cfg, nil

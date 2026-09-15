@@ -52,7 +52,7 @@ its own independent path filter:
 | Hostname | Ingress regex | Serves |
 |---|---|---|
 | *(the original tunnel hostname)* | `^/webhook/email/?$` | Worker → app ingestion |
-| `read.<domain>` | `^/(r\|articles)/[0-9a-f-]{36}/?$` | Digest click-through |
+| `read.<domain>` | `^/(r\|articles)/[0-9a-f-]{36}/?$\|^/f/[0-9a-f-]{36}/(up\|down)/?$` | Digest click-through and explicit feedback |
 
 The UUID-shape requirement is load-bearing: it admits `/articles/{uuid}` (a
 single article's reader page) while excluding `/articles` and `/articles/search`
@@ -94,13 +94,11 @@ proxied DNS record.
 
 **Bad / accepted:**
 
-- **No 👍/👎 from the phone.** The feedback buttons live only on the web homepage
-  (`templates/digest.html`) and POST to `/api/articles/{id}/feedback`. Serving them
-  would require publishing `/` (which renders the reading history this ACL exists
-  to hide) *and* an unauthenticated `/api/*` mutation. Only the **implicit** signal
-  survives off-network: `/r/{id}` marks an article read before redirecting. If
-  explicit feedback from email is wanted later, the cheap shape is a narrow
-  `GET /f/{uuid}/{up|down}` published alongside `/r/`, not a wider ACL.
+- **Explicit feedback is a public state mutation.** Digest links use
+  `GET /f/{uuid}/{up|down}` and are allowed only on `read.<domain>`. The route records
+  one current vote per Article: repeating the direction is idempotent and the opposite
+  direction replaces it. It returns a confirmation only, never a reading surface.
+  Opens remain the separate, weak signal at `/r/{id}`.
 - The reader page renders the full nav (`templates/layout.html`), leaking article,
   source, and bookmark **counts** and the existence of `/admin/*` to anyone holding
   a UUID. The paths themselves stay denied at the edge; only metadata escapes.

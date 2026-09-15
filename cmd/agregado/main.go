@@ -20,6 +20,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/logging"
 	"github.com/felipeafreitas/agregado/internal/mail"
+	"github.com/felipeafreitas/agregado/internal/preferenceexport"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/joho/godotenv"
 )
@@ -117,6 +118,8 @@ func main() {
 	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
 		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,
 	))
+	preferenceExportHandler := preferenceexport.NewHandler(cfg.Enrichment.Secret, articleIndexRepo)
+	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo)
 
 	ranker := digest.NewRanker(
 		articleRepo,
@@ -143,7 +146,7 @@ func main() {
 	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 	dlqHandler := broker.NewDeadLetterHandler()
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)

@@ -16,6 +16,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
+	"github.com/felipeafreitas/agregado/internal/preferenceexport"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -29,7 +30,7 @@ type Server struct {
 	backupScheduler *backup.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -98,6 +99,9 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		r.Post("/api/private/digests", digestArtifactHandler.Handle)
 		r.Post("/api/private/digests/{date}", digestArtifactHandler.Handle)
 	}
+	if preferenceExportHandler != nil {
+		r.Get("/api/private/preferences/signals", preferenceExportHandler.Handle)
+	}
 
 	r.Post("/api/digest/send", s.Send)
 	r.Get("/api/digest/preview", s.Preview)
@@ -125,7 +129,11 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/articles", articlesHandler.ListPage)
 	r.Get("/articles/search", articlesHandler.SearchPage)
 	r.Get("/articles/{id}", articlesHandler.GetPage)
-	r.Get("/r/{id}", articlesHandler.Open)
+	if articleIndexOpenHandler != nil {
+		r.Get("/r/{id}", articleIndexOpenHandler.HandleOr(articlesHandler.Open))
+	} else {
+		r.Get("/r/{id}", articlesHandler.Open)
+	}
 	r.Get("/f/{id}/{vote}", explicitFeedbackHandler.Handle)
 	r.Get("/sources", sourcesHandler.ListPage)
 	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)

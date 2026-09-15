@@ -29,11 +29,52 @@ verbatim. In production, n8n is the sole writer for the read-only Agregado cache
 `/srv/agregado/preferences/PREFERENCES.md`: it syncs the accepted Google Drive document
 every five minutes and atomically replaces the cache only after validation.
 
+## Preference-regeneration evidence
+
+n8n retrieves `GET /api/private/preferences/signals` with the same
+`X-Enrichment-Secret`. The response contains one object per Article with usable
+Reader evidence, including its title, canonical URL, compact derived fields,
+first Open (if any), and current explicit vote (if any):
+
+```json
+{
+  "signals": [{
+    "article_id": "d9b6cfce-661c-4c71-8ff1-55b387ca3e6a",
+    "canonical_url": "https://example.com/articles/a-real-article",
+    "title": "A real Article",
+    "tags": ["technology"],
+    "opened_at": "2026-09-15T07:30:00Z",
+    "vote": "up"
+  }]
+}
+```
+
+An Open is one weak positive signal: repeated opens preserve the first timestamp
+and do not create rows or weight. `up` and `down` are the one current, strong
+explicit signal; a later opposite vote replaces it. Articles without either
+signal are omitted. The endpoint reads only the Article Index and its feedback
+table, so silence, Bookmarks, and Karakeep data cannot influence a proposal.
+
+n8n regenerates the whole derived profile nightly, directly replacing the
+accepted Google Drive document only after validation. Validation requires the
+Markdown sections `Topics wanted`, `Topics to skip`, and `Sources trusted`, and
+limits the complete file to 8 KiB. A failed generation or validation leaves the
+accepted Drive revision and the local cache unchanged; Drive revision history is
+the rollback mechanism. A hand-seeded valid file is sufficient before evidence
+exists.
+
 ## Live verification
 
-After applying migration `000017`, send one real Miniflux Article through n8n
+After applying migrations `000017` and `000020`, send one real Miniflux Article through n8n
 and verify a single `article_index` row has `processing_status = 'complete'`
 with `summary`, `tags`, and `score` populated. Confirm no body/content column
 exists in `article_index`, then replay the same request and confirm the row
-count and AI request log are unchanged. This is intentionally a live check per
-ADR-0002; Docker is not configured in this workspace.
+count and AI request log are unchanged.
+
+Open the resulting Digest `GET /r/{article-index-id}` link twice. Confirm that
+`article_index.opened_at` is set by the first request and unchanged by the
+second, then retrieve `/api/private/preferences/signals` and confirm the
+Article appears once with that timestamp and its current vote. Reverse
+`000020`, confirm the column and index are removed, then reapply it and repeat
+the check. This is intentionally a live check per ADR-0002; Docker is not
+configured in this workspace.

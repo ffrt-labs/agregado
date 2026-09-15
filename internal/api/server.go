@@ -45,6 +45,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
 	feedbackRepo := storage.NewFeedbackRepo(db)
+	explicitFeedbackRepo := storage.NewExplicitFeedbackRepo(db)
 	weightsRepo := storage.NewTopicWeightsRepo(db)
 	publisher, err := broker.NewPublisher(b)
 
@@ -63,6 +64,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		weightsRepo,
 		articleRepo,
 	)
+	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo)
 	bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
 
 	tagRepo := storage.NewTagRepo(db)
@@ -124,6 +126,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	r.Get("/articles/search", articlesHandler.SearchPage)
 	r.Get("/articles/{id}", articlesHandler.GetPage)
 	r.Get("/r/{id}", articlesHandler.Open)
+	r.Get("/f/{id}/{vote}", explicitFeedbackHandler.Handle)
 	r.Get("/sources", sourcesHandler.ListPage)
 	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)
 

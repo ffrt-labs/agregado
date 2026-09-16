@@ -142,43 +142,45 @@ func webURL(a LegacyArticle) (string, bool) {
 	return "", false
 }
 
-// carried reports which classes this legacy row holds data for. Note what is
-// absent: IsSaved is never a preference signal. A Save is Bookmark data, and
-// Bookmark data must not feed PREFERENCES.md (issue #83), so it contributes to
-// SavedURLs alone and never to Opens or Votes.
-func carried(a LegacyArticle) []DataClass {
+// indexedClasses is the single definition of "which Article Index classes does
+// this hold". A legacy row and the record it becomes must answer it the same
+// way, or the source and destination counters drift apart silently.
+func indexedClasses(score int, tags []string, summary string, opened *time.Time, vote string) []DataClass {
 	var classes []DataClass
-	if a.IsSaved {
-		classes = append(classes, SavedURLs)
-	}
-	if a.Score > 0 {
+	if score > 0 {
 		classes = append(classes, Scores)
 	}
-	if len(a.Tags) > 0 {
+	if len(tags) > 0 {
 		classes = append(classes, Tags)
 	}
-	if strings.TrimSpace(a.Summary) != "" {
+	if strings.TrimSpace(summary) != "" {
 		classes = append(classes, Summaries)
 	}
-	if a.ReadAt != nil {
+	if opened != nil {
 		classes = append(classes, Opens)
 	}
-	if a.Vote != "" {
+	if vote != "" {
 		classes = append(classes, Votes)
 	}
 	return classes
 }
 
-// indexClasses are the classes that land in the Article Index — everything
-// carried except the Save, which belongs to Karakeep.
-func indexClasses(classes []DataClass) []DataClass {
-	var kept []DataClass
-	for _, class := range classes {
-		if class != SavedURLs {
-			kept = append(kept, class)
-		}
+// carried reports which classes this legacy row holds data for. Note what is
+// absent from indexedClasses: IsSaved is never a preference signal. A Save is
+// Bookmark data, and Bookmark data must not feed PREFERENCES.md (issue #83),
+// so it contributes to SavedURLs alone and never to Opens or Votes.
+func carried(a LegacyArticle) []DataClass {
+	var classes []DataClass
+	if a.IsSaved {
+		classes = append(classes, SavedURLs)
 	}
-	return kept
+	return append(classes, indexedClasses(a.Score, a.Tags, a.Summary, a.ReadAt, a.Vote)...)
+}
+
+// Classes reports which classes a merged record actually carries, so an import
+// only ever moves the counters for data that was really there.
+func (r IndexImport) Classes() []DataClass {
+	return indexedClasses(r.Score, r.Tags, r.Summary, r.OpenedAt, r.Vote)
 }
 
 func newCounts() map[DataClass]*Counts {
@@ -249,7 +251,7 @@ func Classify(articles []LegacyArticle) Plan {
 			}
 		}
 
-		indexed := indexClasses(classes)
+		indexed := indexedClasses(article.Score, article.Tags, article.Summary, article.ReadAt, article.Vote)
 		if len(indexed) == 0 {
 			continue
 		}

@@ -58,6 +58,14 @@ func run(apply bool, samples int) error {
 	}
 	defer db.Close()
 
+	bookmarker := karakeep.New(cfg.Karakeep.Address, cfg.Karakeep.APIKey, cfg.Karakeep.Timeout)
+	// Checked up front, in a dry run too: a bad address or a revoked key makes
+	// every existence check answer "not bookmarked", and the migration would
+	// duplicate the entire Pile instead of skipping it.
+	if err := bookmarker.Ping(ctx); err != nil {
+		return fmt.Errorf("karakeep is not reachable with these credentials: %w", err)
+	}
+
 	write := ownership.DryRun
 	if apply {
 		write = ownership.Apply
@@ -65,7 +73,7 @@ func run(apply bool, samples int) error {
 
 	report, err := ownership.NewRunner(
 		storage.NewLegacyRepo(db),
-		karakeep.New(cfg.Karakeep.Address, cfg.Karakeep.APIKey, cfg.Karakeep.Timeout),
+		bookmarker,
 		storage.NewOwnershipImportRepo(db),
 		samples,
 	).Run(ctx, write)

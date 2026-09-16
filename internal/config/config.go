@@ -80,6 +80,17 @@ type Backup struct {
 	Schedule string `env:"BACKUP_SCHEDULE" envDefault:"0 3 * * 0"`
 }
 
+// Karakeep is the Bookmarker's REST API, used only by the ownership migration
+// (cmd/migrate-ownership). Deliberately not required: the long-running server
+// never talks to Karakeep — a Save reaches it through the capture endpoint,
+// not through Agregado — so a missing key must not stop the app from booting.
+// The migration binary validates these itself.
+type Karakeep struct {
+	Address string        `env:"KARAKEEP_ADDRESS" envDefault:""`
+	APIKey  string        `env:"KARAKEEP_API_KEY" envDefault:""`
+	Timeout time.Duration `env:"KARAKEEP_TIMEOUT" envDefault:"30s"`
+}
+
 type AI struct {
 	Provider            string `env:"AI_PROVIDER" envDefault:"cloudflare"`
 	CloudflareAccountID string `env:"CLOUDFLARE_ACCOUNT_ID"`
@@ -123,6 +134,7 @@ type Config struct {
 	AI
 	Backup
 	Fetch
+	Karakeep
 }
 
 func Load() (*Config, error) {

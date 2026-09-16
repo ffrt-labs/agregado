@@ -32,7 +32,10 @@ func (r *ArticleIndexRepo) Create(ctx context.Context, record articleindex.Recor
 
 	var tags []byte
 	err = r.db.pool.QueryRow(ctx, `
-		SELECT id, miniflux_entry_id, COALESCE(source_id, ''), canonical_url, title, COALESCE(author, ''), published_at,
+		-- miniflux_entry_id is NULL for Articles migrated out of the old
+		-- Postgres (issue #83): they never existed in Miniflux. 0 is the
+		-- "no entry to decorate" sentinel the Record carries.
+		SELECT id, COALESCE(miniflux_entry_id, 0), COALESCE(source_id, ''), canonical_url, title, COALESCE(author, ''), published_at,
 		       COALESCE(summary, ''), tags, COALESCE(score, 0), processing_status, COALESCE(failure_reason, '')
 		FROM article_index WHERE canonical_url = $1`, record.CanonicalURL).Scan(
 		&record.ID, &record.MinifluxEntryID, &record.SourceID, &record.CanonicalURL, &record.Title, &record.Author,

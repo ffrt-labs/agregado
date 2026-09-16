@@ -20,6 +20,18 @@ var skipDirs = map[string]bool{
 	"testdata":     true,
 }
 
+// operatorTools are the one-shot commands whose stdout is a report a human
+// reads at a terminal, not a log stream a collector parses. The sweep's
+// producer contract (ADR-0003: "structured JSON on stdout, nothing more")
+// is about the long-running service; rendering a 20-line comparison table as
+// slog records would make it unreadable and serve nobody.
+//
+// This list is deliberately explicit rather than a `cmd/` wildcard:
+// cmd/agregado is the service, and it stays covered.
+var operatorTools = map[string]bool{
+	"cmd/migrate-ownership/main.go": true,
+}
+
 // moduleRoot walks up from the working directory to the directory holding
 // go.mod. Found rather than hardcoded as "../..": a relative depth encodes
 // where this file happens to live, so moving the package would silently
@@ -66,6 +78,13 @@ func TestNoUnstructuredLogging(t *testing.T) {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if operatorTools[filepath.ToSlash(relative)] {
 			return nil
 		}
 
@@ -155,4 +174,19 @@ func writesToProcessStream(arg ast.Expr) bool {
 		return false
 	}
 	return sel.Sel.Name == "Stdout" || sel.Sel.Name == "Stderr"
+}
+
+// TestOperatorToolExemptionStaysNarrow pins the exemption above to files that
+// exist and are not the service. An exemption that silently outlives its file,
+// or that grows to cover cmd/agregado, would reopen the whole sweep.
+func TestOperatorToolExemptionStaysNarrow(t *testing.T) {
+	root := moduleRoot(t)
+	for path := range operatorTools {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path))); err != nil {
+			t.Errorf("exempted file no longer exists — drop it from operatorTools: %s", path)
+		}
+		if strings.HasPrefix(path, "cmd/agregado/") || !strings.HasPrefix(path, "cmd/") {
+			t.Errorf("only one-shot commands may be exempt, not %s", path)
+		}
+	}
 }

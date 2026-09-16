@@ -37,10 +37,17 @@ mkdir -p "$OUTPUT_DIR"
 psql() { docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER" "$@"; }
 
 # --- 1. Go cold ------------------------------------------------------------
-# Failing here is fine: if the app isn't running under compose there is nothing
-# to stop, and the dump is already cold.
+# Cold is the whole point of this dump, so a stop that fails must not be
+# shrugged off: we verify the container is actually down rather than trusting
+# the exit code of `compose stop`.
 echo "==> stopping ${APP_SERVICE} so the dump is cold"
-docker compose --profile prod stop "$APP_SERVICE" 2>/dev/null || echo "    (not running under compose — continuing)"
+docker compose --profile prod stop "$APP_SERVICE" 2>/dev/null || true
+
+if docker ps --filter "name=${APP_SERVICE}" --filter "status=running" --format '{{.Names}}' | grep -q .; then
+	echo "REFUSING TO DUMP — ${APP_SERVICE} is still running, so the dump would not be cold." >&2
+	echo "Stop it by hand and re-run." >&2
+	exit 1
+fi
 
 restart_app() {
 	echo "==> restarting ${APP_SERVICE}"

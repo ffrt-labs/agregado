@@ -49,7 +49,11 @@ func (r *LegacyRepo) Articles(ctx context.Context) ([]ownership.LegacyArticle, e
 		       COALESCE(v.vote, ''),
 		       v.created_at,
 		       (COALESCE(a.content, '') <> '' OR COALESCE(a.distilled_content, '') <> '') AS has_body,
-		       a.created_at
+		       -- created_at only carries a DEFAULT, so a hand-inserted row can
+		       -- hold NULL. It decides merge precedence, never correctness, so
+		       -- any stable fallback will do — but scanning NULL into a
+		       -- time.Time would abort the whole read.
+		       COALESCE(a.created_at, a.ingested_at, a.published_at, NOW())
 		FROM articles a
 		LEFT JOIN article_tags at ON at.article_id = a.id
 		LEFT JOIN tags t ON t.id = at.tag_id
@@ -61,7 +65,7 @@ func (r *LegacyRepo) Articles(ctx context.Context) ([]ownership.LegacyArticle, e
 		    LIMIT 1
 		) v ON true
 		GROUP BY a.id, v.vote, v.created_at
-		ORDER BY a.created_at, a.id`)
+		ORDER BY a.created_at NULLS FIRST, a.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -101,61 +105,29 @@ type OwnershipImportRepo struct{ db *DB }
 
 func NewOwnershipImportRepo(db *DB) *OwnershipImportRepo { return &OwnershipImportRepo{db: db} }
 
-// state is what the Article Index already holds for one canonical URL.
-type state struct {
-	exists   bool
-	hasOpen  bool
-	hasVote  bool
-	recordID string
-}
-
-func (r *OwnershipImportRepo) state(ctx context.Context, canonicalURL string) (state, error) {
-	var found state
-	err := r.db.pool.QueryRow(ctx, `
-		SELECT a.id, a.opened_at IS NOT NULL, f.vote IS NOT NULL
-		FROM article_index a
-		LEFT JOIN article_index_feedback f ON f.article_index_id = a.id
-		WHERE a.canonical_url = $1`, canonicalURL).Scan(&found.recordID, &found.hasOpen, &found.hasVote)
-	if err == pgx.ErrNoRows {
-		return state{}, nil
-	}
-	if err != nil {
-		return state{}, err
-	}
-	found.exists = true
-	return found, nil
-}
-
-// Import upserts one migrated record. The outcome is decided by reading the
-// destination first, so a dry run and an apply agree on exactly what would
-// happen — the read is the same statement in both modes, and only the writes
-// are skipped.
+// Import upserts one migrated record. Callers read the destination with Lookup
+// first — that is where the decision about what this will achieve is made, and
+// where a dry run stops.
 //
 // The insert is not serialized against the live enrichment pipeline. A record
-// created in between the read and the write is absorbed by ON CONFLICT: the
+// created in between that read and this write is absorbed by ON CONFLICT: the
 // worst case is a count that is one off, never a lost or clobbered row.
-func (r *OwnershipImportRepo) Import(ctx context.Context, record ownership.IndexImport, write ownership.Write) (ownership.ImportResult, error) {
-	before, err := r.state(ctx, record.CanonicalURL)
+func (r *OwnershipImportRepo) Import(ctx context.Context, record ownership.IndexImport) error {
+	// An empty tag list is written as `[]`, never JSON `null`: the column is
+	// documented as a JSON array with an `[]` default, and a null would break
+	// any consumer reaching for jsonb_array_length.
+	tagList := record.Tags
+	if tagList == nil {
+		tagList = []string{}
+	}
+	tags, err := json.Marshal(tagList)
 	if err != nil {
-		return ownership.ImportResult{}, err
-	}
-	result := ownership.ImportResult{
-		Created:    !before.exists,
-		OpenStored: record.OpenedAt != nil && !before.hasOpen,
-		VoteStored: record.Vote != "" && !before.hasVote,
-	}
-	if write == ownership.DryRun {
-		return result, nil
-	}
-
-	tags, err := json.Marshal(record.Tags)
-	if err != nil {
-		return ownership.ImportResult{}, fmt.Errorf("encode migrated tags: %w", err)
+		return fmt.Errorf("encode migrated tags: %w", err)
 	}
 
 	transaction, err := r.db.pool.Begin(ctx)
 	if err != nil {
-		return ownership.ImportResult{}, err
+		return err
 	}
 	defer transaction.Rollback(ctx)
 
@@ -181,7 +153,7 @@ func (r *OwnershipImportRepo) Import(ctx context.Context, record ownership.Index
 		record.CanonicalURL, record.Title, record.Author, record.PublishedAt,
 		record.Summary, tags, record.Score, record.OpenedAt).Scan(&recordID)
 	if err != nil {
-		return ownership.ImportResult{}, err
+		return err
 	}
 
 	// The vote is written separately from the record so a partially completed
@@ -196,15 +168,16 @@ func (r *OwnershipImportRepo) Import(ctx context.Context, record ownership.Index
 			INSERT INTO article_index_feedback (article_index_id, vote, created_at, updated_at)
 			VALUES ($1, $2, $3, NOW())
 			ON CONFLICT (article_index_id) DO NOTHING`, recordID, record.Vote, votedAt); err != nil {
-			return ownership.ImportResult{}, err
+			return err
 		}
 	}
 
-	return result, transaction.Commit(ctx)
+	return transaction.Commit(ctx)
 }
 
-// Lookup reads a migrated record back out, so the run can be compared against
-// the old database rather than trusted.
+// Lookup reads the Article Index's current state for a canonical URL. It is
+// both the idempotency check made before an Import and the "what landed?" read
+// made after one — one statement, so the two can never disagree.
 func (r *OwnershipImportRepo) Lookup(ctx context.Context, canonicalURL string) (ownership.IndexImport, bool, error) {
 	var record ownership.IndexImport
 	var tags []byte

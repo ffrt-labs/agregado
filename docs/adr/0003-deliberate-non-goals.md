@@ -94,6 +94,17 @@ drains every dead-lettered message (`internal/broker/deadletter.go`). The
 producer contract is deliberately narrow: structured JSON on stdout, nothing
 more.
 
+**Scope of the producer contract (amended, issue #83).** "Structured JSON on
+stdout, nothing more" binds the **long-running service** — the process whose
+stdout a log collector parses. It does not bind one-shot operator commands run
+by hand at a terminal, whose stdout *is* the deliverable: `cmd/migrate-ownership`
+prints a counts table and a before/after record comparison that a human reads
+to decide whether to proceed. Rendering that as slog records would serve
+nobody. The carve-out is enforced rather than assumed: `operatorTools` in
+`internal/logging/unstructured_test.go` is an explicit per-file allowlist, and
+`TestOperatorToolExemptionStaysNarrow` fails if an entry outlives its file or
+if `cmd/agregado` is ever added to it.
+
 **Still not built:** metrics (`/metrics`), alerting, and the central
 Loki/Alloy/Grafana collector itself — those live in a separate repository and
 are revisited alongside that stack.

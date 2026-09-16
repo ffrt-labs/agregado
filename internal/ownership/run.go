@@ -3,14 +3,14 @@ package ownership
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
-	"time"
 )
 
-// Write says whether a run may modify its destinations. A dry run still
-// *reads* both of them, so the duplicate counts it reports are measured rather
-// than guessed — the whole point of running one before the real thing.
+// Write says whether a run may modify its destinations. It is a Runner
+// concern, deliberately: the destination clients know how to look something up
+// and how to write it, and nothing about migration policy. A dry run is simply
+// a run where the Runner does every read and skips every write, which is what
+// makes its duplicate counts measured rather than guessed.
 type Write bool
 
 const (
@@ -25,28 +25,53 @@ type LegacySource interface {
 	SourceCount(ctx context.Context) (int, error)
 }
 
-// Bookmarker is Karakeep, the final owner of saved URLs.
+// Bookmarker is Karakeep, the final owner of saved URLs. Lookup does double
+// duty — it answers "is this already saved?" before a write and "what landed?"
+// after one — so there is no second code path that could disagree with it.
 type Bookmarker interface {
-	// Save reports created false when the URL is already bookmarked, which is
-	// what makes a rerun safe.
-	Save(ctx context.Context, url, title string, write Write) (created bool, err error)
 	Lookup(ctx context.Context, url string) (BookmarkImport, bool, error)
+	Create(ctx context.Context, url, title string) error
 }
 
-// ImportResult distinguishes the three things one Article Index import can do,
-// because a rerun may legitimately land a vote or an Open on a record that
-// already exists.
+// IndexImporter is the Article Index, the final owner of every Enrichment and
+// preference signal.
+type IndexImporter interface {
+	Lookup(ctx context.Context, canonicalURL string) (IndexImport, bool, error)
+	Import(ctx context.Context, record IndexImport) error
+}
+
+// ImportResult distinguishes the three things one import can do, because a
+// rerun may legitimately land a vote or an Open on a record that already
+// exists — a previous run that died halfway must be able to finish.
 type ImportResult struct {
 	Created    bool
 	OpenStored bool
 	VoteStored bool
 }
 
-// IndexImporter is the Article Index, the final owner of every Enrichment and
-// preference signal.
-type IndexImporter interface {
-	Import(ctx context.Context, record IndexImport, write Write) (ImportResult, error)
-	Lookup(ctx context.Context, canonicalURL string) (IndexImport, bool, error)
+// outcome decides what importing record over existing would achieve. Pure, and
+// the only place the rule lives: the same function predicts a dry run and
+// scores an apply, so the two can never disagree.
+func outcome(record, existing IndexImport, exists bool) ImportResult {
+	return ImportResult{
+		Created:    !exists,
+		OpenStored: record.OpenedAt != nil && (!exists || existing.OpenedAt == nil),
+		VoteStored: record.Vote != "" && (!exists || existing.Vote == ""),
+	}
+}
+
+// stored maps one import's outcome onto a class. Opens and votes have their
+// own outcome because they can land on a record that already exists — the
+// Enrichment classes ride on whether the row itself was created.
+func stored(class DataClass, result ImportResult) bool {
+	switch class {
+	case Opens:
+		return result.OpenStored
+	case Votes:
+		return result.VoteStored
+	default:
+		return result.Created
+	}
 }
 
 // Failure records one item that did not move, with the reason verbatim.
@@ -56,71 +81,6 @@ type Failure struct {
 	Classes []DataClass
 	Key     string
 	Reason  string
-}
-
-func (f Failure) classList() string {
-	names := make([]string, 0, len(f.Classes))
-	for _, class := range f.Classes {
-		names = append(names, string(class))
-	}
-	return strings.Join(names, ",")
-}
-
-// Sample is one representative record compared before (as classified from the
-// old database) and after (as read back from the destination).
-type Sample struct {
-	Before  IndexImport
-	After   IndexImport
-	Present bool
-}
-
-// BookmarkSample is the same comparison for a migrated saved URL.
-type BookmarkSample struct {
-	Before  BookmarkImport
-	After   BookmarkImport
-	Present bool
-}
-
-func (s Sample) Differences() []string {
-	if !s.Present {
-		return []string{"absent from the Article Index"}
-	}
-	var differences []string
-	compare := func(field, before, after string) {
-		if before != after {
-			differences = append(differences, fmt.Sprintf("%s: %q -> %q", field, before, after))
-		}
-	}
-	compare("title", s.Before.Title, s.After.Title)
-	compare("author", s.Before.Author, s.After.Author)
-	compare("summary", s.Before.Summary, s.After.Summary)
-	compare("tags", strings.Join(s.Before.Tags, ","), strings.Join(s.After.Tags, ","))
-	compare("vote", s.Before.Vote, s.After.Vote)
-	compare("score", fmt.Sprint(s.Before.Score), fmt.Sprint(s.After.Score))
-	compare("opened_at", formatTime(s.Before.OpenedAt), formatTime(s.After.OpenedAt))
-	compare("published_at", formatTime(s.Before.PublishedAt), formatTime(s.After.PublishedAt))
-	return differences
-}
-
-func (s Sample) Matches() bool { return len(s.Differences()) == 0 }
-
-func (s BookmarkSample) Differences() []string {
-	if !s.Present {
-		return []string{"absent from Karakeep"}
-	}
-	if s.Before.Title != s.After.Title {
-		return []string{fmt.Sprintf("title: %q -> %q", s.Before.Title, s.After.Title)}
-	}
-	return nil
-}
-
-func (s BookmarkSample) Matches() bool { return len(s.Differences()) == 0 }
-
-func formatTime(t *time.Time) string {
-	if t == nil {
-		return "-"
-	}
-	return t.UTC().Format(time.RFC3339)
 }
 
 // Report is what one run produced. Counts is keyed by every class in Classes,
@@ -161,28 +121,65 @@ func (r *Runner) Run(ctx context.Context, write Write) (Report, error) {
 	plan.ExcludeSources(sources)
 	report := Report{Write: write, Counts: plan.Counts}
 
-	for _, bookmark := range plan.Bookmarks {
-		created, err := r.bookmarker.Save(ctx, bookmark.URL, bookmark.Title, write)
-		switch {
-		case err != nil:
+	r.saveBookmarks(ctx, plan.Bookmarks, write, &report)
+	r.importRecords(ctx, plan.Records, write, &report)
+
+	if err := r.sample(ctx, plan, &report); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func (r *Runner) saveBookmarks(ctx context.Context, bookmarks []BookmarkImport, write Write, report *Report) {
+	for _, bookmark := range bookmarks {
+		fail := func(err error) {
 			report.Counts[SavedURLs].Failed++
 			report.Failures = append(report.Failures, Failure{[]DataClass{SavedURLs}, bookmark.URL, err.Error()})
-		case created:
-			report.Counts[SavedURLs].Destination++
-		default:
-			report.Counts[SavedURLs].Duplicate++
 		}
-	}
 
-	for _, record := range plan.Records {
-		classes := recordClasses(record)
-		result, importErr := r.importer.Import(ctx, record, write)
-		if importErr != nil {
+		// Looking first is what makes a rerun safe. A lookup that errors must
+		// never be read as "not there": that would duplicate the Bookmark.
+		_, exists, err := r.bookmarker.Lookup(ctx, bookmark.URL)
+		if err != nil {
+			fail(err)
+			continue
+		}
+		if exists {
+			report.Counts[SavedURLs].Duplicate++
+			continue
+		}
+		if write == Apply {
+			if err := r.bookmarker.Create(ctx, bookmark.URL, bookmark.Title); err != nil {
+				fail(err)
+				continue
+			}
+		}
+		report.Counts[SavedURLs].Destination++
+	}
+}
+
+func (r *Runner) importRecords(ctx context.Context, records []IndexImport, write Write, report *Report) {
+	for _, record := range records {
+		classes := record.Classes()
+		fail := func(err error) {
 			for _, class := range classes {
 				report.Counts[class].Failed++
 			}
-			report.Failures = append(report.Failures, Failure{classes, record.CanonicalURL, importErr.Error()})
+			report.Failures = append(report.Failures, Failure{classes, record.CanonicalURL, err.Error()})
+		}
+
+		existing, exists, err := r.importer.Lookup(ctx, record.CanonicalURL)
+		if err != nil {
+			fail(err)
 			continue
+		}
+		result := outcome(record, existing, exists)
+
+		if write == Apply {
+			if err := r.importer.Import(ctx, record); err != nil {
+				fail(err)
+				continue
+			}
 		}
 		for _, class := range classes {
 			if stored(class, result) {
@@ -192,51 +189,11 @@ func (r *Runner) Run(ctx context.Context, write Write) (Report, error) {
 			}
 		}
 	}
-
-	if err := r.sample(ctx, plan, &report); err != nil {
-		return report, err
-	}
-	return report, nil
-}
-
-// recordClasses reports which classes a merged record actually carries, so an
-// import only ever moves the counters for data that was really there.
-func recordClasses(record IndexImport) []DataClass {
-	var classes []DataClass
-	if record.Score > 0 {
-		classes = append(classes, Scores)
-	}
-	if len(record.Tags) > 0 {
-		classes = append(classes, Tags)
-	}
-	if strings.TrimSpace(record.Summary) != "" {
-		classes = append(classes, Summaries)
-	}
-	if record.OpenedAt != nil {
-		classes = append(classes, Opens)
-	}
-	if record.Vote != "" {
-		classes = append(classes, Votes)
-	}
-	return classes
-}
-
-// stored maps one import's outcome onto a class. Opens and votes have their
-// own outcome because they can land on a record that already exists — the
-// Enrichment classes ride on whether the row itself was created.
-func stored(class DataClass, result ImportResult) bool {
-	switch class {
-	case Opens:
-		return result.OpenStored
-	case Votes:
-		return result.VoteStored
-	default:
-		return result.Created
-	}
 }
 
 // sample reads a spread of migrated items back out of their destination, so
-// the run can be checked against the old database rather than trusted.
+// the run can be checked against the old database rather than trusted. It runs
+// after every write, so an applied run compares against what actually landed.
 func (r *Runner) sample(ctx context.Context, plan Plan, report *Report) error {
 	for _, record := range pick(plan.Records, r.sampleSize) {
 		after, present, err := r.importer.Lookup(ctx, record.CanonicalURL)
@@ -271,73 +228,10 @@ func pick[T any](items []T, n int) []T {
 	return picked
 }
 
-// Render writes the report as the plain text the operator reads before
-// deciding to apply.
-func (r Report) Render() string {
-	var out strings.Builder
-	if r.Write == DryRun {
-		out.WriteString("DRY RUN — nothing was written to Karakeep or the Article Index.\n")
-		out.WriteString("The destination column is what an apply would create.\n\n")
-	} else {
-		out.WriteString("APPLIED — Karakeep and the Article Index were written to.\n\n")
+func (f Failure) classList() string {
+	names := make([]string, 0, len(f.Classes))
+	for _, class := range f.Classes {
+		names = append(names, string(class))
 	}
-
-	fmt.Fprintf(&out, "%-15s %-14s %7s %7s %7s %7s %7s %7s\n",
-		"CLASS", "DESTINATION", "SOURCE", "TRANSF", "DEST", "SKIP", "DUP", "FAIL")
-	for _, class := range Classes {
-		counts := r.Counts[class]
-		if counts == nil {
-			counts = &Counts{}
-		}
-		fmt.Fprintf(&out, "%-15s %-14s %7d %7d %7d %7d %7d %7d\n",
-			class, class.Destination(), counts.Source, counts.Transformed,
-			counts.Destination, counts.Skipped, counts.Duplicate, counts.Failed)
-	}
-
-	if len(r.Failures) > 0 {
-		out.WriteString("\nFAILURES\n")
-		failures := append([]Failure(nil), r.Failures...)
-		sort.SliceStable(failures, func(i, j int) bool { return failures[i].Key < failures[j].Key })
-		for _, failure := range failures {
-			fmt.Fprintf(&out, "  [%s] %s: %s\n", failure.classList(), failure.Key, failure.Reason)
-		}
-	}
-
-	if len(r.Samples) > 0 || len(r.BookmarkSamples) > 0 {
-		out.WriteString("\nREPRESENTATIVE RECORDS (old Postgres -> destination)\n")
-	}
-	for _, sample := range r.Samples {
-		renderSample(&out, "article_index", sample.Before.CanonicalURL, sample.Matches(), sample.Differences())
-		fmt.Fprintf(&out, "      before: score=%d tags=%v summary=%q opened=%s vote=%q\n",
-			sample.Before.Score, sample.Before.Tags, truncate(sample.Before.Summary),
-			formatTime(sample.Before.OpenedAt), sample.Before.Vote)
-		fmt.Fprintf(&out, "      after:  score=%d tags=%v summary=%q opened=%s vote=%q\n",
-			sample.After.Score, sample.After.Tags, truncate(sample.After.Summary),
-			formatTime(sample.After.OpenedAt), sample.After.Vote)
-	}
-	for _, sample := range r.BookmarkSamples {
-		renderSample(&out, "karakeep", sample.Before.URL, sample.Matches(), sample.Differences())
-		fmt.Fprintf(&out, "      before: title=%q\n      after:  title=%q\n", sample.Before.Title, sample.After.Title)
-	}
-
-	return out.String()
-}
-
-func renderSample(out *strings.Builder, destination, key string, matches bool, differences []string) {
-	marker := "OK "
-	if !matches {
-		marker = "DIFF"
-	}
-	fmt.Fprintf(out, "  %s %s %s\n", marker, destination, key)
-	for _, difference := range differences {
-		fmt.Fprintf(out, "      ! %s\n", difference)
-	}
-}
-
-func truncate(text string) string {
-	const limit = 60
-	if len(text) <= limit {
-		return text
-	}
-	return text[:limit] + "…"
+	return strings.Join(names, ",")
 }

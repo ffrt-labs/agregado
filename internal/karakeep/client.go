@@ -61,38 +61,44 @@ func (b bookmark) title() string {
 	return b.Content.Title
 }
 
-// Save creates a link Bookmark, or reports created false when the URL is
-// already in Karakeep. The existence check runs in both modes: it is what
-// makes a rerun safe, and what makes a dry run's duplicate count real.
-func (c *Client) Save(ctx context.Context, link, title string, write ownership.Write) (bool, error) {
-	existing, err := c.find(ctx, link)
+// Ping proves the address and API key are good before anything is written.
+// Without it, a misconfigured client answers every existence check with 404 —
+// "not bookmarked" — and a rerun would duplicate the whole Pile rather than
+// skip it. Cheap insurance against the one failure mode that is silent.
+func (c *Client) Ping(ctx context.Context) error {
+	response, err := c.do(ctx, http.MethodGet, "/api/v1/users/me", nil)
 	if err != nil {
-		return false, err
+		return err
 	}
-	if existing != nil {
-		return false, nil
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return statusError("users/me", response)
 	}
-	if write == ownership.DryRun {
-		return true, nil
-	}
+	return nil
+}
 
+// Create saves a link Bookmark. Callers check Lookup first — whether that is
+// for idempotency or for a dry run is the caller's business, not this
+// client's.
+func (c *Client) Create(ctx context.Context, link, title string) error {
 	body, err := json.Marshal(map[string]string{"type": "link", "url": link, "title": title})
 	if err != nil {
-		return false, err
+		return err
 	}
 	response, err := c.do(ctx, http.MethodPost, "/api/v1/bookmarks", bytes.NewReader(body))
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
-		return false, statusError("create bookmark", response)
+		return statusError("create bookmark", response)
 	}
-	return true, nil
+	return nil
 }
 
-// Lookup reads a Bookmark back out of Karakeep so a migrated saved URL can be
-// compared against the row it came from.
+// Lookup reports whether Karakeep already has this URL, and what it holds for
+// it. It answers both "should this be saved?" before a write and "what
+// landed?" after one.
 func (c *Client) Lookup(ctx context.Context, link string) (ownership.BookmarkImport, bool, error) {
 	found, err := c.find(ctx, link)
 	if err != nil || found == nil {

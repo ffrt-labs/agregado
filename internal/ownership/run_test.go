@@ -25,23 +25,21 @@ func newFakeBookmarker() *fakeBookmarker {
 	return &fakeBookmarker{saved: map[string]string{}, fail: map[string]bool{}}
 }
 
-func (f *fakeBookmarker) Save(_ context.Context, url, title string, write Write) (bool, error) {
-	f.calls = append(f.calls, string(url))
-	if f.fail[url] {
-		return false, errors.New("karakeep unreachable")
-	}
-	if _, exists := f.saved[url]; exists {
-		return false, nil
-	}
-	if write == Apply {
-		f.saved[url] = title
-	}
-	return true, nil
-}
-
 func (f *fakeBookmarker) Lookup(_ context.Context, url string) (BookmarkImport, bool, error) {
+	f.calls = append(f.calls, url)
+	if f.fail[url] {
+		return BookmarkImport{}, false, errors.New("karakeep unreachable")
+	}
 	title, ok := f.saved[url]
 	return BookmarkImport{URL: url, Title: title}, ok, nil
+}
+
+func (f *fakeBookmarker) Create(_ context.Context, url, title string) error {
+	if f.fail[url] {
+		return errors.New("karakeep unreachable")
+	}
+	f.saved[url] = title
+	return nil
 }
 
 type fakeImporter struct {
@@ -53,30 +51,31 @@ func newFakeImporter() *fakeImporter {
 	return &fakeImporter{rows: map[string]*IndexImport{}, fail: map[string]bool{}}
 }
 
-func (f *fakeImporter) Import(_ context.Context, record IndexImport, write Write) (ImportResult, error) {
+// Import mirrors the real repo's ON CONFLICT: an existing row keeps its own
+// Enrichment, and only a missing Open or vote is filled in.
+func (f *fakeImporter) Import(_ context.Context, record IndexImport) error {
 	if f.fail[record.CanonicalURL] {
-		return ImportResult{}, errors.New("insert failed")
+		return errors.New("insert failed")
 	}
 	existing, found := f.rows[record.CanonicalURL]
-	result := ImportResult{
-		Created:    !found,
-		OpenStored: record.OpenedAt != nil && (!found || existing.OpenedAt == nil),
-		VoteStored: record.Vote != "" && (!found || existing.Vote == ""),
-	}
-	if write == Apply {
-		stored := record
-		if found && existing.OpenedAt != nil {
-			stored.OpenedAt = existing.OpenedAt
+	if found {
+		if existing.OpenedAt == nil {
+			existing.OpenedAt = record.OpenedAt
 		}
-		if found && existing.Vote != "" {
-			stored.Vote = existing.Vote
+		if existing.Vote == "" {
+			existing.Vote, existing.VotedAt = record.Vote, record.VotedAt
 		}
-		f.rows[record.CanonicalURL] = &stored
+		return nil
 	}
-	return result, nil
+	stored := record
+	f.rows[record.CanonicalURL] = &stored
+	return nil
 }
 
 func (f *fakeImporter) Lookup(_ context.Context, canonicalURL string) (IndexImport, bool, error) {
+	if f.fail[canonicalURL] {
+		return IndexImport{}, false, errors.New("lookup failed")
+	}
 	row, ok := f.rows[canonicalURL]
 	if !ok {
 		return IndexImport{}, false, nil
@@ -273,5 +272,25 @@ func TestRenderLabelsADryRun(t *testing.T) {
 	}
 	if strings.Contains(applied.Render(), "DRY RUN") {
 		t.Error("an applied run's report claims to be a dry run")
+	}
+}
+
+// The worst failure this migration could have: a destination lookup that
+// errors gets read as "not there", and a rerun duplicates every Bookmark.
+func TestAFailedLookupNeverBecomesAWrite(t *testing.T) {
+	bookmarker, importer := newFakeBookmarker(), newFakeImporter()
+	bookmarker.fail["https://example.com/2"] = true
+	importer.fail["https://example.com/1"] = true
+
+	report := run(t, fixture(), bookmarker, importer, Apply)
+
+	if len(bookmarker.saved) != 0 {
+		t.Errorf("a failed lookup still wrote to Karakeep: %v", bookmarker.saved)
+	}
+	if len(importer.rows) != 0 {
+		t.Errorf("a failed lookup still wrote to the Article Index: %v", importer.rows)
+	}
+	if report.Counts[SavedURLs].Destination != 0 || report.Counts[Scores].Destination != 0 {
+		t.Error("a failed lookup was counted as a successful write")
 	}
 }

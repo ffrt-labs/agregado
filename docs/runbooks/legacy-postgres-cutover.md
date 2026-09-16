@@ -92,6 +92,8 @@ Read it for:
   wrong; stop and investigate.
 - **`DUP`** counts two things: legacy rows merged into one canonical URL, and
   items the destination already had. Both mean "did not move, and should not".
+  One item can bump it twice (merged *and* already present); the column is a
+  "did not move" tally, not a count of distinct rows.
 - **`FAIL` must be 0** before you apply. The failure list below the table gives
   the reason verbatim.
 - **The sample block** compares representative records against the destination.
@@ -99,6 +101,17 @@ Read it for:
   correct — nothing has been written yet.
 
 Rerun the dry run as often as you like.
+
+The dry run also pings Karakeep's `/users/me` before doing anything. That check
+exists because a wrong address or a revoked key would make every existence
+check answer "not bookmarked" — and the migration would duplicate your entire
+Pile instead of skipping it. If the ping fails, nothing else runs.
+
+**A fidelity note on Opens.** The old schema's `read_at` was set by a mark-read
+toggle, so a migrated Open is really "this Article was marked read", not "you
+clicked through to it". Opens are the weakest of the three preference signals
+(#59), so this is recorded rather than corrected. Rows flagged read with no
+timestamp fall back to `ingested_at`.
 
 ---
 
@@ -108,9 +121,15 @@ Rerun the dry run as often as you like.
 make migrate-ownership-apply
 ```
 
-Then read the sample block: every line should be `OK`, meaning the record in
-the destination matches the row it came from, field by field. Any `DIFF` line
-names the field and both values.
+Then read the sample block. Each line compares the record in the destination
+against the row it came from, field by field, and names any field that differs.
+
+`OK` on every line is what you want on a clean cutover. One legitimate `DIFF`
+exists: a canonical URL the live enrichment pipeline had **already** indexed
+keeps its own title, summary, tags and Score — history is not allowed to
+overwrite fresher data — so the sample shows the legacy values on the left and
+the live ones on the right. Those rows are counted as `DUP`, not `DEST`. Any
+other `DIFF` is a real problem.
 
 **Rerunning is safe.** Saved URLs are checked against Karakeep's
 `/bookmarks/check-url` before any POST; Article Index rows are inserted

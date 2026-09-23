@@ -16,16 +16,17 @@ Something that emits content over time — a feed, or a newsletter arriving by e
 _Avoid_: Feed (ambiguous: a Source is one, but so is the browsable surface)
 
 **Bridge**:
-The Cloudflare Worker that converts one inbound newsletter email into a private Atom
-feed entry the Reader can poll — one alias, one Source, one feed, per the newsletter's
-onboarding. Recovers the canonical URL (ADR-0004), stores the original email durably,
-and serves both the feed and a permalink reading surface. Sits upstream of the Reader,
-never inside it: from Miniflux's perspective a Bridge-served feed is indistinguishable
-from any other Source.
-_Avoid_: Worker (names the Cloudflare mechanism, not the domain role), Gateway (implies
-routing/proxying — the Bridge transforms and stores, it doesn't just pass through),
-Ingestor (too generic — every Source ingests; "Bridge" names specifically the
-email→feed conversion)
+The system that turns one inbound newsletter email into a private Atom feed entry the
+Reader can poll — one alias, one Source, one feed, per the newsletter's onboarding.
+Spans three services (Resend receives, n8n extracts and writes, a Cloudflare Worker
+serves); none of them is the Bridge alone. Sits upstream of the Reader, never inside
+it: from Miniflux's perspective a Bridge-served feed is indistinguishable from any
+other Source.
+_Avoid_: Worker (now just the Bridge's serving layer — two read paths, no domain
+logic — not the whole system), n8n (the tool the Bridge's extraction/storage step
+runs on, not the Bridge itself), Gateway (implies routing/proxying — the Bridge
+transforms and stores, it doesn't just pass through), Ingestor (too generic — every
+Source ingests; "Bridge" names specifically the email→feed conversion)
 
 **Article**:
 A single item that arrived through a Source. Lives in the stream and has a horizon:

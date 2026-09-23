@@ -13,10 +13,16 @@
     "@cloudflare/vitest-pool-workers": "^0.16.14",
     "@types/node": "^25.9.2",
     "typescript": "^5.5.2",
-    "vitest": "~3.2.0",
+    "vitest": "^4.1.0",
     "wrangler": "^4.99.0"
   },
   "dependencies": {
     "postal-mime": "^2.7.4"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20260625.1": true,
+    "workerd@1.20260921.1": true
   }
 }

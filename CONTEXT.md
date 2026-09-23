@@ -57,10 +57,12 @@ storage backend, not the whole Reader)
 
 **Article Index**:
 Agregado's own record of a processed Article: Score, tags, distilled summary, and
-feedback/read events, keyed by the Article's canonical URL, with Miniflux's entry id
-cached alongside for Decoration writeback. Holds no article content — Miniflux is the
-sole store of that (ADR-0006). Exists because Miniflux prunes entries by default and has
-no field to filter or sort by Score.
+feedback/read events, keyed by the Article's canonical URL — or, for an email-only
+Article with no canonical URL recovered, the Bridge's permalink UUID — with Miniflux's
+entry id cached alongside for Decoration writeback. The digest links to whichever of
+the two is the key. Holds no article content — Miniflux is the sole store of that
+(ADR-0006). Exists because Miniflux prunes entries by default and has no field to
+filter or sort by Score.
 _Avoid_: Cache (it is the only durable record of Score and feedback, not a disposable
 copy), Mirror
 

@@ -94,13 +94,6 @@ export default {
 		const permalinkMatch = url.pathname.match(/^\/p\/([^/]+)$/);
 		if (permalinkMatch) return handlePermalinkRequest(env, permalinkMatch[1]);
 
-		switch (url.pathname) {
-			case '/message':
-				return new Response('Hello, World!');
-			case '/random':
-				return new Response(crypto.randomUUID());
-			default:
-				return new Response('Not Found', { status: 404 });
-		}
+		return new Response('Not Found', { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;

@@ -21,7 +21,10 @@ Reader can poll — one alias, one Source, one feed, per the newsletter's onboar
 Spans three services (Resend receives, n8n extracts and writes, a Cloudflare Worker
 serves); none of them is the Bridge alone. Sits upstream of the Reader, never inside
 it: from Miniflux's perspective a Bridge-served feed is indistinguishable from any
-other Source.
+other Source. For an email-only Article, Enrichment consumes the Bridge's own extracted
+content, supplied inline at ingest time — never the Reader's re-sanitized copy in the
+feed's `<content>`, which serves browsing only and may not survive the Reader's own
+sanitization intact.
 _Avoid_: Worker (now just the Bridge's serving layer — two read paths, no domain
 logic — not the whole system), n8n (the tool the Bridge's extraction/storage step
 runs on, not the Bridge itself), Gateway (implies routing/proxying — the Bridge

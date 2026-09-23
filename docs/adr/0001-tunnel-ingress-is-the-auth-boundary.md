@@ -7,6 +7,9 @@
 **Amended:** 2026-08-30 — Tailscale was reconsidered and adopted, but for
 personal access to the homelab as a whole, not as a replacement for this
 tunnel. See "Amendment, 2026-08-30" below.
+**Amended:** 2026-09-23 — the ingest hostname gained a second path, routing to
+n8n instead of the app, for the Resend-webhook newsletter-ingestion redesign.
+See "Amendment, 2026-09-23" below.
 **Supersedes the implicit reading of:** PRD F9 ("admin console unauthenticated in v1")
 
 ## Context
@@ -63,8 +66,12 @@ stamps its hostname into every digest email, where it persists in Gmail and
 leaks via any forward. Publishing the read paths on the *existing* hostname
 would have made the leaked address and the ingestion address the same string.
 With the split, a harvested digest reveals `read.<domain>` and reveals nothing
-about where email ingestion answers. The ingest surface's regex is now expected
-to **never change again**.
+about where email ingestion answers. ~~The ingest surface's regex is now
+expected to never change again.~~ **Correction, 2026-09-23: it changed.** See
+"Amendment, 2026-09-23" below — this sentence was invalidated by the newsletter-
+ingestion redesign and is struck rather than left standing as a silent-false
+claim; see this ADR's own Notes section for why that specific failure mode is
+worth guarding against.
 
 **Any change to either regex is a security change.** They are the only thing
 standing between the internet and an unauthenticated admin console.
@@ -190,3 +197,56 @@ read regex — is unchanged. This amendment widens nothing; it only records that
 the personal-access question and the anonymous-access question this ADR
 answers are separate questions, now visibly answered by separate mechanisms,
 on purpose.
+
+## Amendment, 2026-09-23: n8n's Resend-webhook ingress
+
+[ADR-0007](0007-resend-n8n-cloudflare-split-for-newsletter-ingestion.md)
+replaces Cloudflare Email Routing + a single Worker with Resend (receiving) +
+n8n (parsing, extraction, storage writes) + a slimmed Worker (serving only).
+n8n is self-hosted in the homelab, so its Resend-webhook endpoint needs a new
+public ingress path — directly contradicting this ADR's own claim, struck
+above, that the ingest regex was "now expected to never change again."
+
+**The new rule reuses the existing ingest hostname**, not a third one. That
+hostname vacates its old role (`^/webhook/email/?$` served the now-deleted
+Worker `email()` handler) and keeps its conceptual one — "this hostname is the
+ingestion surface" — rather than spending a fresh hostname for no security
+gain. The 2026-07-21 hostname split (recorded above) was about separating
+*read* from *ingest*; old-ingest and new-ingest are the same category of
+surface and share its hostname.
+
+**New path:** an unguessable random segment set as n8n's Webhook node custom
+path (`/webhook/resend-<random-suffix>`). This is not a security boundary on
+its own — Svix's signature is — but it is cheap friction against blind
+scanning before signature verification runs.
+
+**This path routes to a different origin than the rest of the tunnel.** Both
+existing hostnames point at `http://agregado:8080` (the Go app). This path
+routes to n8n's origin instead — Cloudflare Tunnel supports a different
+backend per hostname/path within one tunnel natively.
+
+**Defense in depth, not app-level auth.** Svix HMAC signature verification
+(hand-rolled in an n8n Code node — no native n8n support) is the real
+authentication, the same tier of guarantee Stripe- or GitHub-style webhook
+auth relies on as its sole check. No Cloudflare Access in front: Resend's
+webhook delivery cannot present custom auth beyond its own signature headers,
+so Access would block legitimate deliveries, not just attackers. A Cloudflare
+rate-limit rule scoped to this path is added as a free, zero-cooperation-
+required backstop against flooding/scanning — consistent with this ADR's
+edge-first posture, not a departure from it.
+
+**No isolation needed today; a rule for tomorrow.** Neither the Miniflux
+`new_entries` webhook (n8n calling Agregado's enrichment) nor the
+`PREFERENCES.md` nightly Drive sync needs public ingress — both stay internal
+to the homelab network. This Resend path is the only n8n workflow crossing the
+public tunnel today. Continuing this ADR's hostname-split pattern
+proactively rather than waiting for a second real case: **any future n8n
+workflow needing public ingress gets its own hostname**, not a second path on
+this one.
+
+**What this does and doesn't change.** The boundary is still the tunnel
+ingress ACL — this amendment adds a path to it, on the same terms as every
+prior addition, and does not introduce app-level auth anywhere. It does
+retire the "never changes again" expectation for the ingest hostname
+specifically; that expectation is now understood to have been about the
+*old* email-ingestion regex, not a permanent property of the hostname itself.

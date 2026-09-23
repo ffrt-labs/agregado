@@ -3,9 +3,11 @@
  * private Atom feed and a permanent UUID permalink. Storage/serving stays
  * Cloudflare-native; writing to D1/R2 is n8n's job at ingest time
  * (ADR-0007), not this Worker's — there is no write path here.
+ *
+ * No `email()` handler: receiving, parsing, and extraction moved to Resend
+ * + n8n (ADR-0007) — this Worker no longer touches inbound mail at all.
  */
 
-import PostalMime from "postal-mime";
 import { buildAtomFeed, type FeedEntry } from "./atom";
 import { parseBasicAuth, verifySecret } from "./basicAuth";
 
@@ -101,53 +103,4 @@ export default {
 				return new Response('Not Found', { status: 404 });
 		}
 	},
-	// Superseded by ADR-0007 (Resend + n8n take over receiving/parsing/writes)
-	// — deletion tracked separately as agregado#124, kept here unmodified
-	// until that ticket lands so this change stays scoped to the read paths.
-	async email(message, env, ctx) {
-		const result = await PostalMime.parse(message.raw)
-
-		const headers: Record<string, string> = {};
-		result.headers.forEach(({key, value}) => {
-			headers[key] = value
-		})
-
-		const payload = {
-			"from": message.from,
-	    "to": message.to,
-	    "subject": result.subject,
-			headers,
-	    "text": result.text,
-			"html": result.html,
-		}
-
-		try {
-			const response = await fetch(env.WEBHOOK_URL, {
-				method: 'POST',
-				headers: {
-					'X-Webhook-Secret': env.WEBHOOK_SECRET,
-					'Content-Type': "application/json"
-				},
-				body: JSON.stringify(payload),
-			})
-
-			if (!response.ok) {
-				throw new Error(`Webhook failed: ${response.status}`)
-			}
-		} catch (err) {
-			throw new Error(`Webhook failed: ${err}`)
-		}
-
-		// Temporary subscription-confirm helper: forward a copy of every incoming
-		// email to a secondary inbox so confirmation links can be clicked manually.
-		// Best-effort only — a forward failure must NOT bounce/retry the message,
-		// so unlike the webhook above we log and swallow rather than re-throw.
-		if (env.FORWARD_EMAIL) {
-			try {
-				await message.forward(env.FORWARD_EMAIL)
-			} catch (err) {
-				console.error(`Forward to ${env.FORWARD_EMAIL} failed: ${err}`)
-			}
-		}
-	}
 } satisfies ExportedHandler<Env>;

@@ -16,9 +16,6 @@
     "vitest": "^4.1.0",
     "wrangler": "^4.99.0"
   },
-  "dependencies": {
-    "postal-mime": "^2.7.4"
-  },
   "allowScripts": {
     "esbuild@0.28.1": true,
     "sharp@0.34.5": true,

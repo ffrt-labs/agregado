@@ -24,7 +24,7 @@
       "enabled": false
     }
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
@@ -36,6 +36,27 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
+	// Source registry + entry metadata (agregado#97, #99). "database_id" is
+	// omitted deliberately — it's minted by `wrangler d1 create` against a
+	// real Cloudflare account, a provisioning step outside this sandbox's
+	// reach; local dev/test (`wrangler dev`, vitest-pool-workers) works
+	// against the local D1 emulator without it. Add it before the first real
+	// deploy, or wrangler falls back to a warning and a local-only database.
+	"d1_databases": [
+		{
+			"binding": "BRIDGE_DB",
+			"database_name": "bridge"
+		}
+	],
+	// Original HTML, keyed on hash(Message-ID) (agregado#97, #100). Same
+	// "fill in before deploy" note as above — `bucket_name` is minted by
+	// `wrangler r2 bucket create`.
+	"r2_buckets": [
+		{
+			"binding": "BRIDGE_BUCKET",
+			"bucket_name": "bridge-original-html"
+		}
+	]
 	/**
 	 * Environment Variables
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables

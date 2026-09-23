@@ -18,6 +18,11 @@ describe("buildAtomFeed", () => {
 		expect(xml).toContain("<id>https://bridge.example.com/feed/tldr.atom</id>");
 	});
 
+	it("carries a feed-level author, per RFC 4287 §4.1.1", () => {
+		const xml = buildAtomFeed({ sourceId: "tldr", displayName: "TLDR" }, [baseEntry], "https://bridge.example.com");
+		expect(xml).toContain("<author>\n\t\t<name>TLDR</name>\n\t</author>");
+	});
+
 	it("links an entry to its canonical URL when one was recovered", () => {
 		const entry = { ...baseEntry, canonicalUrl: "https://publisher.example.com/article" };
 		const xml = buildAtomFeed({ sourceId: "tldr", displayName: "TLDR" }, [entry], "https://bridge.example.com");

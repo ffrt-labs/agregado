@@ -62,6 +62,9 @@ export function buildAtomFeed(source: FeedSource, entries: FeedEntry[], bridgeOr
 	<id>${escapeXml(feedId)}</id>
 	<title>${escapeXml(source.displayName)}</title>
 	<updated>${updated}</updated>
+	<author>
+		<name>${escapeXml(source.displayName)}</name>
+	</author>
 ${entryXml}
 </feed>
 `;

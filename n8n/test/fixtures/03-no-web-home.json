@@ -1,0 +1,11 @@
+{
+  "from": "bounce@mailer.plainletter.example.com",
+  "to": "you@read.example.com",
+  "subject": "Plain Letter — the reader-page fallback case",
+  "headers": {
+    "from": "Plain Letter <author@plainletter.example.com>",
+    "list-id": "Plain Letter <plainletter.example.com>"
+  },
+  "text": "A plain-text-first newsletter with no web version and no archive link.",
+  "html": "<html><body><p>This issue has no Archived-At header and no view-in-browser anchor.</p><p><a href=\"https://plainletter.example.com/unsubscribe?u=9\">Unsubscribe</a></p><p><a href=\"mailto:author@plainletter.example.com\">Reply to the author</a></p></body></html>"
+}

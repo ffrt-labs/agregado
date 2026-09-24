@@ -1,0 +1,12 @@
+{
+  "from": "0100019f-bounce@substack-mail.example.com",
+  "to": "you@read.example.com",
+  "subject": "Weekly Dispatch #42 — the archived-at case",
+  "headers": {
+    "from": "The Dispatch <hello@dispatch.example.com>",
+    "list-id": "The Dispatch <dispatch.example.com>",
+    "archived-at": "<https://dispatch.example.com/p/weekly-dispatch-42>"
+  },
+  "text": "Read this issue on the web: https://dispatch.example.com/p/weekly-dispatch-42",
+  "html": "<html><body><p><a href=\"https://sub.example.com/redirect/abc?u=1\">View this email in your browser</a></p><p>The header should win over this scraped link.</p><p><a href=\"https://dispatch.example.com/unsubscribe?u=1\">Unsubscribe</a></p></body></html>"
+}

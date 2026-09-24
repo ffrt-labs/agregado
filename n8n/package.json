@@ -1,0 +1,13 @@
+{
+  "name": "bridge-n8n-workflows",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Code-node logic and exported workflow JSON for the newsletter Bridge's n8n ingest (ADR-0007)",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node scripts/build-workflow.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  }
+}

@@ -60,7 +60,7 @@ n8n Webhook node — routed via Cloudflare Tunnel, new ingress path (ADR-0001 am
    │  6. Sanitize: two policies off one sanitizer — permalink fidelity vs. feed-entry signal
    │  7. Write original HTML → R2 (key: hash(Message-ID))
    │  8. Write entry metadata + readable content → D1 (upsert on hash(Message-ID))
-   │  9. Call #77's enrichment endpoint inline, passing extracted content directly
+   │  9. (No enrichment call here — see "Enrichment call" below; it runs on Miniflux's new_entries)
    │ 10. On any failure in 1-4 or 7-8: fail the execution loudly, alert once per hash(Message-ID)
    ▼
 D1 (Source registry, entry metadata) + R2 (original HTML, subresources)
@@ -138,10 +138,12 @@ followed remotely.
   duplicate entries, no double-write side effects, since both writes are
   idempotent by construction.
 
-**Enrichment call.** Immediately after the writes succeed, call #77's
-enrichment endpoint inline in the same execution, passing the just-extracted
-readable content directly (not by referencing the D1 row or R2 object). No
-new endpoint, no fetch-back.
+**Enrichment call.** Not made by this workflow. #77's endpoint requires a
+Miniflux `entry_id`, which does not exist until Miniflux has polled the feed, so
+an inline call at ingest cannot satisfy it. The entry is enriched when
+Miniflux's `new_entries` webhook fires into #77's workflow, which recognises a
+bridge permalink URL and supplies `readable_content` (read from D1 by
+permalink UUID) as `bridge_content`. See `n8n/README.md`.
 
 **Failure handling.**
 - Any failure in signature verification, content fetch, extraction, or the

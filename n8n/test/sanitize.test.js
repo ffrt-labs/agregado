@@ -36,3 +36,8 @@ test("readable policy keeps reading structure and drops presentation", () => {
 test("readable policy falls back to escaped plain text when html is empty", () => {
 	assert.equal(toReadableContent("", "a <b>\n\nsecond"), "<p>a &lt;b&gt;</p><p>second</p>");
 });
+
+test("permalink policy drops remote stylesheets and srcset (viewer-IP leaks)", () => {
+	const out = sanitizeForPermalink('<link rel="stylesheet" href="https://t.example.com/a.css"><img src="a.png" srcset="https://t.example.com/b.png 2x">');
+	assert.doesNotMatch(out, /stylesheet|srcset|t\.example\.com/);
+});

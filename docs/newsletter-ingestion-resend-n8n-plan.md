@@ -34,10 +34,10 @@ issues listed at the end, ordinary agent work from here.
 | Ingress path | Reuse vacated ingest hostname, new random path, routes to n8n | [#111](https://github.com/ffrt-labs/agregado/issues/111) |
 | Ingress auth | Svix HMAC signature check + Cloudflare rate limit; no Access | [#111](https://github.com/ffrt-labs/agregado/issues/111) |
 | Failure handling | Whole-execution fail-loud; Resend's ~27h retry; upsert-keyed idempotency | [#113](https://github.com/ffrt-labs/agregado/issues/113) |
-| Alerting | Active, once per `hash(Message-ID)`, on first failure | [#113](https://github.com/ffrt-labs/agregado/issues/113) |
+| Alerting | Active, once per webhook (`hash(svix-id)`, stable across Resend retries), on first failure | [#113](https://github.com/ffrt-labs/agregado/issues/113) |
 | Subresource failure | Degrades gracefully — skip asset, proceed with write | [#113](https://github.com/ffrt-labs/agregado/issues/113) |
 | Source onboarding | No `FORWARD_EMAIL`; n8n no-ops on `pending`; manual flip to `active` | map #110 |
-| Enrichment input | n8n passes extracted content inline at ingest; enricher never reads Miniflux's copy | [#107](https://github.com/ffrt-labs/agregado/issues/107) |
+| Enrichment input | Bridge's stored readable content supplied as `bridge_content` when Miniflux's `new_entries` fires; enricher never reads Miniflux's copy | [#107](https://github.com/ffrt-labs/agregado/issues/107) |
 | Digest link, email-only Article | Links to Index key verbatim — canonical URL or `/p/{uuid}` | [#108](https://github.com/ffrt-labs/agregado/issues/108) |
 | Entry identity | `hash(Message-ID)` end-to-end, unchanged | inherited from #95 |
 | Feed protection | Per-Source hashed Basic auth, `/feed/{source-id}.atom`, unchanged | inherited from #95 |
@@ -61,7 +61,7 @@ n8n Webhook node — routed via Cloudflare Tunnel, new ingress path (ADR-0001 am
    │  7. Write original HTML → R2 (key: hash(Message-ID))
    │  8. Write entry metadata + readable content → D1 (upsert on hash(Message-ID))
    │  9. (No enrichment call here — see "Enrichment call" below; it runs on Miniflux's new_entries)
-   │ 10. On any failure in 1-4 or 7-8: fail the execution loudly, alert once per hash(Message-ID)
+   │ 10. On any failure in 1-4 or 7-8: fail the execution loudly, alert once per webhook (hash(svix-id))
    ▼
 D1 (Source registry, entry metadata) + R2 (original HTML, subresources)
    ▲  read
@@ -150,7 +150,7 @@ permalink UUID) as `bridge_content`. See `n8n/README.md`.
   R2/D1 writes: fail the n8n execution (do not catch and continue). Resend's
   retry redelivers the same webhook up to ~27h later; the re-run is safe
   because of the upsert keying above.
-- On the **first** execution that fails for a given `hash(Message-ID)`
+- On the **first** execution that fails for a given webhook delivery (`hash(svix-id)`, which Resend's retries preserve)
   (check a D1 column/table before alerting; set it on alert so subsequent
   retries of the same message don't re-alert): send an active notification
   (not passive-log-only).

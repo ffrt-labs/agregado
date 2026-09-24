@@ -43,4 +43,4 @@ async function inlineAssets(html, fetchAsset) {
 	return { html: $.html(), failed };
 }
 
-module.exports = { planAssets, inlineAssets };
+module.exports = { planAssets, inlineAssets, isBeacon };

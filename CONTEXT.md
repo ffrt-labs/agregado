@@ -22,7 +22,7 @@ Spans three services (Resend receives, n8n extracts and writes, a Cloudflare Wor
 serves); none of them is the Bridge alone. Sits upstream of the Reader, never inside
 it: from Miniflux's perspective a Bridge-served feed is indistinguishable from any
 other Source. For an email-only Article, Enrichment consumes the Bridge's own extracted
-content, supplied inline at ingest time — never the Reader's re-sanitized copy in the
+content — its stored readable extraction, handed over when the Reader's new-entry event fires — never the Reader's re-sanitized copy in the
 feed's `<content>`, which serves browsing only and may not survive the Reader's own
 sanitization intact.
 _Avoid_: Worker (now just the Bridge's serving layer — two read paths, no domain

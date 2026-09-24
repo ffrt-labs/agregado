@@ -2,16 +2,9 @@
 // fidelity (original look, subresources), the feed <content> keeps signal
 // (reading structure only). Click-tracking wrappers are never followed here.
 const cheerio = require("cheerio");
+const { isBeacon } = require("./assets");
 
-const UNSAFE = "script, iframe, object, embed, form, input, button, textarea, select, base, meta[http-equiv], link[rel=import]";
-
-function isBeaconImg($, el) {
-	const w = $(el).attr("width");
-	const h = $(el).attr("height");
-	const src = $(el).attr("src") || "";
-	if (w !== undefined && h !== undefined && Number(w) <= 1 && Number(h) <= 1) return true;
-	return /(^|[/.])pixel([/.]|$)/i.test(src.split("?")[0]);
-}
+const UNSAFE = "script, iframe, object, embed, form, input, button, textarea, select, base, meta[http-equiv], link[rel=import], link[rel=stylesheet]";
 
 function escapeHtml(s) {
 	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -26,8 +19,9 @@ function stripUnsafe($) {
 			else if (["href", "src", "action", "xlink:href"].includes(name) && /^(javascript|vbscript):/.test(value)) $(el).removeAttr(name);
 		}
 	});
+	$("img, source").removeAttr("srcset");
 	$("img").each((_, el) => {
-		if (isBeaconImg($, el)) $(el).remove();
+		if (isBeacon(el, $)) $(el).remove();
 	});
 }
 

@@ -78,3 +78,13 @@ Unit tests cover everything with logic. **Not verified** against live n8n,
 Resend, D1 or R2 — node parameters (raw-body binary property, `$env` access,
 R2 S3 signing, error-output wiring) were written from n8n's documented shapes
 and must be exercised by #126 before this is trusted.
+
+## Known gaps (from review)
+
+- **#77's `new_entries` workflow is not in this repo**, so the D1 read that supplies
+  `bridge_content` (criterion 7) is unbuilt here; the API already accepts it.
+- The permalink CSP is a `<meta>` tag; a response header from the Worker would be stronger.
+  CSS `url()` and non-beacon tracking images can still leak viewer IPs.
+- `aliasFromRecipients` uses the first recipient only and keeps `+tag`.
+- If `Verify Svix` itself throws, the alert branch cannot read its `alertKey`; the
+  execution still fails and Resend retries, but no alert fires.

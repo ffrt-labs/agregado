@@ -11,7 +11,7 @@ const SRC = path.join(__dirname, "..", "src");
 const OUT = path.join(__dirname, "..", "workflows", "newsletter-ingest.json");
 
 // Dependency-ordered so each module's `require("./x")` is already defined.
-const MODULES = ["identity", "svix", "extract", "sanitize", "assets", "entry", "sql"];
+const MODULES = ["identity", "svix", "extract", "assets", "sanitize", "entry", "sql"];
 
 function bundle(names) {
 	const parts = [
@@ -128,7 +128,7 @@ if (!alias) throw new Error('email has no recipient');
 return [{ json: { alias, query: __mods.sql.lookupSourceQuery(alias) } }];
 `),
 	d1Node("Lookup source", [1100, 200], "={{ $json.query }}"),
-	codeNode("Build entry", [1320, 200], ["identity", "svix", "extract", "sanitize", "assets", "entry", "sql"], `
+	codeNode("Build entry", [1320, 200], ["identity", "extract", "assets", "sanitize", "entry"], `
 const email = $('Fetch email').first().json;
 const lookup = $input.first().json;
 const row = lookup.result && lookup.result[0] && lookup.result[0].results && lookup.result[0].results[0];

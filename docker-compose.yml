@@ -48,6 +48,16 @@ services:
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     restart: unless-stopped
+    # `edge` added for ADR-0001's 2026-09-23 amendment: the new
+    # /webhook/resend-<suffix> tunnel path (agregado#122) routes to n8n's
+    # origin instead of this app's, and n8n lives in a different Compose
+    # project (homelab-apps) — `edge` is the network they actually share.
+    # Ingress rules still gate what's reachable (ADR-0001's boundary is the
+    # tunnel ACL, not network topology); this only makes the origin
+    # resolvable by Docker DNS in the Cloudflare dashboard's route config.
+    networks:
+      - default
+      - edge
 
   agregado:
     profiles: ["prod"]

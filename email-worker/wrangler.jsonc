@@ -16,13 +16,13 @@
 		"directory": "./public"
 	},
 	"observability": {
-    "logs": {
-      "enabled": true,
-      "invocation_logs": true
-    },
-    "traces": {
-      "enabled": false
-    }
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": false
+		}
 	},
 	"upload_source_maps": true,
 	/**
@@ -43,19 +43,18 @@
 	// against the local D1 emulator without it. Add it before the first real
 	// deploy, or wrangler falls back to a warning and a local-only database.
 	"d1_databases": [
-		{
-			"binding": "BRIDGE_DB",
-			"database_name": "bridge"
-		}
+    {
+        "binding": "BRIDGE_DB",
+        "database_name": "bridge",
+        "database_id": "7fe01102-7868-4d18-8416-07a94b31a2fb"
+    }
 	],
-	// Original HTML, keyed on hash(Message-ID) (agregado#97, #100). Same
-	// "fill in before deploy" note as above — `bucket_name` is minted by
-	// `wrangler r2 bucket create`.
+	// Original HTML, keyed on hash(Message-ID) (agregado#97, #100).
 	"r2_buckets": [
-		{
-			"binding": "BRIDGE_BUCKET",
-			"bucket_name": "bridge-original-html"
-		}
+    {
+        "binding": "BRIDGE_BUCKET",
+        "bucket_name": "bridge-original-html"
+    }
 	]
 	/**
 	 * Environment Variables

@@ -20,7 +20,7 @@ webhook, extracts, and writes the Worker's D1/R2 stores. Spec:
 Webhook (raw body) → Verify Svix → [401 if bad]
   → Fetch email (Resend) → Alias query → Lookup source (D1)
   → Build entry → [200 no-op if unknown/pending]
-  → Capture assets → Write R2 → Upsert D1 → 200
+  → Capture assets → Sign R2 request → Write R2 → Upsert D1 → 200
 any node's error output → Claim alert (D1) → Notify (first time only) → Fail execution
 ```
 
@@ -55,10 +55,13 @@ Environment on the n8n container:
 | `RESEND_WEBHOOK_SECRET` | `whsec_...` signing secret |
 | `BRIDGE_PERMALINK_SECRET` | keys the permalink UUID (see below); generate once, never rotate |
 | `CF_ACCOUNT_ID`, `BRIDGE_D1_DATABASE_ID`, `BRIDGE_R2_BUCKET` | D1 REST + R2 S3 endpoints |
+| `BRIDGE_R2_ACCESS_KEY_ID`, `BRIDGE_R2_SECRET_ACCESS_KEY` | R2 SigV4, hand-signed in `Sign R2 request` (see below) |
 | `BRIDGE_ALERT_URL` | plain-text POST endpoint (e.g. an ntfy topic) |
 
 Credentials to select after import: HTTP Header Auth `Resend API`,
-HTTP Header Auth `Cloudflare API` (D1 edit), AWS credential for R2.
+HTTP Header Auth `Cloudflare API` (D1 edit). `Write R2` needs no credential —
+it sends a request pre-signed by `Sign R2 request` (see below).
+
 Env access in Code nodes must not be blocked (`N8N_BLOCK_ENV_ACCESS_IN_NODE=false`).
 Also set the webhook path suffix (`resend-REPLACE_WITH_RANDOM_SUFFIX`) to match the
 tunnel rule, and apply `email-worker/migrations/0002_ingest_alerts.sql` to D1.
@@ -71,13 +74,25 @@ tunnel rule, and apply `email-worker/migrations/0002_ingest_alerts.sql` to D1.
 - **Alerts are keyed on the webhook's `svix-id`** (stable across Resend
   redeliveries), not `hash(Message-ID)`, because a failure in content fetch
   happens before the Message-ID is known.
+- **`Write R2` is hand-signed (AWS SigV4) in a Code node (`src/sigv4.js`)**,
+  not authenticated via n8n's predefined AWS credential type. That built-in
+  signer doesn't reliably add the `x-amz-content-sha256` header for
+  S3-compatible hosts outside `*.amazonaws.com`, and R2 rejects requests
+  missing it; n8n's own dedicated AWS S3 node also doesn't honor a custom S3
+  endpoint at all, so it always targets real AWS. Hand-signing, the same
+  approach this workflow already uses for the Svix signature, sidesteps both.
 
 ## Verification status
 
-Unit tests cover everything with logic. **Not verified** against live n8n,
-Resend, D1 or R2 — node parameters (raw-body binary property, `$env` access,
-R2 S3 signing, error-output wiring) were written from n8n's documented shapes
-and must be exercised by #126 before this is trusted.
+Unit tests cover everything with logic, including `src/sigv4.js` against an
+independently-computed (via `openssl`, not this module) signature. **Not
+verified against live n8n, Resend, D1 or R2** — node parameters (raw-body
+binary property, `$env` access, error-output wiring) were written from n8n's
+documented shapes and must be exercised by #126 before this is trusted. The
+hand-signing approach in `Sign R2 request` specifically replaced an earlier
+predefined-AWS-credential approach that *was* exercised live and failed
+against a real R2 bucket (missing/wrong `x-amz-content-sha256`); the
+replacement itself is still pending that same live exercise.
 
 ## Known gaps (from review)
 

@@ -198,20 +198,43 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.sigv4 = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Hand-rolled AWS Signature Version 4 for a single PUT with a known, whole\n// (non-streamed) body — not a general SigV4 client. Needed because n8n's\n// built-in AWS credential signer doesn't reliably add x-amz-content-sha256\n// for S3-compatible hosts outside *.amazonaws.com (Cloudflare R2), and R2\n// rejects requests missing it. Hand-rolling it here follows the same\n// approach already used for Resend's Svix signature (svix.js).\nconst crypto = require(\"crypto\");\n\nfunction sha256Hex(data) {\n\treturn crypto.createHash(\"sha256\").update(data, \"utf8\").digest(\"hex\");\n}\n\nfunction hmac(key, data) {\n\treturn crypto.createHmac(\"sha256\", key).update(data, \"utf8\").digest();\n}\n\nfunction amzDate(now) {\n\treturn now.toISOString().replace(/[:-]|\\.\\d{3}/g, \"\");\n}\n\n// Returns the exact URL and headers to send for a PUT of `body` to\n// `https://{host}/{bucket}/{key}`, signed for the given (access key,\n// secret, region) — region `auto` for R2.\nfunction signS3Put({ accessKeyId, secretAccessKey, region, host, bucket, key, body, contentType, now = new Date() }) {\n\tif (!accessKeyId || !secretAccessKey) throw new Error(\"R2 access key id/secret are required\");\n\n\tconst date = amzDate(now);\n\tconst dateStamp = date.slice(0, 8);\n\tconst canonicalUri = `/${bucket}/${encodeURIComponent(key)}`;\n\tconst payloadHash = sha256Hex(body);\n\n\t// Header names must be lowercase and sorted for both the signed-headers\n\t// list and the canonical-headers block (each line, including the last,\n\t// ends with \\n — the join(\"\\n\") below then supplies the blank-line\n\t// separator the spec requires before SignedHeaders).\n\tconst headers = {\n\t\t\"content-type\": contentType,\n\t\thost,\n\t\t\"x-amz-content-sha256\": payloadHash,\n\t\t\"x-amz-date\": date,\n\t};\n\tconst sortedNames = Object.keys(headers).sort();\n\tconst signedHeaders = sortedNames.join(\";\");\n\tconst canonicalHeaders = sortedNames.map((k) => `${k}:${headers[k]}\\n`).join(\"\");\n\n\tconst canonicalRequest = [\"PUT\", canonicalUri, \"\", canonicalHeaders, signedHeaders, payloadHash].join(\"\\n\");\n\n\tconst credentialScope = `${dateStamp}/${region}/s3/aws4_request`;\n\tconst stringToSign = [\"AWS4-HMAC-SHA256\", date, credentialScope, sha256Hex(canonicalRequest)].join(\"\\n\");\n\n\tconst kDate = hmac(`AWS4${secretAccessKey}`, dateStamp);\n\tconst kRegion = hmac(kDate, region);\n\tconst kService = hmac(kRegion, \"s3\");\n\tconst kSigning = hmac(kService, \"aws4_request\");\n\tconst signature = hmac(kSigning, stringToSign).toString(\"hex\");\n\n\tconst authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;\n\n\treturn {\n\t\turl: `https://${host}${canonicalUri}`,\n\t\theaders: {\n\t\t\t\"Content-Type\": contentType,\n\t\t\t\"x-amz-content-sha256\": payloadHash,\n\t\t\t\"x-amz-date\": date,\n\t\t\tAuthorization: authorization,\n\t\t},\n\t};\n}\n\nmodule.exports = { signS3Put };\n\nreturn module.exports; })(__req);\n\n\nconst { entry } = $input.first().json;\n// n8n's built-in AWS credential signer doesn't reliably add\n// x-amz-content-sha256 for S3-compatible hosts outside *.amazonaws.com, and\n// R2 rejects requests missing it — signed by hand instead.\nconst { url, headers } = __mods.sigv4.signS3Put({\n  accessKeyId: $env.BRIDGE_R2_ACCESS_KEY_ID,\n  secretAccessKey: $env.BRIDGE_R2_SECRET_ACCESS_KEY,\n  region: 'auto',\n  host: $env.CF_ACCOUNT_ID + '.r2.cloudflarestorage.com',\n  bucket: $env.BRIDGE_R2_BUCKET,\n  key: entry.id,\n  body: entry.permalinkHtml,\n  contentType: 'text/html; charset=utf-8',\n});\nreturn [{ json: { entry, url, headers } }];\n"
+      },
+      "id": "sign-r2-request",
+      "name": "Sign R2 request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
         "method": "PUT",
-        "url": "=https://{{ $env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com/{{ $env.BRIDGE_R2_BUCKET }}/{{ $json.entry.id }}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "aws",
+        "url": "={{ $json.url }}",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Content-Type",
-              "value": "text/html; charset=utf-8"
+              "value": "={{ $json.headers['Content-Type'] }}"
             },
             {
               "name": "x-amz-content-sha256",
-              "value": "UNSIGNED-PAYLOAD"
+              "value": "={{ $json.headers['x-amz-content-sha256'] }}"
+            },
+            {
+              "name": "x-amz-date",
+              "value": "={{ $json.headers['x-amz-date'] }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $json.headers['Authorization'] }}"
             }
           ]
         },
@@ -226,7 +249,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1980,
+        2200,
         300
       ],
       "onError": "continueErrorOutput"
@@ -242,7 +265,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2200,
+        2420,
         300
       ],
       "onError": "continueErrorOutput"
@@ -263,7 +286,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2420,
+        2640,
         300
       ],
       "onError": "continueErrorOutput"
@@ -281,7 +304,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        2640,
+        2860,
         300
       ]
     },
@@ -515,6 +538,24 @@
       ]
     },
     "Capture assets": {
+      "main": [
+        [
+          {
+            "node": "Sign R2 request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert claim query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign R2 request": {
       "main": [
         [
           {

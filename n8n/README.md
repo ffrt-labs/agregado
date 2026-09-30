@@ -1,20 +1,28 @@
-# Bridge n8n workflow
+# Bridge and Agregado n8n workflows
 
-The n8n half of the Bridge (ADR-0007): receives Resend's `email.received`
-webhook, extracts, and writes the Worker's D1/R2 stores. Spec:
-[`docs/newsletter-ingestion-resend-n8n-plan.md`](../docs/newsletter-ingestion-resend-n8n-plan.md).
+Two workflows live here, both in this repo per
+`docs/architecture/ecosystem.md`'s "n8n workflow source model": the Bridge
+(ADR-0007), which receives Resend's `email.received` webhook and writes the
+Worker's D1/R2 stores, and Article enrichment (#144), which reacts to
+Miniflux's `new_entries` webhook and calls Agregado's enrichment API. Bridge
+spec: [`docs/newsletter-ingestion-resend-n8n-plan.md`](../docs/newsletter-ingestion-resend-n8n-plan.md).
 
-- `src/` — the workflow's logic as plain CommonJS modules (Svix check,
-  identity, ADR-0004 canonical-URL chain, the two sanitizer policies,
-  asset inlining, SQL). Unit-tested; `npm test`.
-- `scripts/build-workflow.js` — bundles `src/` into each Code node and emits
-  `workflows/newsletter-ingest.json`. **Edit `src/`, run `npm run build`, commit
-  the JSON.** A test fails if the committed JSON drifts from the generator.
+- `src/` — both workflows' logic as plain CommonJS modules (Svix/Miniflux
+  signature checks, identity, ADR-0004 canonical-URL chain, the two sanitizer
+  policies, asset inlining, SQL, the enrich request builder). Unit-tested;
+  `npm test`.
+- `scripts/build-workflow.js`, `scripts/build-article-enrichment.js` — bundle
+  `src/` into each Code node and emit `workflows/newsletter-ingest.json` and
+  `workflows/article-enrichment.json` respectively (shared bundling logic in
+  `scripts/lib/nodes.js`). **Edit `src/`, run `npm run build`, commit the
+  JSON.** A test fails if either committed JSON drifts from its generator.
 - `workflows/newsletter-ingest.json` — the committed export (#125). Sync to the
   live instance is manual: `n8n import:workflow --input=...`, or paste into the
   editor. (An API/CLI-driven sync is still unspecified — see the plan.)
+- `workflows/article-enrichment.json` — the committed export (#144), same
+  manual sync.
 
-## Flow
+## Newsletter ingest: flow
 
 ```
 Webhook (raw body) → Verify Svix → [401 if bad]
@@ -32,10 +40,10 @@ writes are keyed on `hash(Message-ID)`, so a retry overwrites, never duplicates.
 The plan had n8n call `POST /api/private/articles/enrich` inline at ingest. That
 endpoint requires a Miniflux `entry_id` (`internal/articleindex/service.go`),
 which does not exist until Miniflux polls the feed. So this workflow does **not**
-enrich. Enrichment runs on the existing Miniflux `new_entries` path (#77):
+enrich. Enrichment runs on the separate Miniflux `new_entries` workflow below:
 
 1. Miniflux polls `/feed/{source}.atom`, creates the entry, fires `new_entries`.
-2. #77's workflow sees an entry whose URL is `{bridge origin}/p/{uuid}`
+2. `article-enrichment.json` sees an entry whose URL is `{BRIDGE_ORIGIN}/p/{uuid}`
    (an email-only Article; `canonical_url` for the request is that permalink).
 3. It reads `readable_content` for that permalink from D1
    (`SELECT readable_content FROM entries WHERE permalink_uuid = ?`) and sends
@@ -44,9 +52,34 @@ enrich. Enrichment runs on the existing Miniflux `new_entries` path (#77):
 Entries with a recovered canonical URL are enriched by the normal path: the
 Article Index is keyed on that URL and the Reader fetches it.
 
+## Article enrichment: flow (#144)
+
+```
+Webhook (raw body) → Verify signature → [401 if bad]
+  → Respond 200 (Miniflux gets no redelivery on failure, so ack immediately)
+  → Parse entries (one item per Miniflux entry)
+  → Determine bridge match
+     bridge permalink → Lookup bridge content (D1) → Attach bridge content ┐
+     ordinary Article  ───────────────────────────────────────────────────┤
+                                                                            ↓
+  → Build enrich request → Call POST /api/private/articles/enrich
+any node's error output (post-Parse-entries) → Entry failed
+  → Alert claim query (D1) → Notify (first time only) → Fail execution
+Call enrich API's error output → Classify enrich failure
+  → retryable & under 3 attempts → Wait (2s/4s/8s backoff) → Call enrich API again
+  → terminal, or retries exhausted → Alert claim query (same as above)
+```
+
+Fire-and-forget, unlike Resend/Bridge: `docs/architecture/ecosystem.md`'s
+reliability model notes Miniflux delivers `new_entries` with no redelivery on
+failure, so this workflow acknowledges the webhook immediately and does its
+own retrying, rather than relying on a non-2xx response. The enrich endpoint
+is idempotent per `canonical_url` (#77's AC2), so a retried or duplicate
+`new_entries` event for the same entry is a safe no-op on Agregado's side.
+
 ## Configuration (n8n)
 
-Environment on the n8n container:
+Environment on the n8n container, newsletter ingest:
 
 | Variable | Purpose |
 |---|---|
@@ -66,6 +99,25 @@ Env access in Code nodes must not be blocked (`N8N_BLOCK_ENV_ACCESS_IN_NODE=fals
 Also set the webhook path suffix (`resend-REPLACE_WITH_RANDOM_SUFFIX`) to match the
 tunnel rule, and apply `email-worker/migrations/0002_ingest_alerts.sql` to D1.
 
+Environment on the n8n container, article enrichment (#144) — shares
+`NODE_FUNCTION_ALLOW_BUILTIN`, `CF_ACCOUNT_ID`/`BRIDGE_D1_DATABASE_ID`, and
+`BRIDGE_ALERT_URL` with newsletter ingest above:
+
+| Variable | Purpose |
+|---|---|
+| `MINIFLUX_WEBHOOK_SECRET` | verifies `X-Miniflux-Signature` on the `new_entries` webhook |
+| `BRIDGE_ORIGIN` | e.g. `https://bridge.example.com`; matches an entry's URL against `{BRIDGE_ORIGIN}/p/{uuid}` to recognise a Bridge permalink |
+| `AGREGADO_BASE_URL` | Agregado's tailnet base URL (ADR-0008); `/api/private/articles/enrich` is appended |
+| `ENRICHMENT_SECRET` | shared secret sent as `X-Enrichment-Secret` (`docs/article-index-api.md`) |
+
+Credentials to select after import: none beyond `Cloudflare API` (D1 edit,
+shared with newsletter ingest) — the enrich and Miniflux-facing calls use
+plain header parameters, not an n8n credential.
+
+Set the webhook path suffix (`miniflux-new-entries-REPLACE_WITH_RANDOM_SUFFIX`)
+to match the tunnel rule and Miniflux's configured webhook URL, and set
+Miniflux's webhook secret to the same value as `MINIFLUX_WEBHOOK_SECRET`.
+
 ## Deliberate deviations from the plan
 
 - **Permalink UUID is an HMAC of `hash(Message-ID)`**, not the bare hash. The
@@ -81,14 +133,47 @@ tunnel rule, and apply `email-worker/migrations/0002_ingest_alerts.sql` to D1.
   missing it; n8n's own dedicated AWS S3 node also doesn't honor a custom S3
   endpoint at all, so it always targets real AWS. Hand-signing, the same
   approach this workflow already uses for the Svix signature, sidesteps both.
+- **Article enrichment acknowledges the Miniflux webhook before enrichment
+  completes**, and retries/backoff happen inside the workflow (a `Wait` node
+  loop) rather than via webhook redelivery — Miniflux, unlike Resend/Svix,
+  does not redeliver a failed `new_entries` webhook
+  (`docs/architecture/ecosystem.md`'s reliability model, ADR-0006's rejected
+  "trusting Miniflux's delivery pattern" alternative).
+- **Only the `Call enrich API` step retries with backoff.** D1 lookup
+  failures (`Lookup bridge content`) go straight to the alert branch, same as
+  newsletter-ingest's D1/R2 calls — this workflow doesn't introduce a second,
+  differently-shaped retry mechanism for those.
+- **No separate "fetch entry details from Miniflux" call.** #144's step 2
+  reads that way, but Miniflux's `new_entries` webhook payload already embeds
+  each entry's `id`, `url`, `title`, `author`, and `published_at` in full —
+  everything `Build enrich request` needs — so `Parse entries` reads them
+  straight off the webhook body instead of making a redundant `GET` back to
+  Miniflux for the same data.
+- **`source_id` is never sent.** The enrich endpoint's body contract
+  (`docs/article-index-api.md`) lists it as optional, and nothing in the
+  `new_entries` payload maps cleanly to Agregado's own Source id (the
+  newsletter alias local-part, `src/entry.js`'s `aliasFromRecipients`) for an
+  RSS Article — Miniflux's own numeric `feed.id` is a different identity
+  space. Left unset rather than sending a value that isn't actually the
+  Source id.
 
 ## Verification status
 
 Unit tests cover everything with logic, including `src/sigv4.js` against an
-independently-computed (via `openssl`, not this module) signature. **Not
-verified against live n8n, Resend, D1 or R2** — node parameters (raw-body
-binary property, `$env` access, error-output wiring) were written from n8n's
-documented shapes and must be exercised by #126 before this is trusted. The
+independently-computed (via `openssl`, not this module) signature, and
+`src/miniflux.js`/`src/enrich.js`'s Miniflux parsing, bridge-permalink
+matching, and enrich-request building. **Neither workflow is verified against
+a live n8n, Resend, Miniflux, D1 or R2** — node parameters (raw-body binary
+property, `$env` access, error-output wiring, retry-loop item shape across
+`Wait`) were written from each system's documented shapes and must be
+exercised live before either is trusted, per #126/#138's precedent for
+newsletter-ingest. `Classify enrich failure` and `Entry failed` in particular
+assume n8n's error-output item does *not* reliably preserve the original
+input, and recover `entry`/`body`/`attempt` from an earlier node's output
+instead (`$('Build enrich request')`/`$('Determine bridge match')`) rather
+than trusting the error item directly — this needs confirming live, along
+with whether `n8n-nodes-base.if`'s `combineOperation` on `Retry enrich?`
+actually ANDs its `boolean` and `number` conditions as intended. The
 hand-signing approach in `Sign R2 request` specifically replaced an earlier
 predefined-AWS-credential approach that *was* exercised live and failed
 against a real R2 bucket (missing/wrong `x-amz-content-sha256`); the
@@ -96,10 +181,12 @@ replacement itself is still pending that same live exercise.
 
 ## Known gaps (from review)
 
-- **#77's `new_entries` workflow is not in this repo**, so the D1 read that supplies
-  `bridge_content` (criterion 7) is unbuilt here; the API already accepts it.
 - The permalink CSP is a `<meta>` tag; a response header from the Worker would be stronger.
   CSS `url()` and non-beacon tracking images can still leak viewer IPs.
 - `aliasFromRecipients` uses the first recipient only and keeps `+tag`.
-- If `Verify Svix` itself throws, the alert branch cannot read its `alertKey`; the
-  execution still fails and Resend retries, but no alert fires.
+- If `Verify Svix` (or article enrichment's `Verify signature`) itself
+  throws, the alert branch cannot read its context; the execution still
+  fails loudly, but no alert fires for that specific failure.
+- Article enrichment's retry loop caps at 3 attempts (2s/4s/8s backoff) and
+  then alerts; there is no separate reconciliation pass — deliberately out of
+  scope per #144 (a follow-up ticket once this fast path is live and proven).

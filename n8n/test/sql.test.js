@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { lookupSourceQuery, upsertEntryQuery, claimAlertQuery } = require("../src/sql");
+const { lookupSourceQuery, upsertEntryQuery, claimAlertQuery, lookupBridgeContentQuery } = require("../src/sql");
 
 test("lookupSourceQuery binds the alias, never interpolates it", () => {
 	const q = lookupSourceQuery("tldr'; DROP TABLE sources;--");
@@ -21,4 +21,10 @@ test("claimAlertQuery is an idempotent claim", () => {
 	const q = claimAlertQuery("h", 99);
 	assert.match(q.sql, /^INSERT OR IGNORE INTO ingest_alerts/);
 	assert.deepEqual(q.params, ["h", 99]);
+});
+
+test("lookupBridgeContentQuery binds the permalink UUID, never interpolates it", () => {
+	const q = lookupBridgeContentQuery("550e8400-e29b-41d4-a716-446655440000'; DROP TABLE entries;--");
+	assert.match(q.sql, /SELECT readable_content FROM entries WHERE permalink_uuid = \?/);
+	assert.deepEqual(q.params, ["550e8400-e29b-41d4-a716-446655440000'; DROP TABLE entries;--"]);
 });

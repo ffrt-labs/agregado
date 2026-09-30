@@ -172,7 +172,16 @@ return [{ json: { entry: { ...entry, permalinkHtml: html } } }];
 			authentication: "predefinedCredentialType",
 			nodeCredentialType: "aws",
 			sendHeaders: true,
-			headerParameters: { parameters: [{ name: "Content-Type", value: "text/html; charset=utf-8" }] },
+			// R2 rejects SigV4 requests missing x-amz-content-sha256; n8n's AWS
+			// credential signer doesn't add it for raw-body requests on its own,
+			// so it must be set explicitly (UNSIGNED-PAYLOAD is the standard
+			// sentinel for "the signer isn't hashing the body").
+			headerParameters: {
+				parameters: [
+					{ name: "Content-Type", value: "text/html; charset=utf-8" },
+					{ name: "x-amz-content-sha256", value: "UNSIGNED-PAYLOAD" },
+				],
+			},
 			sendBody: true,
 			contentType: "raw",
 			rawContentType: "text/html; charset=utf-8",

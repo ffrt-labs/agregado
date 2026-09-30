@@ -208,6 +208,10 @@
             {
               "name": "Content-Type",
               "value": "text/html; charset=utf-8"
+            },
+            {
+              "name": "x-amz-content-sha256",
+              "value": "UNSIGNED-PAYLOAD"
             }
           ]
         },

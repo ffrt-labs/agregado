@@ -4,68 +4,13 @@
 // is the reviewable artefact (ADR-0007); rerun `npm run build` after editing
 // src/ and commit the diff. Import it with `n8n import:workflow`, or paste it
 // into the editor.
-const fs = require("node:fs");
 const path = require("node:path");
+const { codeNode: codeNodeFor, respond, d1Node, link, writeWorkflow } = require("./lib/nodes");
 
 const SRC = path.join(__dirname, "..", "src");
 const OUT = path.join(__dirname, "..", "workflows", "newsletter-ingest.json");
 
-// Dependency-ordered so each module's `require("./x")` is already defined.
-const MODULES = ["identity", "svix", "extract", "assets", "sanitize", "entry", "sql", "sigv4"];
-
-function bundle(names) {
-	const parts = [
-		"const __mods = {};",
-		"const __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));",
-	];
-	for (const name of names) {
-		const src = fs.readFileSync(path.join(SRC, `${name}.js`), "utf8");
-		parts.push(`__mods.${name} = (function (require) { const module = { exports: {} }; const exports = module.exports;\n${src}\nreturn module.exports; })(__req);`);
-	}
-	return parts.join("\n");
-}
-
-const codeNode = (name, position, needs, body) => ({
-	parameters: { mode: "runOnceForAllItems", language: "javaScript", jsCode: `${bundle(needs)}\n\n${body}` },
-	id: name.toLowerCase().replace(/\W+/g, "-"),
-	name,
-	type: "n8n-nodes-base.code",
-	typeVersion: 2,
-	position,
-	onError: "continueErrorOutput",
-});
-
-const respond = (name, position, code, body) => ({
-	parameters: { respondWith: "json", responseBody: body, options: { responseCode: code } },
-	id: name.toLowerCase().replace(/\W+/g, "-"),
-	name,
-	type: "n8n-nodes-base.respondToWebhook",
-	typeVersion: 1.1,
-	position,
-});
-
-const D1_URL = "=https://api.cloudflare.com/client/v4/accounts/{{ $env.CF_ACCOUNT_ID }}/d1/database/{{ $env.BRIDGE_D1_DATABASE_ID }}/query";
-
-const d1Node = (name, position, bodyExpr) => ({
-	parameters: {
-		method: "POST",
-		url: D1_URL,
-		authentication: "genericCredentialType",
-		genericAuthType: "httpHeaderAuth",
-		sendBody: true,
-		specifyBody: "json",
-		jsonBody: bodyExpr,
-		options: {},
-	},
-	id: name.toLowerCase().replace(/\W+/g, "-"),
-	name,
-	type: "n8n-nodes-base.httpRequest",
-	typeVersion: 4.2,
-	position,
-	onError: "continueErrorOutput",
-	// credentials: create an "HTTP Header Auth" credential `Cloudflare API`
-	// (Authorization: Bearer <token with D1 edit>) and select it after import.
-});
+const codeNode = (name, position, needs, body) => codeNodeFor(SRC, name, position, needs, body);
 
 const nodes = [
 	{
@@ -258,7 +203,6 @@ return [{ json: { query: __mods.sql.claimAlertQuery(key, Math.floor(Date.now() /
 // Alert-branch code nodes must not themselves swallow errors silently.
 for (const n of nodes) if (["Alert claim query", "Claim alert"].includes(n.name)) n.onError = "stopWorkflow";
 
-const link = (to, index = 0) => ({ node: to, type: "main", index });
 // Nodes with onError=continueErrorOutput have output 0 = success, 1 = error.
 const failure = link("Alert claim query");
 const connections = {
@@ -295,7 +239,4 @@ const workflow = {
 
 module.exports = { workflow };
 
-if (require.main === module) {
-	fs.writeFileSync(OUT, JSON.stringify(workflow, null, 2) + "\n");
-	console.log(`wrote ${path.relative(process.cwd(), OUT)}`);
-}
+if (require.main === module) writeWorkflow(workflow, OUT);

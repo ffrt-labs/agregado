@@ -1,0 +1,695 @@
+{
+  "name": "Article enrichment (Miniflux new_entries → Agregado)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "miniflux-new-entries-REPLACE_WITH_RANDOM_SUFFIX",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook",
+      "name": "Miniflux Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "agregado-miniflux-new-entries"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.miniflux = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Miniflux's `new_entries` webhook: signature verification and payload\n// parsing, plus the small pure decisions the article-enrichment workflow\n// needs to make. No I/O, so it is unit-testable — the same pattern as\n// svix.js/extract.js for the newsletter-ingest workflow.\nconst crypto = require(\"crypto\");\n\n// Miniflux signs webhook deliveries with a single HMAC-SHA256 hex digest of\n// the raw body in `X-Miniflux-Signature`, unlike Resend/Svix's versioned,\n// timestamped scheme (svix.js) — no timestamp tolerance check applies here.\nfunction verifyMinifluxSignature({ secret, signatureHeader, rawBody }) {\n\tif (!secret || !signatureHeader || typeof rawBody !== \"string\") return false;\n\tconst expected = crypto.createHmac(\"sha256\", secret).update(rawBody, \"utf8\").digest(\"hex\");\n\tconst given = Buffer.from(String(signatureHeader), \"utf8\");\n\tconst wanted = Buffer.from(expected, \"utf8\");\n\treturn given.length === wanted.length && crypto.timingSafeEqual(given, wanted);\n}\n\n// Only `new_entries` carries Articles to enrich; other Miniflux webhook\n// event types are ignored by returning no entries.\nfunction parseNewEntries(payload) {\n\tif (!payload || payload.event_type !== \"new_entries\") return [];\n\treturn (payload.entries || []).map((e) => ({\n\t\tid: e.id,\n\t\turl: e.url,\n\t\ttitle: e.title,\n\t\tauthor: e.author || undefined,\n\t\tpublishedAt: e.published_at || undefined,\n\t}));\n}\n\n// Recognises `{bridge origin}/p/{uuid}` — an email-only Article served from\n// the Bridge's Worker (n8n/README.md's \"Enrichment\" section, agregado#100).\n// Ordinary RSS Article URLs never match.\nfunction matchBridgePermalink(url, bridgeOrigin) {\n\tif (!url || !bridgeOrigin) return null;\n\tconst escapedOrigin = String(bridgeOrigin)\n\t\t.replace(/\\/+$/, \"\")\n\t\t.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\");\n\tconst re = new RegExp(`^${escapedOrigin}/p/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`, \"i\");\n\tconst match = String(url).match(re);\n\treturn match ? match[1].toLowerCase() : null;\n}\n\n// A 4xx from the enrich endpoint is a validation/contract problem a retry\n// cannot fix (issue criterion 6); anything else — network failure, timeout,\n// 5xx — is treated as transient and retried with backoff. n8n's HTTP node\n// surfaces a failed request as an error message rather than a structured\n// status field, so the code is parsed out of it.\nfunction classifyEnrichFailure(message) {\n\treturn /\\b4\\d{2}\\b/.test(String(message || \"\")) ? \"terminal\" : \"retryable\";\n}\n\nmodule.exports = { verifyMinifluxSignature, parseNewEntries, matchBridgePermalink, classifyEnrichFailure };\n\nreturn module.exports; })(__req);\n\n\nconst item = $input.first();\nconst headers = item.json.headers || {};\nconst buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nconst rawBody = buf.toString('utf8');\nconst verified = __mods.miniflux.verifyMinifluxSignature({ secret: $env.MINIFLUX_WEBHOOK_SECRET, signatureHeader: headers['x-miniflux-signature'], rawBody });\nif (!verified) return [{ json: { verified: false } }];\nreturn [{ json: { verified: true, payload: JSON.parse(rawBody) } }];\n"
+      },
+      "id": "verify-signature",
+      "name": "Verify signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.verified }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "signature-ok",
+      "name": "Signature OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"invalid signature\" } }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "respond-401",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"ok\": true } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200-accepted",
+      "name": "Respond 200 accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.miniflux = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Miniflux's `new_entries` webhook: signature verification and payload\n// parsing, plus the small pure decisions the article-enrichment workflow\n// needs to make. No I/O, so it is unit-testable — the same pattern as\n// svix.js/extract.js for the newsletter-ingest workflow.\nconst crypto = require(\"crypto\");\n\n// Miniflux signs webhook deliveries with a single HMAC-SHA256 hex digest of\n// the raw body in `X-Miniflux-Signature`, unlike Resend/Svix's versioned,\n// timestamped scheme (svix.js) — no timestamp tolerance check applies here.\nfunction verifyMinifluxSignature({ secret, signatureHeader, rawBody }) {\n\tif (!secret || !signatureHeader || typeof rawBody !== \"string\") return false;\n\tconst expected = crypto.createHmac(\"sha256\", secret).update(rawBody, \"utf8\").digest(\"hex\");\n\tconst given = Buffer.from(String(signatureHeader), \"utf8\");\n\tconst wanted = Buffer.from(expected, \"utf8\");\n\treturn given.length === wanted.length && crypto.timingSafeEqual(given, wanted);\n}\n\n// Only `new_entries` carries Articles to enrich; other Miniflux webhook\n// event types are ignored by returning no entries.\nfunction parseNewEntries(payload) {\n\tif (!payload || payload.event_type !== \"new_entries\") return [];\n\treturn (payload.entries || []).map((e) => ({\n\t\tid: e.id,\n\t\turl: e.url,\n\t\ttitle: e.title,\n\t\tauthor: e.author || undefined,\n\t\tpublishedAt: e.published_at || undefined,\n\t}));\n}\n\n// Recognises `{bridge origin}/p/{uuid}` — an email-only Article served from\n// the Bridge's Worker (n8n/README.md's \"Enrichment\" section, agregado#100).\n// Ordinary RSS Article URLs never match.\nfunction matchBridgePermalink(url, bridgeOrigin) {\n\tif (!url || !bridgeOrigin) return null;\n\tconst escapedOrigin = String(bridgeOrigin)\n\t\t.replace(/\\/+$/, \"\")\n\t\t.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\");\n\tconst re = new RegExp(`^${escapedOrigin}/p/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`, \"i\");\n\tconst match = String(url).match(re);\n\treturn match ? match[1].toLowerCase() : null;\n}\n\n// A 4xx from the enrich endpoint is a validation/contract problem a retry\n// cannot fix (issue criterion 6); anything else — network failure, timeout,\n// 5xx — is treated as transient and retried with backoff. n8n's HTTP node\n// surfaces a failed request as an error message rather than a structured\n// status field, so the code is parsed out of it.\nfunction classifyEnrichFailure(message) {\n\treturn /\\b4\\d{2}\\b/.test(String(message || \"\")) ? \"terminal\" : \"retryable\";\n}\n\nmodule.exports = { verifyMinifluxSignature, parseNewEntries, matchBridgePermalink, classifyEnrichFailure };\n\nreturn module.exports; })(__req);\n\n\nconst { payload } = $input.first().json;\nconst entries = __mods.miniflux.parseNewEntries(payload);\nreturn entries.map((entry) => ({ json: { entry } }));\n"
+      },
+      "id": "parse-entries",
+      "name": "Parse entries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        380
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.miniflux = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Miniflux's `new_entries` webhook: signature verification and payload\n// parsing, plus the small pure decisions the article-enrichment workflow\n// needs to make. No I/O, so it is unit-testable — the same pattern as\n// svix.js/extract.js for the newsletter-ingest workflow.\nconst crypto = require(\"crypto\");\n\n// Miniflux signs webhook deliveries with a single HMAC-SHA256 hex digest of\n// the raw body in `X-Miniflux-Signature`, unlike Resend/Svix's versioned,\n// timestamped scheme (svix.js) — no timestamp tolerance check applies here.\nfunction verifyMinifluxSignature({ secret, signatureHeader, rawBody }) {\n\tif (!secret || !signatureHeader || typeof rawBody !== \"string\") return false;\n\tconst expected = crypto.createHmac(\"sha256\", secret).update(rawBody, \"utf8\").digest(\"hex\");\n\tconst given = Buffer.from(String(signatureHeader), \"utf8\");\n\tconst wanted = Buffer.from(expected, \"utf8\");\n\treturn given.length === wanted.length && crypto.timingSafeEqual(given, wanted);\n}\n\n// Only `new_entries` carries Articles to enrich; other Miniflux webhook\n// event types are ignored by returning no entries.\nfunction parseNewEntries(payload) {\n\tif (!payload || payload.event_type !== \"new_entries\") return [];\n\treturn (payload.entries || []).map((e) => ({\n\t\tid: e.id,\n\t\turl: e.url,\n\t\ttitle: e.title,\n\t\tauthor: e.author || undefined,\n\t\tpublishedAt: e.published_at || undefined,\n\t}));\n}\n\n// Recognises `{bridge origin}/p/{uuid}` — an email-only Article served from\n// the Bridge's Worker (n8n/README.md's \"Enrichment\" section, agregado#100).\n// Ordinary RSS Article URLs never match.\nfunction matchBridgePermalink(url, bridgeOrigin) {\n\tif (!url || !bridgeOrigin) return null;\n\tconst escapedOrigin = String(bridgeOrigin)\n\t\t.replace(/\\/+$/, \"\")\n\t\t.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\");\n\tconst re = new RegExp(`^${escapedOrigin}/p/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`, \"i\");\n\tconst match = String(url).match(re);\n\treturn match ? match[1].toLowerCase() : null;\n}\n\n// A 4xx from the enrich endpoint is a validation/contract problem a retry\n// cannot fix (issue criterion 6); anything else — network failure, timeout,\n// 5xx — is treated as transient and retried with backoff. n8n's HTTP node\n// surfaces a failed request as an error message rather than a structured\n// status field, so the code is parsed out of it.\nfunction classifyEnrichFailure(message) {\n\treturn /\\b4\\d{2}\\b/.test(String(message || \"\")) ? \"terminal\" : \"retryable\";\n}\n\nmodule.exports = { verifyMinifluxSignature, parseNewEntries, matchBridgePermalink, classifyEnrichFailure };\n\nreturn module.exports; })(__req);\n\n\nconst { entry } = $input.first().json;\nconst permalinkUuid = __mods.miniflux.matchBridgePermalink(entry.url, $env.BRIDGE_ORIGIN);\nreturn [{ json: { entry, permalinkUuid, isBridgePermalink: permalinkUuid !== null } }];\n"
+      },
+      "id": "determine-bridge-match",
+      "name": "Determine bridge match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        380
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isBridgePermalink }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "is-bridge-permalink",
+      "name": "Is bridge permalink?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.sql = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// D1 statements for Cloudflare's REST query endpoint. Always parameterised:\n// the alias is attacker-influenced (it is the recipient local-part).\nfunction lookupSourceQuery(alias) {\n\treturn { sql: \"SELECT id, status FROM sources WHERE id = ?\", params: [alias] };\n}\n\n// INSERT OR REPLACE keyed on entries.id makes a Resend redelivery of the same\n// Message-ID a no-op overwrite rather than a duplicate entry.\nfunction upsertEntryQuery(e) {\n\treturn {\n\t\tsql: \"INSERT OR REPLACE INTO entries (id, source_id, canonical_url, permalink_uuid, title, readable_content, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)\",\n\t\tparams: [e.id, e.sourceId, e.canonicalUrl, e.permalinkUuid, e.title, e.readableContent, e.publishedAt],\n\t};\n}\n\nfunction claimAlertQuery(id, nowSeconds) {\n\treturn { sql: \"INSERT OR IGNORE INTO ingest_alerts (id, alerted_at) VALUES (?, ?)\", params: [id, nowSeconds] };\n}\n\n// The D1 REST calling convention already built for newsletter-ingest.json —\n// reused here (n8n/README.md's \"Enrichment\" section) to read back an\n// email-only Article's readable content by its permalink UUID.\nfunction lookupBridgeContentQuery(permalinkUuid) {\n\treturn { sql: \"SELECT readable_content FROM entries WHERE permalink_uuid = ?\", params: [permalinkUuid] };\n}\n\nmodule.exports = { lookupSourceQuery, upsertEntryQuery, claimAlertQuery, lookupBridgeContentQuery };\n\nreturn module.exports; })(__req);\n\n\nconst item = $input.first().json;\nreturn [{ json: { ...item, query: __mods.sql.lookupBridgeContentQuery(item.permalinkUuid) } }];\n"
+      },
+      "id": "bridge-content-query",
+      "name": "Bridge content query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        260
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{ $env.CF_ACCOUNT_ID }}/d1/database/{{ $env.BRIDGE_D1_DATABASE_ID }}/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "lookup-bridge-content",
+      "name": "Lookup bridge content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        260
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n\n\nconst item = $input.first().json;\nconst row = item.result && item.result[0] && item.result[0].results && item.result[0].results[0];\n// The D1 write from newsletter-ingest happens before Miniflux ever polls the\n// feed, so a missing row here is a bug or lag, not an expected case — it\n// fails loudly into the alert branch rather than silently enriching without\n// bridge_content.\nif (!row) throw new Error('no bridge_content found for permalink ' + item.permalinkUuid);\nreturn [{ json: { entry: item.entry, bridgeContent: row.readable_content } }];\n"
+      },
+      "id": "attach-bridge-content",
+      "name": "Attach bridge content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        260
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n\n\n// Same n8n error-output uncertainty as \"Classify enrich failure\" — entry\n// falls back to the earliest per-entry node's output when this item's own\n// input was not preserved across the error.\nconst err = $input.first().json || {};\nconst fallbackEntry = $('Determine bridge match').first().json && $('Determine bridge match').first().json.entry;\nconst entry = err.entry || fallbackEntry;\nconst message = (err.error && (err.error.message || err.error)) || err.message || 'article enrichment failed before the API call';\nreturn [{ json: { entry, message } }];\n"
+      },
+      "id": "entry-failed",
+      "name": "Entry failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        500
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.enrich = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Builds the request body for POST /api/private/articles/enrich\n// (docs/article-index-api.md) from a parsed Miniflux entry (src/miniflux.js)\n// and, for email-only Articles, the Bridge's stored readable content.\n// source_id (the API's optional body field) is deliberately never sent: the\n// new_entries payload has no value that is actually Agregado's Source id —\n// Miniflux's own feed.id is a different identity space (n8n/README.md's\n// \"Deliberate deviations from the plan\").\nfunction buildEnrichRequest(entry, bridgeContent) {\n\tif (!entry || !entry.id) throw new Error(\"entry is missing its Miniflux id\");\n\tif (!entry.url) throw new Error(\"entry is missing its url\");\n\tconst body = {\n\t\tentry_id: entry.id,\n\t\tcanonical_url: entry.url,\n\t\ttitle: entry.title || \"(no title)\",\n\t};\n\tif (entry.author) body.author = entry.author;\n\tif (entry.publishedAt) body.published_at = entry.publishedAt;\n\tif (bridgeContent) body.bridge_content = bridgeContent;\n\treturn body;\n}\n\nmodule.exports = { buildEnrichRequest };\n\nreturn module.exports; })(__req);\n\n\nconst item = $input.first().json;\nreturn [{ json: { entry: item.entry, body: __mods.enrich.buildEnrichRequest(item.entry, item.bridgeContent) } }];\n"
+      },
+      "id": "build-enrich-request",
+      "name": "Build enrich request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        380
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.AGREGADO_BASE_URL }}/api/private/articles/enrich",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Enrichment-Secret",
+              "value": "={{ $env.ENRICHMENT_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "call-enrich-api",
+      "name": "Call enrich API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        380
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.miniflux = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Miniflux's `new_entries` webhook: signature verification and payload\n// parsing, plus the small pure decisions the article-enrichment workflow\n// needs to make. No I/O, so it is unit-testable — the same pattern as\n// svix.js/extract.js for the newsletter-ingest workflow.\nconst crypto = require(\"crypto\");\n\n// Miniflux signs webhook deliveries with a single HMAC-SHA256 hex digest of\n// the raw body in `X-Miniflux-Signature`, unlike Resend/Svix's versioned,\n// timestamped scheme (svix.js) — no timestamp tolerance check applies here.\nfunction verifyMinifluxSignature({ secret, signatureHeader, rawBody }) {\n\tif (!secret || !signatureHeader || typeof rawBody !== \"string\") return false;\n\tconst expected = crypto.createHmac(\"sha256\", secret).update(rawBody, \"utf8\").digest(\"hex\");\n\tconst given = Buffer.from(String(signatureHeader), \"utf8\");\n\tconst wanted = Buffer.from(expected, \"utf8\");\n\treturn given.length === wanted.length && crypto.timingSafeEqual(given, wanted);\n}\n\n// Only `new_entries` carries Articles to enrich; other Miniflux webhook\n// event types are ignored by returning no entries.\nfunction parseNewEntries(payload) {\n\tif (!payload || payload.event_type !== \"new_entries\") return [];\n\treturn (payload.entries || []).map((e) => ({\n\t\tid: e.id,\n\t\turl: e.url,\n\t\ttitle: e.title,\n\t\tauthor: e.author || undefined,\n\t\tpublishedAt: e.published_at || undefined,\n\t}));\n}\n\n// Recognises `{bridge origin}/p/{uuid}` — an email-only Article served from\n// the Bridge's Worker (n8n/README.md's \"Enrichment\" section, agregado#100).\n// Ordinary RSS Article URLs never match.\nfunction matchBridgePermalink(url, bridgeOrigin) {\n\tif (!url || !bridgeOrigin) return null;\n\tconst escapedOrigin = String(bridgeOrigin)\n\t\t.replace(/\\/+$/, \"\")\n\t\t.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\");\n\tconst re = new RegExp(`^${escapedOrigin}/p/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`, \"i\");\n\tconst match = String(url).match(re);\n\treturn match ? match[1].toLowerCase() : null;\n}\n\n// A 4xx from the enrich endpoint is a validation/contract problem a retry\n// cannot fix (issue criterion 6); anything else — network failure, timeout,\n// 5xx — is treated as transient and retried with backoff. n8n's HTTP node\n// surfaces a failed request as an error message rather than a structured\n// status field, so the code is parsed out of it.\nfunction classifyEnrichFailure(message) {\n\treturn /\\b4\\d{2}\\b/.test(String(message || \"\")) ? \"terminal\" : \"retryable\";\n}\n\nmodule.exports = { verifyMinifluxSignature, parseNewEntries, matchBridgePermalink, classifyEnrichFailure };\n\nreturn module.exports; })(__req);\n\n\n// n8n's error output for a failed HTTP node is not guaranteed to carry the\n// original input item forward, so entry/body/attempt fall back to the node\n// that built them rather than being trusted from this item unconditionally\n// (agregado#144, unverified against live n8n — see n8n/README.md's\n// Verification status).\nconst err = $input.first().json || {};\nconst built = $('Build enrich request').first().json;\nconst entry = err.entry || built.entry;\nconst body = err.body || built.body;\nconst priorAttempt = err.attempt || 0;\nconst message = (err.error && (err.error.message || err.error)) || err.message || 'enrich request failed';\nconst classification = __mods.miniflux.classifyEnrichFailure(message);\nreturn [{ json: { entry, body, attempt: priorAttempt + 1, message, classification } }];\n"
+      },
+      "id": "classify-enrich-failure",
+      "name": "Classify enrich failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        620
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.classification === 'retryable' }}",
+              "value2": true
+            }
+          ],
+          "number": [
+            {
+              "value1": "={{ $json.attempt }}",
+              "operation": "smallerEqual",
+              "value2": 3
+            }
+          ]
+        },
+        "combineOperation": "all"
+      },
+      "id": "retry-enrich",
+      "name": "Retry enrich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2420,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ 2 ** $json.attempt }}",
+        "unit": "seconds"
+      },
+      "id": "wait-before-retry",
+      "name": "Wait before retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.sql = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// D1 statements for Cloudflare's REST query endpoint. Always parameterised:\n// the alias is attacker-influenced (it is the recipient local-part).\nfunction lookupSourceQuery(alias) {\n\treturn { sql: \"SELECT id, status FROM sources WHERE id = ?\", params: [alias] };\n}\n\n// INSERT OR REPLACE keyed on entries.id makes a Resend redelivery of the same\n// Message-ID a no-op overwrite rather than a duplicate entry.\nfunction upsertEntryQuery(e) {\n\treturn {\n\t\tsql: \"INSERT OR REPLACE INTO entries (id, source_id, canonical_url, permalink_uuid, title, readable_content, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)\",\n\t\tparams: [e.id, e.sourceId, e.canonicalUrl, e.permalinkUuid, e.title, e.readableContent, e.publishedAt],\n\t};\n}\n\nfunction claimAlertQuery(id, nowSeconds) {\n\treturn { sql: \"INSERT OR IGNORE INTO ingest_alerts (id, alerted_at) VALUES (?, ?)\", params: [id, nowSeconds] };\n}\n\n// The D1 REST calling convention already built for newsletter-ingest.json —\n// reused here (n8n/README.md's \"Enrichment\" section) to read back an\n// email-only Article's readable content by its permalink UUID.\nfunction lookupBridgeContentQuery(permalinkUuid) {\n\treturn { sql: \"SELECT readable_content FROM entries WHERE permalink_uuid = ?\", params: [permalinkUuid] };\n}\n\nmodule.exports = { lookupSourceQuery, upsertEntryQuery, claimAlertQuery, lookupBridgeContentQuery };\n\nreturn module.exports; })(__req);\n\n\nconst { entry, message } = $input.first().json;\nreturn [{ json: { entry, message, query: __mods.sql.claimAlertQuery('enrich-' + entry.id, Math.floor(Date.now() / 1000)) } }];\n"
+      },
+      "id": "alert-claim-query",
+      "name": "Alert claim query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        740
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{ $env.CF_ACCOUNT_ID }}/d1/database/{{ $env.BRIDGE_D1_DATABASE_ID }}/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "claim-alert",
+      "name": "Claim alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        740
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.result[0].meta.changes }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "first-failure",
+      "name": "First failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3080,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BRIDGE_ALERT_URL }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "=Article enrichment failed for Miniflux entry {{ $('Alert claim query').first().json.entry.id }}: {{ $('Alert claim query').first().json.message }}. Check n8n execution {{ $execution.id }}.",
+        "options": {}
+      },
+      "id": "notify",
+      "name": "Notify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3300,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "article enrichment failed"
+      },
+      "id": "fail",
+      "name": "Fail execution",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3520,
+        740
+      ]
+    }
+  ],
+  "connections": {
+    "Miniflux Webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify signature": {
+      "main": [
+        [
+          {
+            "node": "Signature OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature OK?": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 accepted",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parse entries",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse entries": {
+      "main": [
+        [
+          {
+            "node": "Determine bridge match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine bridge match": {
+      "main": [
+        [
+          {
+            "node": "Is bridge permalink?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Entry failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is bridge permalink?": {
+      "main": [
+        [
+          {
+            "node": "Bridge content query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build enrich request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bridge content query": {
+      "main": [
+        [
+          {
+            "node": "Lookup bridge content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Entry failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup bridge content": {
+      "main": [
+        [
+          {
+            "node": "Attach bridge content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Entry failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach bridge content": {
+      "main": [
+        [
+          {
+            "node": "Build enrich request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Entry failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entry failed": {
+      "main": [
+        [
+          {
+            "node": "Alert claim query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build enrich request": {
+      "main": [
+        [
+          {
+            "node": "Call enrich API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Entry failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call enrich API": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Classify enrich failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify enrich failure": {
+      "main": [
+        [
+          {
+            "node": "Retry enrich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry enrich?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert claim query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry": {
+      "main": [
+        [
+          {
+            "node": "Call enrich API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert claim query": {
+      "main": [
+        [
+          {
+            "node": "Claim alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim alert": {
+      "main": [
+        [
+          {
+            "node": "First failure?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "First failure?": {
+      "main": [
+        [
+          {
+            "node": "Notify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify": {
+      "main": [
+        [
+          {
+            "node": "Fail execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

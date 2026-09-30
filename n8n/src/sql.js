@@ -17,4 +17,11 @@ function claimAlertQuery(id, nowSeconds) {
 	return { sql: "INSERT OR IGNORE INTO ingest_alerts (id, alerted_at) VALUES (?, ?)", params: [id, nowSeconds] };
 }
 
-module.exports = { lookupSourceQuery, upsertEntryQuery, claimAlertQuery };
+// The D1 REST calling convention already built for newsletter-ingest.json —
+// reused here (n8n/README.md's "Enrichment" section) to read back an
+// email-only Article's readable content by its permalink UUID.
+function lookupBridgeContentQuery(permalinkUuid) {
+	return { sql: "SELECT readable_content FROM entries WHERE permalink_uuid = ?", params: [permalinkUuid] };
+}
+
+module.exports = { lookupSourceQuery, upsertEntryQuery, claimAlertQuery, lookupBridgeContentQuery };

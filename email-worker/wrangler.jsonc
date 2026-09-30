@@ -55,6 +55,17 @@
         "binding": "BRIDGE_BUCKET",
         "bucket_name": "bridge-original-html"
     }
+	],
+	// Custom Domain, not a zone-scoped Route (agregado#134, ADR-0008
+	// amendment): a dedicated subdomain claims the whole hostname for this
+	// Worker, so one pattern covers both /feed/* and /p/*. Provisioning the
+	// DNS/Custom Domain entry itself is a Cloudflare dashboard step outside
+	// this sandbox's reach (see the ADR amendment's HITL steps).
+	"routes": [
+    {
+        "pattern": "bridge.felipefreitas.dev",
+        "custom_domain": true
+    }
 	]
 	/**
 	 * Environment Variables

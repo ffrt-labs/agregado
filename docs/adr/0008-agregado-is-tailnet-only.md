@@ -137,3 +137,45 @@ and failure modes without meeting a current requirement.
 - [Reader ecosystem architecture](../architecture/ecosystem.md)
 - [#84: Production cutover](https://github.com/ffrt-labs/agregado/issues/84)
 - [#85: Remove the superseded system](https://github.com/ffrt-labs/agregado/issues/85)
+
+## Amendment, 2026-09-30: the Bridge Worker's public hostname
+
+This amendment changes nothing about the tailnet-only boundary above — it only
+names the hostname for the one piece this ADR already carved out as public:
+"the slimmed Cloudflare Worker only serves Atom feeds and permalinks." That
+sentence didn't say which hostname, or why it needs none of Agregado's
+tailnet/Access machinery. This records both, settled while charting
+[#134](https://github.com/ffrt-labs/agregado/issues/134).
+
+**Hostname:** `bridge.felipefreitas.dev`, reusing "Bridge" — the domain's own
+name for this system (`CONTEXT.md`).
+
+**A dedicated subdomain, not a path on an existing tunnel hostname.**
+`agregado.felipefreitas.dev` and `read.felipefreitas.dev` are Cloudflare
+Tunnel hostnames: `cloudflared` dials out to homelab origins. The Bridge
+Worker is a separate Cloudflare Worker addressed via a Workers Custom Domain —
+a different mechanism entirely, running at Cloudflare's edge with no tunnel
+and no homelab origin involved. Layering a Worker onto a tunnel hostname's
+path would mix the two mechanisms on one hostname — exactly the "two
+hostnames now have to stay conceptually straight" trap [ADR-0001](0001-tunnel-ingress-is-the-auth-boundary.md)
+already calls out for the read/ingest split. It also matches this repo's
+existing per-concern-hostname pattern (ingest, `read.<domain>`, and the
+planned `triage.<domain>` from [#34](https://github.com/ffrt-labs/agregado/issues/34)).
+`bridge.<domain>` is distinct from both: no collision with `triage.<domain>`
+(unrelated subdomain) or with n8n's `/webhook/resend-<random-suffix>` path on
+the ingest hostname (different hostname entirely).
+
+**No Cloudflare Access in front of either route.** Already settled, not
+re-decided here: the feed route requires per-Source Basic auth
+([#98](https://github.com/ffrt-labs/agregado/issues/98)), and the permalink
+route relies on an unguessable UUID ([#100](https://github.com/ffrt-labs/agregado/issues/100),
+[#101](https://github.com/ffrt-labs/agregado/issues/101)). Each route already
+carries its own credential; Access would add a second gate in front of
+traffic that already authenticates itself, for no additional guarantee.
+
+**This is the ADR that governs this Worker, not ADR-0001.** ADR-0001's
+ingress allowlist covers Cloudflare Tunnel traffic into homelab origins; this
+Worker never sat behind the tunnel and isn't a tunnel route. This ADR is the
+right place because it already states the public/private split this Worker
+lives inside of — the tailnet boundary covers Agregado's app surface, and
+this Worker is the named exception to it.

@@ -121,7 +121,7 @@ return [{ json: { verified: true, payload, alertKey: __mods.identity.entryId(hea
 		position: [660, 200],
 		onError: "continueErrorOutput",
 	},
-	codeNode("Alias query", [880, 200], ["entry", "sql"], `
+	codeNode("Alias query", [880, 200], ["identity", "extract", "assets", "sanitize", "entry", "sql"], `
 const email = $input.first().json;
 const alias = __mods.entry.aliasFromRecipients(email.to);
 if (!alias) throw new Error('email has no recipient');

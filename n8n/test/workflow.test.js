@@ -40,6 +40,30 @@ test("bundled Code nodes run against the real modules", async () => {
 	assert.deepEqual(out.length && skipped[0].json, { skip: true });
 });
 
+test("every Code node's bundled modules satisfy their own internal requires", async () => {
+	// "run against the real modules" above only exercises Build entry. entry.js
+	// requires ./identity unconditionally at load time regardless of which of
+	// its exports is used, so any node bundling entry.js without identity.js
+	// throws "Cannot destructure ... of 'require(...)' as it is undefined" the
+	// moment the node runs, even though `new AsyncFunction(...)` above never
+	// catches it (that only checks the wrapper compiles, not that its body
+	// executes without throwing).
+	for (const n of workflow.nodes.filter((n) => n.type === "n8n-nodes-base.code")) {
+		const fn = new AsyncFunction("$input", "$", "$env", "require", n.parameters.jsCode);
+		await assert.doesNotReject(
+			fn({ first: () => ({ json: {} }) }, () => ({ first: () => ({ json: {} }) }), {}, require).catch((err) => {
+				// Bundling bugs throw before any business logic runs (missing
+				// module, bad require); business logic on empty input is
+				// expected to throw its own, different errors (e.g. "email has
+				// no recipient") and those are not what this test guards.
+				if (/Cannot destructure property .* of .require\(\.\.\.\). as it is undefined/.test(err.message)) throw err;
+				return null;
+			}),
+			n.name
+		);
+	}
+});
+
 test("the failure branch is reachable from every fallible node and always ends in Fail execution", () => {
 	const fallible = workflow.nodes.filter((n) => n.onError === "continueErrorOutput").map((n) => n.name);
 	assert.ok(fallible.length >= 6);

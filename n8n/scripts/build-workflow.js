@@ -11,7 +11,7 @@ const SRC = path.join(__dirname, "..", "src");
 const OUT = path.join(__dirname, "..", "workflows", "newsletter-ingest.json");
 
 // Dependency-ordered so each module's `require("./x")` is already defined.
-const MODULES = ["identity", "svix", "extract", "assets", "sanitize", "entry", "sql"];
+const MODULES = ["identity", "svix", "extract", "assets", "sanitize", "entry", "sql", "sigv4"];
 
 function bundle(names) {
 	const parts = [
@@ -163,23 +163,35 @@ const { html, failed } = await __mods.assets.inlineAssets(entry.permalinkHtml, f
 if (failed.length) console.log('bridge: skipped assets for ' + entry.id + ': ' + failed.join(' '));
 return [{ json: { entry: { ...entry, permalinkHtml: html } } }];
 `),
+	codeNode("Sign R2 request", [1980, 300], ["sigv4"], `
+const { entry } = $input.first().json;
+// n8n's built-in AWS credential signer doesn't reliably add
+// x-amz-content-sha256 for S3-compatible hosts outside *.amazonaws.com, and
+// R2 rejects requests missing it — signed by hand instead.
+const { url, headers } = __mods.sigv4.signS3Put({
+  accessKeyId: $env.BRIDGE_R2_ACCESS_KEY_ID,
+  secretAccessKey: $env.BRIDGE_R2_SECRET_ACCESS_KEY,
+  region: 'auto',
+  host: $env.CF_ACCOUNT_ID + '.r2.cloudflarestorage.com',
+  bucket: $env.BRIDGE_R2_BUCKET,
+  key: entry.id,
+  body: entry.permalinkHtml,
+  contentType: 'text/html; charset=utf-8',
+});
+return [{ json: { entry, url, headers } }];
+`),
 	{
 		parameters: {
 			method: "PUT",
-			// R2 through its S3-compatible API; the object key is entries.id,
-			// exactly what the Worker's /p/{uuid} path reads back.
-			url: "=https://{{ $env.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com/{{ $env.BRIDGE_R2_BUCKET }}/{{ $json.entry.id }}",
-			authentication: "predefinedCredentialType",
-			nodeCredentialType: "aws",
+			url: "={{ $json.url }}",
+			authentication: "none",
 			sendHeaders: true,
-			// R2 rejects SigV4 requests missing x-amz-content-sha256; n8n's AWS
-			// credential signer doesn't add it for raw-body requests on its own,
-			// so it must be set explicitly (UNSIGNED-PAYLOAD is the standard
-			// sentinel for "the signer isn't hashing the body").
 			headerParameters: {
 				parameters: [
-					{ name: "Content-Type", value: "text/html; charset=utf-8" },
-					{ name: "x-amz-content-sha256", value: "UNSIGNED-PAYLOAD" },
+					{ name: "Content-Type", value: "={{ $json.headers['Content-Type'] }}" },
+					{ name: "x-amz-content-sha256", value: "={{ $json.headers['x-amz-content-sha256'] }}" },
+					{ name: "x-amz-date", value: "={{ $json.headers['x-amz-date'] }}" },
+					{ name: "Authorization", value: "={{ $json.headers['Authorization'] }}" },
 				],
 			},
 			sendBody: true,
@@ -187,22 +199,21 @@ return [{ json: { entry: { ...entry, permalinkHtml: html } } }];
 			rawContentType: "text/html; charset=utf-8",
 			body: "={{ $json.entry.permalinkHtml }}",
 			options: {},
-			// credentials: AWS credential with R2 access key/secret, region `auto`,
-			// custom endpoint https://<account>.r2.cloudflarestorage.com.
+			// no credential: the PUT is pre-signed by "Sign R2 request".
 		},
 		id: "write-r2",
 		name: "Write R2",
 		type: "n8n-nodes-base.httpRequest",
 		typeVersion: 4.2,
-		position: [1980, 300],
+		position: [2200, 300],
 		onError: "continueErrorOutput",
 	},
-	codeNode("Upsert query", [2200, 300], ["sql"], `
+	codeNode("Upsert query", [2420, 300], ["sql"], `
 const { entry } = $('Capture assets').first().json;
 return [{ json: { query: __mods.sql.upsertEntryQuery(entry) } }];
 `),
-	d1Node("Write D1", [2420, 300], "={{ $json.query }}"),
-	respond("Respond 200 ok", [2640, 300], 200, '={{ { "ok": true } }}'),
+	d1Node("Write D1", [2640, 300], "={{ $json.query }}"),
+	respond("Respond 200 ok", [2860, 300], 200, '={{ { "ok": true } }}'),
 
 	// Failure branch: every fallible node's error output lands here.
 	codeNode("Alert claim query", [1320, 620], ["sql"], `
@@ -259,7 +270,8 @@ const connections = {
 	"Lookup source": { main: [[link("Build entry")], [failure]] },
 	"Build entry": { main: [[link("Skip?")], [failure]] },
 	"Skip?": { main: [[link("Respond 200 no-op")], [link("Capture assets")]] },
-	"Capture assets": { main: [[link("Write R2")], [failure]] },
+	"Capture assets": { main: [[link("Sign R2 request")], [failure]] },
+	"Sign R2 request": { main: [[link("Write R2")], [failure]] },
 	"Write R2": { main: [[link("Upsert query")], [failure]] },
 	"Upsert query": { main: [[link("Write D1")], [failure]] },
 	"Write D1": { main: [[link("Respond 200 ok")], [failure]] },

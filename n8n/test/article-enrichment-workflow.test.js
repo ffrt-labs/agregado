@@ -57,6 +57,34 @@ test("Build enrich request produces the enrich endpoint's contract, with and wit
 	assert.equal(bridged[0].json.body.bridge_content, "<p>x</p>");
 });
 
+test("Attach bridge content recovers entry/permalinkUuid from Determine bridge match, not from the D1 HTTP response", async () => {
+	const node = workflow.nodes.find((n) => n.name === "Attach bridge content");
+	const fn = new AsyncFunction("$input", "$", "$env", "require", node.parameters.jsCode);
+	const entry = { id: 2, url: "https://bridge.example.com/p/uuid", title: "B" };
+	const dollar = (name) =>
+		name === "Determine bridge match" ? { first: () => ({ json: { entry, permalinkUuid: "uuid" } }) } : { first: () => ({ json: {} }) };
+
+	// $input is the Lookup bridge content HTTP node's response body: it has no
+	// entry/permalinkUuid of its own, same as the real D1 REST response shape.
+	const out = await fn({ first: () => ({ json: { result: [{ results: [{ readable_content: "<p>x</p>" }] }] } }) }, dollar, {}, require);
+	assert.deepEqual(out[0].json.entry, entry);
+	assert.equal(out[0].json.bridgeContent, "<p>x</p>");
+});
+
+test("Attach bridge content fails loudly, naming the real permalink, when D1 has no matching row", async () => {
+	const node = workflow.nodes.find((n) => n.name === "Attach bridge content");
+	const fn = new AsyncFunction("$input", "$", "$env", "require", node.parameters.jsCode);
+	const dollar = (name) =>
+		name === "Determine bridge match"
+			? { first: () => ({ json: { entry: { id: 2 }, permalinkUuid: "missing-uuid" } }) }
+			: { first: () => ({ json: {} }) };
+
+	await assert.rejects(
+		fn({ first: () => ({ json: { result: [{ results: [] }] } }) }, dollar, {}, require),
+		/no bridge_content found for permalink missing-uuid/
+	);
+});
+
 test("Classify enrich failure recovers entry/body from Build enrich request and buckets the failure", async () => {
 	const node = workflow.nodes.find((n) => n.name === "Classify enrich failure");
 	const fn = new AsyncFunction("$input", "$", "$env", "require", node.parameters.jsCode);

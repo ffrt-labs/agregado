@@ -81,14 +81,18 @@ return [{ json: { ...item, query: __mods.sql.lookupBridgeContentQuery(item.perma
 `),
 	d1Node("Lookup bridge content", [1540, 260], "={{ $json.query }}"),
 	codeNode("Attach bridge content", [1760, 260], [], `
+// Lookup bridge content is an HTTP node — its output is the D1 response
+// body, not a merge with its input, so entry/permalinkUuid must come from
+// the last node that actually had them (same reasoning as "Entry failed").
+const { entry, permalinkUuid } = $('Determine bridge match').first().json;
 const item = $input.first().json;
 const row = item.result && item.result[0] && item.result[0].results && item.result[0].results[0];
 // The D1 write from newsletter-ingest happens before Miniflux ever polls the
 // feed, so a missing row here is a bug or lag, not an expected case — it
 // fails loudly into the alert branch rather than silently enriching without
 // bridge_content.
-if (!row) throw new Error('no bridge_content found for permalink ' + item.permalinkUuid);
-return [{ json: { entry: item.entry, bridgeContent: row.readable_content } }];
+if (!row) throw new Error('no bridge_content found for permalink ' + permalinkUuid);
+return [{ json: { entry, bridgeContent: row.readable_content } }];
 `),
 	codeNode("Entry failed", [1760, 500], [], `
 // Same n8n error-output uncertainty as "Classify enrich failure" — entry

@@ -1,26 +1,31 @@
 # Bridge and Agregado n8n workflows
 
-Two workflows live here, both in this repo per
+Three workflows live here, all in this repo per
 `docs/architecture/ecosystem.md`'s "n8n workflow source model": the Bridge
 (ADR-0007), which receives Resend's `email.received` webhook and writes the
-Worker's D1/R2 stores, and Article enrichment (#144), which reacts to
-Miniflux's `new_entries` webhook and calls Agregado's enrichment API. Bridge
-spec: [`docs/newsletter-ingestion-resend-n8n-plan.md`](../docs/newsletter-ingestion-resend-n8n-plan.md).
+Worker's D1/R2 stores; Article enrichment (#144), which reacts to Miniflux's
+`new_entries` webhook and calls Agregado's enrichment API; and Daily digest
+(#145), which on a schedule fetches Agregado's persisted Digest artifact and
+sends it as email. Bridge spec:
+[`docs/newsletter-ingestion-resend-n8n-plan.md`](../docs/newsletter-ingestion-resend-n8n-plan.md).
 
-- `src/` — both workflows' logic as plain CommonJS modules (Svix/Miniflux
+- `src/` — all three workflows' logic as plain CommonJS modules (Svix/Miniflux
   signature checks, identity, ADR-0004 canonical-URL chain, the two sanitizer
-  policies, asset inlining, SQL, the enrich request builder). Unit-tested;
-  `npm test`.
-- `scripts/build-workflow.js`, `scripts/build-article-enrichment.js` — bundle
-  `src/` into each Code node and emit `workflows/newsletter-ingest.json` and
-  `workflows/article-enrichment.json` respectively (shared bundling logic in
+  policies, asset inlining, SQL, the enrich request builder, the digest
+  date/idempotency and request builder). Unit-tested; `npm test`.
+- `scripts/build-workflow.js`, `scripts/build-article-enrichment.js`,
+  `scripts/build-daily-digest.js` — bundle `src/` into each Code node and emit
+  `workflows/newsletter-ingest.json`, `workflows/article-enrichment.json`, and
+  `workflows/daily-digest.json` respectively (shared bundling logic in
   `scripts/lib/nodes.js`). **Edit `src/`, run `npm run build`, commit the
-  JSON.** A test fails if either committed JSON drifts from its generator.
+  JSON.** A test fails if any committed JSON drifts from its generator.
 - `workflows/newsletter-ingest.json` — the committed export (#125). Sync to the
   live instance is manual: `n8n import:workflow --input=...`, or paste into the
   editor. (An API/CLI-driven sync is still unspecified — see the plan.)
 - `workflows/article-enrichment.json` — the committed export (#144), same
   manual sync.
+- `workflows/daily-digest.json` — the committed export (#145), same manual
+  sync.
 
 ## Newsletter ingest: flow
 
@@ -77,6 +82,43 @@ own retrying, rather than relying on a non-2xx response. The enrich endpoint
 is idempotent per `canonical_url` (#77's AC2), so a retried or duplicate
 `new_entries` event for the same entry is a safe no-op on Agregado's side.
 
+## Daily digest: flow (#145)
+
+```
+Schedule (0 8 * * *, matching DIGEST_SCHEDULE's default) → Build digest request
+  → Get digest (POST /api/private/digests/{today}) → Send digest email
+any node's error output → Digest fetch failed / Classify send failure
+  → Alert claim query (D1) → Notify (first time only) → Fail execution
+```
+
+`internal/digestartifact`'s package comment says it directly: "n8n owns
+delivery — it intentionally has no scheduler or delivery code." This workflow
+is that delivery: no selection, ranking, or rendering logic here, only
+fetching the already-built artifact and sending its `Subject`/`HTML`/`Text`
+verbatim (all of that is #79's).
+
+The endpoint is idempotent per date (#79's AC8) — calling it again for the
+same date re-returns the already-persisted artifact rather than making
+another model call. `Send digest email`'s failure branch exploits that
+directly: `Classify send failure` counts the attempt and, under
+`MAX_SEND_RETRIES` (3, with 2s/4s/8s backoff, the same shape as
+`article-enrichment.json`'s retry loop), `Wait before retry` loops back to
+**`Get digest`**, not to `Send digest email` — a retry re-fetches the
+persisted artifact rather than resending whatever this execution happened to
+be holding, satisfying the issue's "no duplicate model call, no regenerated
+content" criterion as the literal control flow rather than as an incidental
+property of idempotency. A `Get digest` failure (Agregado unreachable, bad
+response) goes straight to the alert branch with no retry of its own, the
+same precedent `article-enrichment.json`'s D1 lookups set: only the one step
+whose failure the issue specifically calls out for backoff retries.
+
+Exhausted retries and a `Get digest` failure both reach the same
+D1-claim-then-notify alert branch as the other two workflows
+(`BRIDGE_ALERT_URL`), satisfying docs/architecture/ecosystem.md's reliability
+model (`SEND -->|failure| RETRY`, `ERROR --> ALERT`) and this ticket's reason
+for existing: the digest-send path must never be as unobservable as #44
+describes for the legacy scheduler.
+
 ## Configuration (n8n)
 
 Environment on the n8n container, newsletter ingest:
@@ -118,6 +160,30 @@ Set the webhook path suffix (`miniflux-new-entries-REPLACE_WITH_RANDOM_SUFFIX`)
 to match the tunnel rule and Miniflux's configured webhook URL, and set
 Miniflux's webhook secret to the same value as `MINIFLUX_WEBHOOK_SECRET`.
 
+Environment on the n8n container, daily digest (#145) — shares
+`CF_ACCOUNT_ID`/`BRIDGE_D1_DATABASE_ID`, `BRIDGE_ALERT_URL`, `AGREGADO_BASE_URL`,
+and `ENRICHMENT_SECRET` with article enrichment above (the digest artifact
+endpoint checks the same `X-Enrichment-Secret` as the enrich endpoint —
+`cmd/agregado/main.go` wires both handlers from the same `cfg.Enrichment.Secret`):
+
+| Variable | Purpose |
+|---|---|
+| `DIGEST_RECIPIENT_EMAIL` | the digest's recipient address — never committed |
+| `DIGEST_FROM_EMAIL` | the digest's from address |
+
+Credentials to select after import: an SMTP credential (e.g. `Digest SMTP`) on
+`Send digest email`, plus `Cloudflare API` (D1 edit, shared with the other two
+workflows) on the alert branch. The exact SMTP/email provider is an explicitly
+deferred decision (`docs/architecture/ecosystem.md`, "Explicitly deferred
+decisions") — this workflow uses n8n's generic `emailSend` node rather than a
+provider-specific one so that choice stays open.
+
+The schedule node's cron expression (`0 8 * * *`) matches `DIGEST_SCHEDULE`'s
+default (`internal/config/config.go`) — the legacy scheduler this workflow
+replaces (#85, once #84 cuts over). It is not read from that env var; n8n's
+Schedule Trigger has no `$env` access of its own, so keep the two in sync by
+hand if `DIGEST_SCHEDULE` ever changes.
+
 ## Deliberate deviations from the plan
 
 - **Permalink UUID is an HMAC of `hash(Message-ID)`**, not the bare hash. The
@@ -156,13 +222,46 @@ Miniflux's webhook secret to the same value as `MINIFLUX_WEBHOOK_SECRET`.
   RSS Article — Miniflux's own numeric `feed.id` is a different identity
   space. Left unset rather than sending a value that isn't actually the
   Source id.
+- **A send-failure retry loops back to `Get digest`, not `Send digest
+  email`.** The issue's acceptance criteria call for a retry to "re-fetch,
+  not regenerate"; since the GET-digest-equivalent call is idempotent per
+  date, re-fetching and resending identical in-memory data are
+  behaviorally the same, but looping through the fetch node makes that the
+  literal control flow the criteria describe rather than an incidental
+  property of idempotency someone could break by refactoring the retry loop
+  later.
+- **`Classify send failure` counts attempts via self-reference
+  (`$('Classify send failure')`), not via the error item.** Because the
+  retry loops back through `Get digest`, a successful re-fetch replaces
+  `$json` with the artifact response (`Subject`/`HTML`/`Text`/`ID`), which
+  carries no `attempt` field — unlike `article-enrichment.json`'s retry loop,
+  which loops back directly to the failing call and so can keep `attempt` on
+  the error item itself. This node's own last output in the execution is the
+  only value that survives a successful fetch sandwiched between failures,
+  so it is the counter of record; self-reference throws on the first failure
+  (the node has not run yet), which doubles as the "start at 0" case.
+- **No separate terminal-vs-retryable classification for send failures**,
+  unlike `article-enrichment.json`'s 4xx check in `classifyEnrichFailure`.
+  The issue groups "SMTP auth, network, transient provider error" together
+  under the same retry/backoff rule rather than carving out a terminal
+  class, so `Classify send failure` only counts attempts.
 
 ## Verification status
 
 Unit tests cover everything with logic, including `src/sigv4.js` against an
-independently-computed (via `openssl`, not this module) signature, and
+independently-computed (via `openssl`, not this module) signature,
 `src/miniflux.js`/`src/enrich.js`'s Miniflux parsing, bridge-permalink
-matching, and enrich-request building.
+matching, and enrich-request building, and `src/digest.js`'s UTC date key and
+persisted-artifact URL building.
+
+**`daily-digest.json` is unverified against a live n8n, Agregado, or SMTP
+provider — flagged HITL, same as `newsletter-ingest.json`'s status below**
+(#145's "Out of scope": live verification benefits from #144 being live
+first so there is real enriched content to digest, but this workflow was
+built and unit tested independently). Node parameters for the Schedule
+Trigger, the generic `emailSend` node, and the retry-loop item shape across
+`Wait` were written from n8n's documented shapes and still need exercising
+live.
 
 **`article-enrichment.json` has been verified against the live stack**
 (n8n 2.39.6, Agregado, and the Bridge's D1) — a correctly HMAC-signed
@@ -221,3 +320,7 @@ live exercise.
 - Article enrichment's retry loop caps at 3 attempts (2s/4s/8s backoff) and
   then alerts; there is no separate reconciliation pass — deliberately out of
   scope per #144 (a follow-up ticket once this fast path is live and proven).
+- Daily digest's schedule (`0 8 * * *`) is not read from `DIGEST_SCHEDULE` —
+  n8n's Schedule Trigger node has no `$env` access, so the two must be kept in
+  sync by hand if the env var ever changes. Same for a reconciliation pass:
+  none exists (N/A per the issue — the daily schedule is the only trigger).

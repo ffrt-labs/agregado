@@ -1,0 +1,406 @@
+{
+  "name": "Daily digest (schedule → Agregado → email)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "digest-schedule",
+      "name": "Digest schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.digest = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the daily-digest workflow (agregado#145): today's date as\n// the Digest's idempotency key, and the request to Agregado's persisted\n// artifact endpoint (internal/digestartifact/handler.go:\n// POST /api/private/digests/{date}). No I/O, so it is unit-testable, the\n// same pattern as src/enrich.js/src/miniflux.js for article enrichment.\n\n// UTC, matching the handler's own day boundary (it parses the path segment\n// with time.Parse(\"2006-01-02\", raw) and otherwise defaults to\n// time.Now().UTC()) — using the n8n container's local day here could ask for\n// a different day than the one Agregado would pick on its own default path.\nfunction digestDateKey(now) {\n\treturn new Date(now).toISOString().slice(0, 10);\n}\n\n// The endpoint is idempotent per date (#79's AC8): calling it again for the\n// same date re-returns the already-persisted artifact rather than\n// regenerating it, so a retry only ever needs this same request rebuilt\n// against the same date, never a different one.\nfunction buildDigestRequest(now, baseUrl) {\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst date = digestDateKey(now);\n\treturn { date, url: `${String(baseUrl).replace(/\\/+$/, \"\")}/api/private/digests/${date}` };\n}\n\nmodule.exports = { digestDateKey, buildDigestRequest };\n\nreturn module.exports; })(__req);\n\n\nconst { date, url } = __mods.digest.buildDigestRequest(Date.now(), $env.AGREGADO_BASE_URL);\nreturn [{ json: { date, url, attempt: 0 } }];\n"
+      },
+      "id": "build-digest-request",
+      "name": "Build digest request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Enrichment-Secret",
+              "value": "={{ $env.ENRICHMENT_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-digest",
+      "name": "Get digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n\n\nconst err = $input.first().json || {};\nconst built = $('Build digest request').first().json;\nconst date = err.date || built.date;\nconst message = (err.error && (err.error.message || err.error)) || err.message || 'digest fetch failed';\nreturn [{ json: { date, message } }];\n"
+      },
+      "id": "digest-fetch-failed",
+      "name": "Digest fetch failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        480
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.DIGEST_FROM_EMAIL }}",
+        "toEmail": "={{ $env.DIGEST_RECIPIENT_EMAIL }}",
+        "subject": "={{ $json.Subject }}",
+        "html": "={{ $json.HTML }}",
+        "text": "={{ $json.Text }}",
+        "options": {}
+      },
+      "id": "send-digest-email",
+      "name": "Send digest email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        660,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n\n\nconst err = $input.first().json || {};\nconst built = $('Build digest request').first().json;\nconst date = err.date || built.date;\nconst url = err.url || built.url;\n// attempt cannot be recovered from the error item: the retry loop goes\n// through \"Get digest\" to re-fetch the artifact (issue #145's acceptance\n// criteria), and a successful fetch replaces $json with the HTTP response\n// body, which carries no attempt field. This node's own last output in the\n// execution is the counter of record instead — self-reference throws on the\n// first failure (it has not run yet this execution), which is exactly when\n// the count should start at 0.\nlet priorAttempt = 0;\ntry { priorAttempt = $('Classify send failure').first().json.attempt || 0; } catch (e) { priorAttempt = 0; }\nconst message = (err.error && (err.error.message || err.error)) || err.message || 'digest send failed';\nreturn [{ json: { date, url, attempt: priorAttempt + 1, message } }];\n"
+      },
+      "id": "classify-send-failure",
+      "name": "Classify send failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        400
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.attempt }}",
+              "operation": "smallerEqual",
+              "value2": 3
+            }
+          ]
+        }
+      },
+      "id": "retry-send",
+      "name": "Retry send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ 2 ** $json.attempt }}",
+        "unit": "seconds"
+      },
+      "id": "wait-before-retry",
+      "name": "Wait before retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.sql = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// D1 statements for Cloudflare's REST query endpoint. Always parameterised:\n// the alias is attacker-influenced (it is the recipient local-part).\nfunction lookupSourceQuery(alias) {\n\treturn { sql: \"SELECT id, status FROM sources WHERE id = ?\", params: [alias] };\n}\n\n// INSERT OR REPLACE keyed on entries.id makes a Resend redelivery of the same\n// Message-ID a no-op overwrite rather than a duplicate entry.\nfunction upsertEntryQuery(e) {\n\treturn {\n\t\tsql: \"INSERT OR REPLACE INTO entries (id, source_id, canonical_url, permalink_uuid, title, readable_content, published_at) VALUES (?, ?, ?, ?, ?, ?, ?)\",\n\t\tparams: [e.id, e.sourceId, e.canonicalUrl, e.permalinkUuid, e.title, e.readableContent, e.publishedAt],\n\t};\n}\n\nfunction claimAlertQuery(id, nowSeconds) {\n\treturn { sql: \"INSERT OR IGNORE INTO ingest_alerts (id, alerted_at) VALUES (?, ?)\", params: [id, nowSeconds] };\n}\n\n// The D1 REST calling convention already built for newsletter-ingest.json —\n// reused here (n8n/README.md's \"Enrichment\" section) to read back an\n// email-only Article's readable content by its permalink UUID.\nfunction lookupBridgeContentQuery(permalinkUuid) {\n\treturn { sql: \"SELECT readable_content FROM entries WHERE permalink_uuid = ?\", params: [permalinkUuid] };\n}\n\nmodule.exports = { lookupSourceQuery, upsertEntryQuery, claimAlertQuery, lookupBridgeContentQuery };\n\nreturn module.exports; })(__req);\n\n\nconst { date, message } = $input.first().json;\nreturn [{ json: { date, message, query: __mods.sql.claimAlertQuery('digest-' + date, Math.floor(Date.now() / 1000)) } }];\n"
+      },
+      "id": "alert-claim-query",
+      "name": "Alert claim query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        620
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.cloudflare.com/client/v4/accounts/{{ $env.CF_ACCOUNT_ID }}/d1/database/{{ $env.BRIDGE_D1_DATABASE_ID }}/query",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "claim-alert",
+      "name": "Claim alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        620
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.result[0].meta.changes }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "first-failure",
+      "name": "First failure?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BRIDGE_ALERT_URL }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "=Daily digest for {{ $('Alert claim query').first().json.date }} failed: {{ $('Alert claim query').first().json.message }}. Check n8n execution {{ $execution.id }}.",
+        "options": {}
+      },
+      "id": "notify",
+      "name": "Notify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "daily digest send failed"
+      },
+      "id": "fail",
+      "name": "Fail execution",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        620
+      ]
+    }
+  ],
+  "connections": {
+    "Digest schedule": {
+      "main": [
+        [
+          {
+            "node": "Build digest request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build digest request": {
+      "main": [
+        [
+          {
+            "node": "Get digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get digest": {
+      "main": [
+        [
+          {
+            "node": "Send digest email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Digest fetch failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest fetch failed": {
+      "main": [
+        [
+          {
+            "node": "Alert claim query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send digest email": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Classify send failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify send failure": {
+      "main": [
+        [
+          {
+            "node": "Retry send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry send?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert claim query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry": {
+      "main": [
+        [
+          {
+            "node": "Get digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert claim query": {
+      "main": [
+        [
+          {
+            "node": "Claim alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim alert": {
+      "main": [
+        [
+          {
+            "node": "First failure?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "First failure?": {
+      "main": [
+        [
+          {
+            "node": "Notify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify": {
+      "main": [
+        [
+          {
+            "node": "Fail execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

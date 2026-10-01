@@ -22,6 +22,10 @@ env:
 
   WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
 
+  # n8n-to-Agregado article enrichment ingress (agregado#144).
+  ENRICHMENT_SECRET: ${{ secrets.ENRICHMENT_SECRET }}
+  PREFERENCES_PATH: ${{ vars.PREFERENCES_PATH }}
+
   DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
   DIGEST_SCHEDULE: ${{ vars.DIGEST_SCHEDULE }}
   DIGEST_MAX_ARTICLES: ${{ vars.DIGEST_MAX_ARTICLES }}

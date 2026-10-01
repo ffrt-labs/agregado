@@ -162,22 +162,53 @@ Miniflux's webhook secret to the same value as `MINIFLUX_WEBHOOK_SECRET`.
 Unit tests cover everything with logic, including `src/sigv4.js` against an
 independently-computed (via `openssl`, not this module) signature, and
 `src/miniflux.js`/`src/enrich.js`'s Miniflux parsing, bridge-permalink
-matching, and enrich-request building. **Neither workflow is verified against
-a live n8n, Resend, Miniflux, D1 or R2** — node parameters (raw-body binary
-property, `$env` access, error-output wiring, retry-loop item shape across
-`Wait`) were written from each system's documented shapes and must be
-exercised live before either is trusted, per #126/#138's precedent for
-newsletter-ingest. `Classify enrich failure` and `Entry failed` in particular
-assume n8n's error-output item does *not* reliably preserve the original
-input, and recover `entry`/`body`/`attempt` from an earlier node's output
-instead (`$('Build enrich request')`/`$('Determine bridge match')`) rather
-than trusting the error item directly — this needs confirming live, along
-with whether `n8n-nodes-base.if`'s `combineOperation` on `Retry enrich?`
-actually ANDs its `boolean` and `number` conditions as intended. The
-hand-signing approach in `Sign R2 request` specifically replaced an earlier
-predefined-AWS-credential approach that *was* exercised live and failed
-against a real R2 bucket (missing/wrong `x-amz-content-sha256`); the
-replacement itself is still pending that same live exercise.
+matching, and enrich-request building.
+
+**`article-enrichment.json` has been verified against the live stack**
+(n8n 2.39.6, Agregado, and the Bridge's D1) — a correctly HMAC-signed
+synthetic `new_entries` webhook was fired at the deployed workflow and all of
+the following were confirmed live, not just in unit tests:
+
+- The happy path: fetch → preferences read → summarize → categorize → score
+  → `article_index` row with `status: complete` and a populated
+  `score`/`tags`/`summary`.
+- Idempotency: resending the same `entry_id`/`canonical_url` returns
+  `created: false` against the existing row rather than erroring or
+  duplicating (the `canonical_url UNIQUE` constraint plus `Process()`'s
+  early return in `internal/articleindex/service.go`).
+- The terminal path: a bad `X-Miniflux-Signature` gets a `401` from
+  `Verify signature` and never reaches `Call enrich API` or the alert branch.
+- The retryable path: with Agregado briefly unreachable, `Call enrich API`
+  retries 3 times (2s/4s/8s backoff) with `classification: "retryable"`, then
+  `Classify enrich failure`/`Entry failed`'s approach of recovering
+  `entry`/`body`/`attempt` from `$('Build enrich request')`/
+  `$('Determine bridge match')` instead of trusting the error item works as
+  designed, `Claim alert` and `Notify` both fire, and the execution ends
+  failed for visibility. `n8n-nodes-base.if`'s `combineOperation` on
+  `Retry enrich?` does AND its `boolean` and `number` conditions as intended.
+- The bridge-permalink branch: resolving a real `permalink_uuid` from the
+  Bridge's D1, attaching its `readable_content` as `bridge_content`, and
+  completing enrichment without a live fetch. This live run caught a real
+  bug — `Attach bridge content` read `entry` off `Lookup bridge content`'s
+  HTTP response, which doesn't carry it (an HTTP node's output replaces
+  `$json` rather than merging with it); fixed to recover `entry`/
+  `permalinkUuid` from `$('Determine bridge match')` instead, the same
+  pattern `Entry failed` already used correctly.
+
+Two infra gaps surfaced during this same live exercise, both now fixed: the
+`agregado` service's own compose/deploy never actually passed it
+`ENRICHMENT_SECRET`/`PREFERENCES_PATH` (only n8n's side had been wired), and
+nothing bind-mounted `PREFERENCES_PATH`'s directory into the container.
+
+**`newsletter-ingest.json` remains unverified against a live n8n, Resend, D1
+or R2** — node parameters (raw-body binary property, `$env` access,
+error-output wiring, retry-loop item shape across `Wait`) were written from
+each system's documented shapes and still need exercising live, per
+#126/#138's precedent. The hand-signing approach in `Sign R2 request`
+specifically replaced an earlier predefined-AWS-credential approach that
+*was* exercised live and failed against a real R2 bucket (missing/wrong
+`x-amz-content-sha256`); the replacement itself is still pending that same
+live exercise.
 
 ## Known gaps (from review)
 

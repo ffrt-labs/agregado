@@ -2,6 +2,7 @@ package digestartifact
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -34,6 +35,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	a, created, err := h.service.ForDate(r.Context(), day)
 	if err != nil {
+		slog.Error("digest artifact generation failed", "component", "digestartifact", "date", day.Format("2006-01-02"), "err", err)
 		http.Error(w, "digest generation failed", http.StatusInternalServerError)
 		return
 	}

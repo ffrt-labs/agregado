@@ -98,8 +98,15 @@ type AI struct {
 	Model               string `env:"AI_MODEL" envDefault:"@cf/google/gemma-4-26b-a4b-it"`
 	// RequestTimeout bounds a single AI call. Digest compute makes several
 	// calls back to back under one overall budget, so this caps how much of
-	// that budget one slow call can consume.
-	RequestTimeout time.Duration `env:"AI_REQUEST_TIMEOUT" envDefault:"30s"`
+	// that budget one slow call can consume. 90s, not 30s: agregado#145's
+	// live verification found the frontier-select call alone (a single
+	// request scoring/explaining up to 10 candidates) take several seconds
+	// even for a trivial one-word prompt against the configured reasoning
+	// model (@cf/google/gemma-4-26b-a4b-it default), which emits a verbose
+	// reasoning trace before its actual answer; a real selection prompt
+	// comfortably exceeded the old 30s default under normal Workers AI
+	// latency, not because of a network or credentials problem.
+	RequestTimeout time.Duration `env:"AI_REQUEST_TIMEOUT" envDefault:"90s"`
 	// MaxContentChars caps how much article body Score/Categorize/Reason feed
 	// the model. 8000 is a rough per-call budget, not a model-specific window.
 	MaxContentChars int `env:"AI_MAX_CONTENT_CHARS" envDefault:"8000"`

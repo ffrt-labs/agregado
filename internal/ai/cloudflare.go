@@ -29,7 +29,11 @@ var defaultCategorySlugs = []string{"tech", "business", "personal", "politics", 
 // sequentially (categorize per article, summarize per group, then the
 // overview) sharing one overall budget — without a per-call cap, one slow
 // request can exhaust that budget and starve every call queued behind it.
-const defaultRequestTimeout = 30 * time.Second
+// Kept in sync with config.AI.RequestTimeout's default (internal/config):
+// agregado#145's live verification timed out the frontier-select call at the
+// old 30s under normal latency for the configured reasoning model, which
+// emits a verbose reasoning trace before its actual answer.
+const defaultRequestTimeout = 90 * time.Second
 
 type CloudflareProvider struct {
 	accountID       string

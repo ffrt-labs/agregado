@@ -150,7 +150,6 @@ func main() {
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
-	go scheduler.Start(ctx)
 	go backupScheduler.Start(ctx)
 	// A consumer that fails to attach leaves its queue with no reader: messages
 	// pile up silently and the process looks healthy the whole time — the exact

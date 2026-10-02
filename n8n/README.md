@@ -254,14 +254,34 @@ independently-computed (via `openssl`, not this module) signature,
 matching, and enrich-request building, and `src/digest.js`'s UTC date key and
 persisted-artifact URL building.
 
-**`daily-digest.json` is unverified against a live n8n, Agregado, or SMTP
-provider — flagged HITL, same as `newsletter-ingest.json`'s status below**
-(#145's "Out of scope": live verification benefits from #144 being live
-first so there is real enriched content to digest, but this workflow was
-built and unit tested independently). Node parameters for the Schedule
-Trigger, the generic `emailSend` node, and the retry-loop item shape across
-`Wait` were written from n8n's documented shapes and still need exercising
-live.
+**`daily-digest.json`'s happy path has been verified against the live
+stack** (n8n, Agregado, and Resend's SMTP relay) — manually triggering the
+workflow against real enriched content confirmed:
+
+- `Get digest` reaching the real `POST /api/private/digests/{date}` endpoint
+  with the correct `X-Enrichment-Secret` and idempotently returning the same
+  persisted artifact across repeated calls for the same date.
+- `Send digest email` delivering the fetched `Subject`/`HTML`/`Text`
+  unmodified via a real SMTP credential (Resend's `smtp.resend.com` relay) —
+  the email actually arrived.
+
+This same live exercise found and fixed three real bugs along the way (all
+on the Agregado side, not this workflow): `digestartifact`'s handler logged
+nothing on failure (#152), `AI_REQUEST_TIMEOUT`'s 30s default was too tight
+for the configured reasoning model (#153), and that model wraps its JSON
+answer in a ` ```json ` code fence that the decoder choked on (#156) — plus
+`DIGEST_RECIPIENT_EMAIL`/`DIGEST_FROM_EMAIL` were missing from n8n's own
+deploy entirely (`ffrt-labs/homelab-apps#21`), easily confused with the
+same-named, unrelated env var on Agregado's own (now-removed) legacy mailer.
+
+**Still unverified**: the Schedule Trigger actually firing on its own cron
+(every test so far has been a manual execution, not a real 8am trigger), and
+the retry-with-backoff / alert branches (`Classify send failure` → `Wait
+before retry` → re-fetch, and the D1-claim/Notify path) — no genuine SMTP or
+fetch failure occurred during live testing to exercise them end to end.
+Node parameters for the Schedule Trigger and the generic `emailSend` node
+were otherwise written from n8n's documented shapes, now confirmed correct
+for the paths actually exercised.
 
 **`article-enrichment.json` has been verified against the live stack**
 (n8n 2.39.6, Agregado, and the Bridge's D1) — a correctly HMAC-signed

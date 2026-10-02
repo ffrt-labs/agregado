@@ -21,7 +21,16 @@ type Candidate struct {
 	Article
 	Exploration bool
 }
-type Choice struct{ ArticleID, Why string }
+// ArticleID/Why must carry explicit json tags: OpDigestSelect's prompt
+// (internal/ai/prompts.go) promises a snake_case {"article_id":...,"why":...}
+// shape, and encoding/json's untagged case-insensitive fallback does not
+// bridge that naming convention — it matched "Why" against "why" by luck but
+// never "ArticleID" against "article_id", so every real selection silently
+// discarded its article IDs.
+type Choice struct {
+	ArticleID string `json:"article_id"`
+	Why       string `json:"why"`
+}
 type Item struct {
 	Candidate
 	Why, ReadURL, UpvoteURL, DownvoteURL string

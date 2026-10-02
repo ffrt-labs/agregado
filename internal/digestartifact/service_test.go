@@ -2,9 +2,38 @@ package digestartifact
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
+
+// Choice is decoded (internal/ai/cloudflare.go's Select) from the model's
+// response to OpDigestSelect's prompt (internal/ai/prompts.go), which
+// promises exactly this snake_case shape:
+// {"choices":[{"article_id":"...","why":"..."}]}. Without explicit json
+// tags, encoding/json's case-insensitive fallback matches "Why" against
+// "why" but never matches "ArticleID" against "article_id" — a different
+// naming convention, not just a case difference — so ArticleID silently
+// stayed empty on every real call, which made ForDate's byID lookup miss
+// every candidate and ship an empty digest regardless of content quality.
+func TestChoiceDecodesTheSelectPromptsSnakeCaseJSON(t *testing.T) {
+	var response struct {
+		Choices []Choice `json:"choices"`
+	}
+	raw := `{"choices":[{"article_id":"abc123","why":"Worth reading"}]}`
+	if err := json.Unmarshal([]byte(raw), &response); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(response.Choices) != 1 {
+		t.Fatalf("got %d choices, want 1", len(response.Choices))
+	}
+	if got := response.Choices[0].ArticleID; got != "abc123" {
+		t.Errorf("ArticleID = %q, want %q", got, "abc123")
+	}
+	if got := response.Choices[0].Why; got != "Worth reading" {
+		t.Errorf("Why = %q, want %q", got, "Worth reading")
+	}
+}
 
 type memoryStore struct {
 	articles  []Article

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,24 @@ const defaultMaxContentChars = 8000
 // prompt when no live tags are available (nil TagLister or empty result), so the
 // prompt is always well-formed.
 var defaultCategorySlugs = []string{"tech", "business", "personal", "politics", "economy", "science", "health", "entertainment"}
+
+// jsonFenceRe matches a Markdown code fence (with or without a "json"
+// language tag), capturing its content.
+var jsonFenceRe = regexp.MustCompile("(?s)```(?:json)?\\s*(.*?)\\s*```")
+
+// extractJSON recovers the JSON body from a model response that wraps its
+// answer in a Markdown code fence — observed live from the configured
+// reasoning model (agregado#145's digest-select call failed to decode with
+// "invalid character '`' looking for beginning of value" because its answer
+// arrived as ```json\n{...}\n``` rather than raw JSON). Responses that are
+// already plain JSON pass through unchanged (just trimmed), so this is safe
+// to apply unconditionally rather than only on a fenced response.
+func extractJSON(s string) string {
+	if m := jsonFenceRe.FindStringSubmatch(s); len(m) == 2 {
+		return m[1]
+	}
+	return strings.TrimSpace(s)
+}
 
 // defaultRequestTimeout bounds a single Cloudflare call when the caller
 // doesn't configure one. Digest compute makes several of these calls
@@ -260,7 +279,7 @@ func (p *CloudflareProvider) Select(ctx context.Context, candidates []digestarti
 	var response struct {
 		Choices []digestartifact.Choice `json:"choices"`
 	}
-	if err := json.Unmarshal([]byte(result), &response); err != nil {
+	if err := json.Unmarshal([]byte(extractJSON(result)), &response); err != nil {
 		return nil, fmt.Errorf("decode digest selection: %w", err)
 	}
 	return response.Choices, nil

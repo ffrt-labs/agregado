@@ -9,7 +9,6 @@ import (
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/domain"
 	"github.com/felipeafreitas/agregado/internal/mail"
-	"github.com/robfig/cron/v3"
 )
 
 // SourceLister supplies the source list used to resolve article source names
@@ -162,7 +161,11 @@ func (s *Scheduler) runCompute(today string) (ComputedDigest, error) {
 	return computed, nil
 }
 
-func (s *Scheduler) sendDigest(ctx context.Context) error {
+// Send renders today's digest and emails it immediately. The only automatic
+// daily send is n8n's workflow (agregado#145), driven by Agregado's persisted
+// digest artifact endpoint, not this method — Send is wired solely to the
+// admin "send now" HTTP action (internal/api/server.go's Server.Send).
+func (s *Scheduler) Send(ctx context.Context) error {
 	computed, err := s.Today(ctx)
 	if err != nil {
 		return err
@@ -174,18 +177,6 @@ func (s *Scheduler) sendDigest(ctx context.Context) error {
 	}
 
 	return s.mailer.Send(ctx, s.config.RecipientEmail, digestedEmail.Subject, digestedEmail.HTML, digestedEmail.Text)
-}
-
-func (s *Scheduler) Send(ctx context.Context) error {
-	return s.sendDigest(ctx)
-}
-
-func (s *Scheduler) Start(ctx context.Context) {
-	c := cron.New()
-	c.AddFunc(s.config.Schedule, func() { s.sendDigest(ctx) })
-	c.Start()
-	<-ctx.Done()
-	c.Stop()
 }
 
 func (s *Scheduler) Preview(ctx context.Context) (*DigestEmail, error) {

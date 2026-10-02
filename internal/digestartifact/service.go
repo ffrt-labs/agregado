@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -59,8 +60,16 @@ func NewService(store Store, frontier Frontier, baseURL string, floor, max int) 
 	}
 	return &Service{store: store, frontier: frontier, baseURL: strings.TrimSuffix(baseURL, "/"), floor: floor, max: max}
 }
+// ForDate's intermediate steps are logged at Info — the frontier call in
+// particular can legitimately run for tens of seconds to several minutes
+// (a single request scoring/explaining several candidates against a
+// reasoning model), so a live `docker logs` tail should be able to show
+// that it's in flight rather than going silent until it finally succeeds or
+// times out (agregado#145's live verification hit exactly that gap: a 90s
+// wait with no visibility into how far the request had gotten).
 func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, error) {
 	day = date(day)
+	dateStr := day.Format("2006-01-02")
 	if saved, ok, err := s.store.Find(ctx, day); err != nil || ok {
 		return saved, false, err
 	}
@@ -69,12 +78,18 @@ func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, e
 		return Artifact{}, false, err
 	}
 	candidates := uniqueAndDiverse(articles, s.floor, s.max)
+	slog.Info("digest: candidates prepared", "component", "digestartifact", "date", dateStr,
+		"pool", len(articles), "unique", candidates.total, "floor_pass", candidates.floorPass, "selected", len(candidates.items))
 	artifact := Artifact{ID: day.Format("20060102"), Date: day, CandidateCount: candidates.total, FloorPassCount: candidates.floorPass, Subject: "Your Daily Digest - " + day.Format("January 2, 2006")}
 	if len(candidates.items) > 0 {
+		slog.Info("digest: calling frontier select", "component", "digestartifact", "date", dateStr, "candidates", len(candidates.items))
+		start := time.Now()
 		choices, err := s.frontier.Select(ctx, candidates.items)
 		if err != nil {
+			slog.Error("digest: frontier select failed", "component", "digestartifact", "date", dateStr, "elapsed", time.Since(start).String(), "err", err)
 			return Artifact{}, false, err
 		}
+		slog.Info("digest: frontier select returned", "component", "digestartifact", "date", dateStr, "elapsed", time.Since(start).String(), "choices", len(choices))
 		byID := make(map[string]Choice, len(choices))
 		for _, choice := range choices {
 			byID[choice.ArticleID] = choice

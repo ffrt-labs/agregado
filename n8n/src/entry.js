@@ -28,7 +28,8 @@ function buildEntry({ email, sourceId, secret, now }) {
 	if (!html.trim() && !text.trim()) throw new Error("email has no content");
 
 	const id = entryId(headers["message-id"]);
-	const dateMs = Date.parse(headers["date"] || "");
+	// Resend's inbound parser can hand the Date header back wrapped in literal quotes.
+	const dateMs = Date.parse(String(headers["date"] || "").replace(/^"|"$/g, ""));
 	return {
 		id,
 		sourceId,

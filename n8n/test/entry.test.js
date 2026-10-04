@@ -66,3 +66,7 @@ test("recipient alias is the lowercased local-part of the first To address", () 
 	assert.equal(aliasFromRecipients(["a+tag@x.com"]), "a+tag");
 	assert.equal(aliasFromRecipients([]), null);
 });
+
+test("fixture 04 (pathologically nested HTML): extraction throws instead of writing a partial entry", () => {
+	assert.throws(() => buildEntry({ email: email("04-malformed-html.json"), sourceId: "deepnest", secret: "s", now: NOW }), RangeError);
+});

@@ -41,6 +41,14 @@ AI-derived data about content — summary, tags, and (for Articles only) a Score
 Distinct from the content itself, and always derived, never authoritative.
 _Avoid_: Metadata, Analysis, Processing
 
+**Summary**:
+The Enrichment that stands in for an Article's content wherever a model judges it —
+Digest selection and the PREFERENCES.md regeneration. Machine input: not shown to you.
+The human-facing line in the Digest is the "why it matters", not the Summary. A summary
+you read would be a separate thing, written only for selected Articles.
+Judged by whether the judgements made from it are good, not by how it reads.
+_Avoid_: Blurb, Abstract, Excerpt (an Excerpt is raw content, not derived)
+
 **Score**:
 An Article's relevance to you, judged against the preference profile, with the reason
 behind the judgement. Only Articles have one: a Bookmark has already survived the

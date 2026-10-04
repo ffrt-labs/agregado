@@ -114,7 +114,11 @@ type client struct {
 }
 
 func (c client) complete(ctx context.Context, model, system, user string) (string, usage, error) {
-	body, _ := json.Marshal(map[string]any{"messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}})
+	// Workers AI defaults max_tokens to 256, which a reasoning model can spend
+	// entirely on thinking before writing any answer. Production sends no
+	// max_tokens; the bake-off lifts the cap for every arm alike.
+	maxTokens, _ := strconv.Atoi(envOr("MAX_TOKENS", "4096"))
+	body, _ := json.Marshal(map[string]any{"max_tokens": maxTokens, "messages": []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}})
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", c.account, model)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+c.token)
@@ -299,7 +303,7 @@ func selectFor(ctx context.Context, cf client, model, system string, cands []can
 	}
 	start, end := strings.Index(out, "{"), strings.LastIndex(out, "}")
 	if start < 0 || end < start {
-		return nil, u, fmt.Errorf("no JSON in selection: %s", textutil.Truncate(out, 200))
+		return nil, u, fmt.Errorf("no JSON in selection (%d out tokens): %q", u.Out, textutil.Truncate(out, 300))
 	}
 	if err := json.Unmarshal([]byte(out[start:end+1]), &resp); err != nil {
 		return nil, u, fmt.Errorf("decode selection: %w", err)

@@ -75,6 +75,14 @@ test("the failure branch is reachable from every fallible node and always ends i
 	assert.equal(workflow.connections["Notify"].main[0][0].node, "Fail execution");
 });
 
+test("failure-branch nodes read Verify Svix's output 0 explicitly (they hang off its error output)", () => {
+	const claim = workflow.nodes.find((n) => n.name === "Alert claim query").parameters.jsCode;
+	assert.match(claim, /\$\('Verify Svix'\)\.first\(0\)/);
+	assert.doesNotMatch(claim, /\$\('Verify Svix'\)\.first\(\)/);
+	const notify = JSON.stringify(workflow.nodes.find((n) => n.name === "Notify").parameters);
+	assert.doesNotMatch(notify, /Verify Svix/);
+});
+
 test("committed workflow JSON matches the generator (run `npm run build`)", () => {
 	const committed = fs.readFileSync(path.join(__dirname, "..", "workflows", "newsletter-ingest.json"), "utf8");
 	assert.equal(committed, JSON.stringify(workflow, null, 2) + "\n");

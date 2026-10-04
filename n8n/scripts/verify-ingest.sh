@@ -89,7 +89,7 @@ for i in 0 1 2; do
     2) check "$([ -z "$canon" ] && echo 1 || echo 0)" "canonical_url empty (got '$canon')" ;;
   esac
   r2_exists "$id"; check "$([ $? = 0 ] && echo 1 || echo 0)" "R2 object $id exists"
-  feed=$(curl -s -u "x:$(get_var SECRET "$a")""https://$BRIDGE_HOST/feed/$a.atom")
+  feed=$(curl -s -u "x:$(get_var SECRET "$a")" "https://$BRIDGE_HOST/feed/$a.atom")
   check "$(grep -q "$id" <<<"$feed" && echo 1 || echo 0)" "Atom feed contains the entry"
   page=$(curl -s -o "${TMPDIR:-/tmp}/p-$a.html" -w '%{http_code}' "https://$BRIDGE_HOST/p/$uuid")
   check "$([ "$page" = 200 ] && echo 1 || echo 0)" "/p/$uuid -> HTTP $page"

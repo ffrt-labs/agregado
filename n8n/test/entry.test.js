@@ -70,3 +70,11 @@ test("recipient alias is the lowercased local-part of the first To address", () 
 test("fixture 04 (pathologically nested HTML): extraction throws instead of writing a partial entry", () => {
 	assert.throws(() => buildEntry({ email: email("04-malformed-html.json"), sourceId: "deepnest", secret: "s", now: NOW }), RangeError);
 });
+
+test("Date header wrapped in literal quotes (as Resend inbound returns it) still parses", () => {
+	const e = buildEntry({
+		email: { headers: { "message-id": "<q@x>", date: '"2026-10-04T19:06:39.000Z"' }, subject: "s", html: "<p>hi</p>", text: "hi" },
+		sourceId: "s", secret: "s", now: 1,
+	});
+	assert.equal(e.publishedAt, Math.floor(Date.parse("2026-10-04T19:06:39.000Z") / 1000));
+});

@@ -26,7 +26,7 @@
 //	go run ./cmd/summary-bakeoff-prototype
 //
 // Optional: DAYS=2026-09-29,2026-09-30,2026-10-01 (default: the 3 most recent
-// days with candidates, excluding today), SELECT_MODEL (default kimi-k2.6),
+// days with candidates, excluding today), SELECT_MODEL (default gpt-oss-120b; kimi is paid-plan only),
 // CHEAP_MODEL (default gemma-4-26b-a4b-it),
 // OUT (default ./summary-bakeoff-out).
 //
@@ -164,7 +164,7 @@ func main() {
 	if err := env.Parse(&dbc); err != nil {
 		log.Fatal(err)
 	}
-	current, selectModel := must("AI_MODEL"), envOr("SELECT_MODEL", "@cf/moonshotai/kimi-k2.6")
+	current, selectModel := must("AI_MODEL"), envOr("SELECT_MODEL", "@cf/openai/gpt-oss-120b")
 	cheap := envOr("CHEAP_MODEL", "@cf/google/gemma-4-26b-a4b-it")
 	cf := client{must("CLOUDFLARE_ACCOUNT_ID"), must("CLOUDFLARE_API_TOKEN"), &http.Client{Timeout: 5 * time.Minute}}
 	floor, _ := strconv.Atoi(envOr("DIGEST_MIN_SCORE", "3"))

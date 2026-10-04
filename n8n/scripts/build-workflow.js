@@ -162,8 +162,10 @@ return [{ json: { query: __mods.sql.upsertEntryQuery(entry) } }];
 
 	// Failure branch: every fallible node's error output lands here.
 	codeNode("Alert claim query", [1320, 620], ["sql"], `
-const key = $('Verify Svix').first().json.alertKey;
-return [{ json: { query: __mods.sql.claimAlertQuery(key, Math.floor(Date.now() / 1000)) } }];
+// Output 0 explicitly: this node hangs off Verify Svix's error output (index 1), and a bare
+// .first() would read that empty output instead of the verified item.
+const key = $('Verify Svix').first(0).json.alertKey;
+return [{ json: { alertKey: key, query: __mods.sql.claimAlertQuery(key, Math.floor(Date.now() / 1000)) } }];
 `),
 	d1Node("Claim alert", [1540, 620], "={{ $json.query }}"),
 	{
@@ -182,7 +184,7 @@ return [{ json: { query: __mods.sql.claimAlertQuery(key, Math.floor(Date.now() /
 			sendBody: true,
 			contentType: "raw",
 			rawContentType: "text/plain",
-			body: "=Newsletter ingest failed (webhook {{ $('Verify Svix').first().json.alertKey }}). Resend will retry for ~27h; check n8n execution {{ $execution.id }}.",
+			body: "=Newsletter ingest failed (webhook {{ $('Alert claim query').first().json.alertKey }}). Resend will retry for ~27h; check n8n execution {{ $execution.id }}.",
 			options: {},
 		},
 		id: "notify",

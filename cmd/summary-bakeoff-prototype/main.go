@@ -10,7 +10,8 @@
 //
 //	lead       title + first 150 words of the content, no model
 //	current    today's OpSummarize prompt on AI_MODEL (400-char excerpt)
-//	structured purpose-built claims/entities/kind prompt on AI_MODEL
+//	structured purpose-built claims/entities/kind prompt on CHEAP_MODEL
+//	           (default gemma-4-26b: the cheap tier, whatever production runs)
 //	long       no Summary model; selection reads the first 800 words
 //
 // Held fixed: candidate preparation (digestartifact's own), the
@@ -26,6 +27,7 @@
 //
 // Optional: DAYS=2026-09-29,2026-09-30,2026-10-01 (default: the 3 most recent
 // days with candidates, excluding today), SELECT_MODEL (default kimi-k2.6),
+// CHEAP_MODEL (default gemma-4-26b-a4b-it),
 // OUT (default ./summary-bakeoff-out).
 //
 // Output: OUT/<day>.html (four blind Digests, A–D), OUT/RANKING.md (fill in),
@@ -65,6 +67,7 @@ Be factual: state only what the content says. If the content is a stub or trunca
 // Neurons per million tokens, from developers.cloudflare.com/workers-ai/platform/pricing.
 var neuronRates = map[string][2]float64{
 	"@cf/moonshotai/kimi-k2.6":             {86364, 363636},
+	"@cf/moonshotai/kimi-k2.7-code":        {86364, 363636},
 	"@cf/google/gemma-4-26b-a4b-it":        {9091, 27273},
 	"@cf/openai/gpt-oss-120b":              {31818, 68182},
 	"@cf/deepseek-ai/deepseek-v4-pro-0813": {120000, 360000},
@@ -79,6 +82,9 @@ type usage struct {
 }
 
 func (u usage) neurons() float64 {
+	if u.In+u.Out == 0 {
+		return 0
+	}
 	r, ok := neuronRates[u.Model]
 	if !ok {
 		return -1
@@ -158,7 +164,8 @@ func main() {
 	if err := env.Parse(&dbc); err != nil {
 		log.Fatal(err)
 	}
-	cheap, selectModel := must("AI_MODEL"), envOr("SELECT_MODEL", "@cf/moonshotai/kimi-k2.6")
+	current, selectModel := must("AI_MODEL"), envOr("SELECT_MODEL", "@cf/moonshotai/kimi-k2.6")
+	cheap := envOr("CHEAP_MODEL", "@cf/google/gemma-4-26b-a4b-it")
 	cf := client{must("CLOUDFLARE_ACCOUNT_ID"), must("CLOUDFLARE_API_TOKEN"), &http.Client{Timeout: 5 * time.Minute}}
 	floor, _ := strconv.Atoi(envOr("DIGEST_MIN_SCORE", "3"))
 	maxChars, _ := strconv.Atoi(envOr("AI_MAX_CONTENT_CHARS", "8000"))
@@ -181,7 +188,7 @@ func main() {
 
 	days := pickDays(ctx, pool)
 	key := map[string]map[string]string{}
-	metrics := [][]string{{"day", "arm", "candidates", "partial", "selected", "summary_in_tok", "summary_out_tok", "summary_ms", "summary_neurons", "select_model", "select_in_tok", "select_out_tok", "select_ms", "select_neurons", "neurons_total_day", "pct_free_daily_10k", "select_error"}}
+	metrics := [][]string{{"day", "arm", "candidates", "partial", "selected", "summary_model", "summary_in_tok", "summary_out_tok", "summary_ms", "summary_neurons", "select_model", "select_in_tok", "select_out_tok", "select_ms", "select_neurons", "neurons_total_day", "pct_free_daily_10k", "select_error"}}
 	var ranking strings.Builder
 	ranking.WriteString("# Summary bake-off — your ranking (agregado#86)\n\nFor each day, rank A–D (1 = best) and mark any Digest that is **clearly worse**: it misses an Article you'd have wanted, or a \"why\" is wrong/misleading. Slightly worse wording does not count. Only then open `_key/`.\n\n")
 
@@ -206,7 +213,7 @@ func main() {
 
 		var results []armResult
 		for _, arm := range arms {
-			res := armResult{Arm: arm, Summaries: map[string]string{}, SummaryUse: usage{Model: cheap}}
+			res := armResult{Arm: arm, Summaries: map[string]string{}, SummaryUse: usage{}}
 			for _, c := range cands {
 				var s string
 				switch arm {
@@ -216,7 +223,7 @@ func main() {
 					s = c.Title + ". " + words(c.Content, 800)
 				case "current":
 					var u usage
-					s, u, err = cf.complete(ctx, cheap, summarizePrompt, fmt.Sprintf("Articles:\n- %s\n  Excerpt: %s\n\nSummary:", c.Title, textutil.Clean(c.Content, 400)))
+					s, u, err = cf.complete(ctx, current, summarizePrompt, fmt.Sprintf("Articles:\n- %s\n  Excerpt: %s\n\nSummary:", c.Title, textutil.Clean(c.Content, 400)))
 					res.SummaryUse = add(res.SummaryUse, u)
 				case "structured":
 					var u usage
@@ -255,7 +262,7 @@ func main() {
 		for _, r := range results {
 			sn, se := r.SummaryUse.neurons(), r.SelectUse.neurons()
 			total := sn + se
-			metrics = append(metrics, []string{ds, r.Arm, itoa(len(cands)), itoa(partial), itoa(len(r.Choices)),
+			metrics = append(metrics, []string{ds, r.Arm, itoa(len(cands)), itoa(partial), itoa(len(r.Choices)), r.SummaryUse.Model,
 				itoa(r.SummaryUse.In), itoa(r.SummaryUse.Out), strconv.FormatInt(r.SummaryUse.Ms, 10), f(sn),
 				selectModel, itoa(r.SelectUse.In), itoa(r.SelectUse.Out), strconv.FormatInt(r.SelectUse.Ms, 10), f(se), f(total), f(total / 100), r.SelectErr})
 		}

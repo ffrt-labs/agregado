@@ -52,3 +52,15 @@ test("isCanonicalCandidate", () => {
 	];
 	for (const [url, want] of cases) assert.equal(isCanonicalCandidate(url), want, url);
 });
+
+test("canonical recovery works without the URL global (n8n's Code-node sandbox may not expose it)", () => {
+	const saved = globalThis.URL;
+	globalThis.URL = undefined;
+	try {
+		assert.equal(resolveCanonicalUrl({ "archived-at": "<https://d.example.com/p/1>" }, ""), "https://d.example.com/p/1");
+		assert.equal(resolveCanonicalUrl({}, '<a href="https://s.example.com/r/1?u=1">View this email in your browser</a>'), "https://s.example.com/r/1?u=1");
+		assert.equal(resolveCanonicalUrl({ "archived-at": "<mailto:a@b.c>" }, ""), null);
+	} finally {
+		globalThis.URL = saved;
+	}
+});

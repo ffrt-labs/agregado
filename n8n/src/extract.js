@@ -32,14 +32,20 @@ function hasBlockedSegment(url) {
 	return segments.some((s) => ["unsubscribe", "pixel"].includes(s.toLowerCase()));
 }
 
+// Parsed by hand: n8n's Code-node sandbox may not expose the URL global, and a
+// try/catch around new URL() then rejects every candidate silently.
+function parseHttpUrl(rawUrl) {
+	const raw = String(rawUrl).trim();
+	if (/\s/.test(raw)) return null;
+	const m = raw.match(/^https?:\/\/([^/?#]+)([^?#]*)/i);
+	if (!m) return null;
+	const hostname = m[1].replace(/^.*@/, "").replace(/:\d*$/, "").toLowerCase();
+	return hostname ? { hostname, pathname: m[2] } : null;
+}
+
 function isCanonicalCandidate(rawUrl) {
-	let url;
-	try {
-		url = new URL(String(rawUrl).trim());
-	} catch {
-		return false;
-	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+	const url = parseHttpUrl(rawUrl);
+	if (!url) return false;
 	if (hasBlockedSegment(url)) return false;
 	const lower = String(rawUrl).toLowerCase();
 	return !SHARE_MARKERS.some((m) => lower.includes(m));

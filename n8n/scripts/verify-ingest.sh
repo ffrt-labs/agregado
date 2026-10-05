@@ -81,7 +81,7 @@ for i in 0 1 2; do
   check "$([ "$n" = 1 ] && echo 1 || echo 0)" "exactly one D1 entry (got $n)"
   [ "$n" = 1 ] || continue
   id=$(jq -r '.[0].id' <<<"$row"); canon=$(jq -r '.[0].canonical_url // ""' <<<"$row"); uuid=$(jq -r '.[0].permalink_uuid' <<<"$row")
-  check "$([ "$id" = "$(sha "$(get_var MSGID "$a")")" ] && echo 1 || echo 0)" "entry id == hash(Message-ID)  [if this fails, Resend rewrote Message-ID; keys below still use the D1 id]"
+  check "$([[ "$id" =~ ^[0-9a-f]{64}$ ]] && echo 1 || echo 0)" "entry id is a sha256 hex (Resend rewrites Message-ID, so it is not hash of the one we sent)"
   check "$([ "$(jq -r '.[0].len' <<<"$row")" -gt 0 ] && echo 1 || echo 0)" "readable_content non-empty"
   case $i in
     0) check "$([ "$canon" = "${EXPECT_CANON[0]}" ] && echo 1 || echo 0)" "canonical_url from Archived-At header (got '$canon')" ;;
@@ -98,10 +98,10 @@ for i in 0 1 2; do
 done
 
 echo "== Fixture 4 (failure path)"
-a=${ALIASES[3]}; id4=$(sha "$(get_var MSGID "$a")")
+a=${ALIASES[3]}
 n=$(d1 "SELECT count(*) AS n FROM entries WHERE source_id = '$a'" | jq '.[0].n')
 check "$([ "$n" = 0 ] && echo 1 || echo 0)" "no D1 entry (got $n)"
-r2_exists "$id4"; check "$([ $? != 0 ] && echo 1 || echo 0)" "no R2 object for hash(Message-ID) $id4 (best effort: valid only if Message-ID was kept)"
+echo "  (R2 key is unknowable after Message-ID rewriting; failure is in Build entry, before Write R2: confirm in n8n that Write R2 did not run)"
 ALERT_ROWS=$(d1 "SELECT id FROM ingest_alerts WHERE alerted_at >= $START")
 na=$(jq 'length' <<<"$ALERT_ROWS")
 check "$([ "$na" = 1 ] && echo 1 || echo 0)" "exactly one new ingest_alerts row (got $na)"
@@ -124,7 +124,6 @@ na2=$(d1 "SELECT count(*) AS n FROM ingest_alerts WHERE alerted_at >= $START" | 
 check "$([ "$na2" = 1 ] && echo 1 || echo 0)" "still exactly one ingest_alerts row (got $na2)"
 n=$(d1 "SELECT count(*) AS n FROM entries WHERE source_id = '$a'" | jq '.[0].n')
 check "$([ "$n" = 0 ] && echo 1 || echo 0)" "still no D1 entry (got $n)"
-r2_exists "$id4"; check "$([ $? != 0 ] && echo 1 || echo 0)" "still no R2 object"
 echo "  (confirm in the alert channel that no second notification arrived, and in n8n that the replay also failed)"
 
 echo
@@ -134,7 +133,6 @@ if [ "${CLEANUP:-0}" = 1 ]; then
   echo "== Cleanup"
   for a in "${ALIASES[@]}"; do
     for id in $(d1 "SELECT id FROM entries WHERE source_id = '$a'" | jq -r '.[].id'); do r2_delete "$id"; done
-    r2_delete "$(sha "$(get_var MSGID "$a")")"
     d1 "DELETE FROM entries WHERE source_id = '$a'" >/dev/null
     d1 "DELETE FROM sources WHERE id = '$a'" >/dev/null
   done

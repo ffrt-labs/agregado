@@ -35,15 +35,32 @@ type Item struct {
 	Candidate
 	Why, ReadURL, UpvoteURL, DownvoteURL string
 }
+// WindowStart/WindowEnd are the Enrichment window the candidates came from;
+// the next Digest's window starts at this one's WindowEnd. EmptyReason is set
+// only on an artifact with no items, which is never persisted.
 type Artifact struct {
 	ID                                            string
 	Date                                          time.Time
 	Subject, HTML, Text                           string
 	Items                                         []Item
 	CandidateCount, FloorPassCount, SelectedCount int
+	WindowStart, WindowEnd                        time.Time
+	EmptyReason                                   string
 }
+
+// Pool is the Articles whose Enrichment completed in [Since, Until): Since is
+// the previous persisted Digest's WindowEnd, bounded by the fallback lookback.
+type Pool struct {
+	Since, Until time.Time
+	Articles     []Article
+}
+
+// FallbackLookback bounds the candidate window when there is no previous
+// Digest, or the previous one is older than this (e.g. after an outage).
+const FallbackLookback = 72 * time.Hour
+
 type Store interface {
-	Candidates(context.Context, time.Time) ([]Article, error)
+	Candidates(ctx context.Context, day time.Time, lookback time.Duration) (Pool, error)
 	Find(context.Context, time.Time) (Artifact, bool, error)
 	Save(context.Context, Artifact) (Artifact, bool, error)
 }
@@ -82,14 +99,15 @@ func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, e
 	if saved, ok, err := s.store.Find(ctx, day); err != nil || ok {
 		return saved, false, err
 	}
-	articles, err := s.store.Candidates(ctx, day)
+	pool, err := s.store.Candidates(ctx, day, FallbackLookback)
 	if err != nil {
 		return Artifact{}, false, err
 	}
-	candidates := uniqueAndDiverse(articles, s.floor, s.max)
+	candidates := uniqueAndDiverse(pool.Articles, s.floor, s.max)
 	slog.Info("digest: candidates prepared", "component", "digestartifact", "date", dateStr,
-		"pool", len(articles), "unique", candidates.total, "floor_pass", candidates.floorPass, "selected", len(candidates.items))
-	artifact := Artifact{ID: day.Format("20060102"), Date: day, CandidateCount: candidates.total, FloorPassCount: candidates.floorPass, Subject: "Your Daily Digest - " + day.Format("January 2, 2006")}
+		"since", pool.Since, "until", pool.Until,
+		"pool", len(pool.Articles), "unique", candidates.total, "floor_pass", candidates.floorPass, "selected", len(candidates.items))
+	artifact := Artifact{ID: day.Format("20060102"), Date: day, CandidateCount: candidates.total, FloorPassCount: candidates.floorPass, Subject: "Your Daily Digest - " + day.Format("January 2, 2006"), WindowStart: pool.Since, WindowEnd: pool.Until}
 	if len(candidates.items) > 0 {
 		slog.Info("digest: calling frontier select", "component", "digestartifact", "date", dateStr, "candidates", len(candidates.items))
 		start := time.Now()
@@ -110,6 +128,16 @@ func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, e
 		}
 	}
 	artifact.SelectedCount = len(artifact.Items)
+	if artifact.SelectedCount == 0 {
+		// Still returned so n8n sends it (#79's AC12), but not persisted: the
+		// endpoint is idempotent, and a saved empty artifact would be re-sent
+		// for this date even after the pipeline recovers. Not persisting also
+		// keeps the next window anchored to the last Digest that had Articles.
+		artifact.EmptyReason = emptyReason(artifact)
+		artifact.HTML, artifact.Text = render(artifact)
+		slog.Warn("digest: empty, not persisted", "component", "digestartifact", "date", dateStr, "reason", artifact.EmptyReason)
+		return artifact, false, nil
+	}
 	artifact.HTML, artifact.Text = render(artifact)
 	return s.store.Save(ctx, artifact)
 }
@@ -138,7 +166,9 @@ func uniqueAndDiverse(articles []Article, floor, max int) prepared {
 		}
 	}
 	selected := diverse(passing, max)
-	if len(selected) > 0 && len(selected) < 3 {
+	// Tops up to three even when nothing passes: low-scoring candidates must
+	// never force an empty Digest (#79's AC12).
+	if len(selected) < 3 {
 		for _, a := range diverse(rejected, 3-len(selected)) {
 			a.Exploration = true
 			selected = append(selected, a)
@@ -178,9 +208,17 @@ func diverse(articles []Article, limit int) []Candidate {
 func (s *Service) item(c Candidate, why string) Item {
 	return Item{Candidate: c, Why: why, ReadURL: s.baseURL + "/r/" + c.ID, UpvoteURL: s.baseURL + "/f/" + c.ID + "/up", DownvoteURL: s.baseURL + "/f/" + c.ID + "/down"}
 }
+func emptyReason(a Artifact) string {
+	if a.CandidateCount == 0 {
+		// The window is on the database clock (TIMESTAMP columns), so no zone
+		// is claimed here.
+		return fmt.Sprintf("No Articles finished Enrichment between %s and %s.", a.WindowStart.Format("Jan 2 15:04"), a.WindowEnd.Format("Jan 2 15:04"))
+	}
+	return fmt.Sprintf("The selection model chose none of %d candidate Articles.", a.CandidateCount)
+}
 func render(a Artifact) (string, string) {
 	if len(a.Items) == 0 {
-		return "<p>No Articles passed the Digest quality floor today.</p>", "No Articles passed the Digest quality floor today.\n"
+		return "<p>" + template.HTMLEscapeString(a.EmptyReason) + "</p>", a.EmptyReason + "\n"
 	}
 	var html, text strings.Builder
 	html.WriteString("<ol>")

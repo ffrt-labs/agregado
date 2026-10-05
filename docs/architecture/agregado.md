@@ -261,7 +261,7 @@ uses current compact evidence, not an unbounded raw click log.
 | Enrichment | Legacy weights and new profile path coexist | One content-free Article Index pipeline | #84/#85 |
 | Failure recovery | Failed canonical URL cannot be retried | Explicit retry transition; n8n owns schedule | New implementation slice |
 | Digest | Internal cron and SMTP plus artifact builder | Artifact builder only | #84/#85 |
-| Candidate window | UTC `published_at` day | Since previous successful Digest | New implementation slice |
+| Candidate window | Since previous persisted Digest, by `enriched_at`, 72h fallback lookback | Since previous successful Digest | Done |
 | Preference profile | Local file requirement partially wired | Drive-authoritative, validated cache, automatic regeneration | #89 plus n8n workflows |
 | Reader/admin UI | Full HTMX surface | Removed | #85 |
 | Bookmarks | Legacy local bookmark fields/UI | Karakeep, completely outside Agregado | #83/#85 |

@@ -87,6 +87,7 @@ is idempotent per `canonical_url` (#77's AC2), so a retried or duplicate
 ```
 Schedule (0 8 * * *, matching DIGEST_SCHEDULE's default) → Build digest request
   → Get digest (POST /api/private/digests/{today}) → Send digest email
+  → Check empty digest → [alert branch if the Digest selected nothing]
 any node's error output → Digest fetch failed / Classify send failure
   → Alert claim query (D1) → Notify (first time only) → Fail execution
 ```
@@ -118,6 +119,14 @@ D1-claim-then-notify alert branch as the other two workflows
 model (`SEND -->|failure| RETRY`, `ERROR --> ALERT`) and this ticket's reason
 for existing: the digest-send path must never be as unobservable as #44
 describes for the legacy scheduler.
+
+An empty Digest is still sent (#79's AC12), then `Check empty digest` routes
+it to the same alert branch with Agregado's `EmptyReason` (no Articles
+finished Enrichment in the window, or the selection model chose none of
+them). Agregado does not persist an empty artifact, so re-running the
+workflow for that date after fixing the cause regenerates it instead of
+re-sending the empty one. The alert claim is keyed on the date, so an empty
+Digest and a send failure on the same day notify once between them.
 
 ## Configuration (n8n)
 

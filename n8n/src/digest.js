@@ -22,4 +22,13 @@ function buildDigestRequest(now, baseUrl) {
 	return { date, url: `${String(baseUrl).replace(/\/+$/, "")}/api/private/digests/${date}` };
 }
 
-module.exports = { digestDateKey, buildDigestRequest };
+// An empty Digest is still sent (#79's AC12), but it means the pipeline
+// produced nothing to read, so it also reaches the alert channel. Agregado
+// states why in EmptyReason; the artifact is not persisted, so re-running the
+// workflow once the cause is fixed regenerates it.
+function emptyDigestAlert(artifact, date) {
+	if (!artifact || artifact.SelectedCount > 0) return null;
+	return { date, message: `empty: ${artifact.EmptyReason || "no reason given"}` };
+}
+
+module.exports = { digestDateKey, buildDigestRequest, emptyDigestAlert };

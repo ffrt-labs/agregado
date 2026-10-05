@@ -25,7 +25,7 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.digest = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the daily-digest workflow (agregado#145): today's date as\n// the Digest's idempotency key, and the request to Agregado's persisted\n// artifact endpoint (internal/digestartifact/handler.go:\n// POST /api/private/digests/{date}). No I/O, so it is unit-testable, the\n// same pattern as src/enrich.js/src/miniflux.js for article enrichment.\n\n// UTC, matching the handler's own day boundary (it parses the path segment\n// with time.Parse(\"2006-01-02\", raw) and otherwise defaults to\n// time.Now().UTC()) — using the n8n container's local day here could ask for\n// a different day than the one Agregado would pick on its own default path.\nfunction digestDateKey(now) {\n\treturn new Date(now).toISOString().slice(0, 10);\n}\n\n// The endpoint is idempotent per date (#79's AC8): calling it again for the\n// same date re-returns the already-persisted artifact rather than\n// regenerating it, so a retry only ever needs this same request rebuilt\n// against the same date, never a different one.\nfunction buildDigestRequest(now, baseUrl) {\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst date = digestDateKey(now);\n\treturn { date, url: `${String(baseUrl).replace(/\\/+$/, \"\")}/api/private/digests/${date}` };\n}\n\nmodule.exports = { digestDateKey, buildDigestRequest };\n\nreturn module.exports; })(__req);\n\n\nconst { date, url } = __mods.digest.buildDigestRequest(Date.now(), $env.AGREGADO_BASE_URL);\nreturn [{ json: { date, url, attempt: 0 } }];\n"
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.digest = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the daily-digest workflow (agregado#145): today's date as\n// the Digest's idempotency key, and the request to Agregado's persisted\n// artifact endpoint (internal/digestartifact/handler.go:\n// POST /api/private/digests/{date}). No I/O, so it is unit-testable, the\n// same pattern as src/enrich.js/src/miniflux.js for article enrichment.\n\n// UTC, matching the handler's own day boundary (it parses the path segment\n// with time.Parse(\"2006-01-02\", raw) and otherwise defaults to\n// time.Now().UTC()) — using the n8n container's local day here could ask for\n// a different day than the one Agregado would pick on its own default path.\nfunction digestDateKey(now) {\n\treturn new Date(now).toISOString().slice(0, 10);\n}\n\n// The endpoint is idempotent per date (#79's AC8): calling it again for the\n// same date re-returns the already-persisted artifact rather than\n// regenerating it, so a retry only ever needs this same request rebuilt\n// against the same date, never a different one.\nfunction buildDigestRequest(now, baseUrl) {\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst date = digestDateKey(now);\n\treturn { date, url: `${String(baseUrl).replace(/\\/+$/, \"\")}/api/private/digests/${date}` };\n}\n\n// An empty Digest is still sent (#79's AC12), but it means the pipeline\n// produced nothing to read, so it also reaches the alert channel. Agregado\n// states why in EmptyReason; the artifact is not persisted, so re-running the\n// workflow once the cause is fixed regenerates it.\nfunction emptyDigestAlert(artifact, date) {\n\tif (!artifact || artifact.SelectedCount > 0) return null;\n\treturn { date, message: `empty: ${artifact.EmptyReason || \"no reason given\"}` };\n}\n\nmodule.exports = { digestDateKey, buildDigestRequest, emptyDigestAlert };\n\nreturn module.exports; })(__req);\n\n\nconst { date, url } = __mods.digest.buildDigestRequest(Date.now(), $env.AGREGADO_BASE_URL);\nreturn [{ json: { date, url, attempt: 0 } }];\n"
       },
       "id": "build-digest-request",
       "name": "Build digest request",
@@ -96,6 +96,22 @@
         200
       ],
       "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.digest = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the daily-digest workflow (agregado#145): today's date as\n// the Digest's idempotency key, and the request to Agregado's persisted\n// artifact endpoint (internal/digestartifact/handler.go:\n// POST /api/private/digests/{date}). No I/O, so it is unit-testable, the\n// same pattern as src/enrich.js/src/miniflux.js for article enrichment.\n\n// UTC, matching the handler's own day boundary (it parses the path segment\n// with time.Parse(\"2006-01-02\", raw) and otherwise defaults to\n// time.Now().UTC()) — using the n8n container's local day here could ask for\n// a different day than the one Agregado would pick on its own default path.\nfunction digestDateKey(now) {\n\treturn new Date(now).toISOString().slice(0, 10);\n}\n\n// The endpoint is idempotent per date (#79's AC8): calling it again for the\n// same date re-returns the already-persisted artifact rather than\n// regenerating it, so a retry only ever needs this same request rebuilt\n// against the same date, never a different one.\nfunction buildDigestRequest(now, baseUrl) {\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst date = digestDateKey(now);\n\treturn { date, url: `${String(baseUrl).replace(/\\/+$/, \"\")}/api/private/digests/${date}` };\n}\n\n// An empty Digest is still sent (#79's AC12), but it means the pipeline\n// produced nothing to read, so it also reaches the alert channel. Agregado\n// states why in EmptyReason; the artifact is not persisted, so re-running the\n// workflow once the cause is fixed regenerates it.\nfunction emptyDigestAlert(artifact, date) {\n\tif (!artifact || artifact.SelectedCount > 0) return null;\n\treturn { date, message: `empty: ${artifact.EmptyReason || \"no reason given\"}` };\n}\n\nmodule.exports = { digestDateKey, buildDigestRequest, emptyDigestAlert };\n\nreturn module.exports; })(__req);\n\n\nconst alert = __mods.digest.emptyDigestAlert($('Get digest').last().json, $('Build digest request').first().json.date);\nreturn alert ? [{ json: alert }] : [];\n"
+      },
+      "id": "check-empty-digest",
+      "name": "Check empty digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        120
+      ],
+      "onError": "stopWorkflow"
     },
     {
       "parameters": {
@@ -213,7 +229,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "text/plain",
-        "body": "=Daily digest for {{ $('Alert claim query').first().json.date }} failed: {{ $('Alert claim query').first().json.message }}. Check n8n execution {{ $execution.id }}.",
+        "body": "=Daily digest for {{ $('Alert claim query').first().json.date }}: {{ $('Alert claim query').first().json.message }}. Check n8n execution {{ $execution.id }}.",
         "options": {}
       },
       "id": "notify",
@@ -227,7 +243,7 @@
     },
     {
       "parameters": {
-        "errorMessage": "daily digest send failed"
+        "errorMessage": "daily digest failed or was empty"
       },
       "id": "fail",
       "name": "Fail execution",
@@ -293,10 +309,27 @@
     },
     "Send digest email": {
       "main": [
-        [],
+        [
+          {
+            "node": "Check empty digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Classify send failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check empty digest": {
+      "main": [
+        [
+          {
+            "node": "Alert claim query",
             "type": "main",
             "index": 0
           }

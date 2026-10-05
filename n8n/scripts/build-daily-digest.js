@@ -79,6 +79,13 @@ return [{ json: { date, message } }];
 		position: [660, 200],
 		onError: "continueErrorOutput",
 	},
+	// Runs only after a successful send. "Get digest" is read with last():
+	// a send-failure retry re-runs it, and the artifact that was actually
+	// sent is the latest fetch.
+	codeNode("Check empty digest", [880, 120], ["digest"], `
+const alert = __mods.digest.emptyDigestAlert($('Get digest').last().json, $('Build digest request').first().json.date);
+return alert ? [{ json: alert }] : [];
+`),
 	codeNode("Classify send failure", [880, 400], [], `
 const err = $input.first().json || {};
 const built = $('Build digest request').first().json;
@@ -138,7 +145,7 @@ return [{ json: { date, message, query: __mods.sql.claimAlertQuery('digest-' + d
 			sendBody: true,
 			contentType: "raw",
 			rawContentType: "text/plain",
-			body: "=Daily digest for {{ $('Alert claim query').first().json.date }} failed: {{ $('Alert claim query').first().json.message }}. Check n8n execution {{ $execution.id }}.",
+			body: "=Daily digest for {{ $('Alert claim query').first().json.date }}: {{ $('Alert claim query').first().json.message }}. Check n8n execution {{ $execution.id }}.",
 			options: {},
 		},
 		id: "notify",
@@ -148,7 +155,7 @@ return [{ json: { date, message, query: __mods.sql.claimAlertQuery('digest-' + d
 		position: [1980, 560],
 	},
 	{
-		parameters: { errorMessage: "daily digest send failed" },
+		parameters: { errorMessage: "daily digest failed or was empty" },
 		id: "fail",
 		name: "Fail execution",
 		type: "n8n-nodes-base.stopAndError",
@@ -162,14 +169,15 @@ return [{ json: { date, message, query: __mods.sql.claimAlertQuery('digest-' + d
 // precedent as article-enrichment.json's "Verify signature"/"Parse entries"
 // — so it fails the execution loudly instead of routing into a branch with
 // nothing to report.
-for (const n of nodes) if (["Alert claim query", "Claim alert", "Digest fetch failed", "Classify send failure", "Build digest request"].includes(n.name)) n.onError = "stopWorkflow";
+for (const n of nodes) if (["Alert claim query", "Claim alert", "Digest fetch failed", "Classify send failure", "Check empty digest", "Build digest request"].includes(n.name)) n.onError = "stopWorkflow";
 
 const connections = {
 	"Digest schedule": { main: [[link("Build digest request")]] },
 	"Build digest request": { main: [[link("Get digest")]] },
 	"Get digest": { main: [[link("Send digest email")], [link("Digest fetch failed")]] },
 	"Digest fetch failed": { main: [[link("Alert claim query")]] },
-	"Send digest email": { main: [[], [link("Classify send failure")]] },
+	"Send digest email": { main: [[link("Check empty digest")], [link("Classify send failure")]] },
+	"Check empty digest": { main: [[link("Alert claim query")]] },
 	"Classify send failure": { main: [[link("Retry send?")]] },
 	"Retry send?": { main: [[link("Wait before retry")], [link("Alert claim query")]] },
 	// The retry loops back to "Get digest", not to "Send digest email" — a

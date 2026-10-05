@@ -112,8 +112,26 @@ test("Build digest request fails the execution loudly on error rather than routi
 	assert.equal(workflow.connections["Build digest request"].main.length, 1);
 });
 
-test("a successful send has no further connection — it never loops back into the retry branch", () => {
-	assert.deepEqual(workflow.connections["Send digest email"].main[0], []);
+test("a successful send only checks for an empty Digest — it never loops back into the retry branch", () => {
+	assert.deepEqual(workflow.connections["Send digest email"].main[0].map((l) => l.node), ["Check empty digest"]);
+	assert.equal(workflow.connections["Check empty digest"].main[0][0].node, "Alert claim query");
+});
+
+// An empty Digest is still sent (#79's AC12) but is an anomaly, not a quiet
+// day: Oct 3-5 2026 each shipped "No Articles passed the Digest quality
+// floor" with nobody told why.
+test("Check empty digest raises an alert with Agregado's reason, and nothing for a Digest with Articles", async () => {
+	const node = workflow.nodes.find((n) => n.name === "Check empty digest");
+	const fn = new AsyncFunction("$input", "$", "$env", "require", node.parameters.jsCode);
+	const built = { date: "2026-10-05" };
+	const run = (artifact) => fn({ first: () => ({ json: {} }) }, (name) => ({
+		first: () => ({ json: name === "Build digest request" ? built : {} }),
+		last: () => ({ json: name === "Get digest" ? artifact : {} }),
+	}), {}, require);
+
+	assert.deepEqual(await run({ SelectedCount: 4 }), []);
+	const out = await run({ SelectedCount: 0, EmptyReason: "The selection model chose none of 6 candidate Articles." });
+	assert.deepEqual(out[0].json, { date: "2026-10-05", message: "empty: The selection model chose none of 6 candidate Articles." });
 });
 
 test("Alert claim query keys the alert on the digest date, so same-day failures claim once", async () => {

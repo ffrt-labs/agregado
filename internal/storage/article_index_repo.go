@@ -56,7 +56,7 @@ func (r *ArticleIndexRepo) Complete(ctx context.Context, record articleindex.Rec
 	}
 	_, err = r.db.pool.Exec(ctx, `
 		UPDATE article_index
-		SET summary = $2, tags = $3, score = $4, processing_status = 'complete', failure_reason = NULL, updated_at = NOW()
+		SET summary = $2, tags = $3, score = $4, processing_status = 'complete', failure_reason = NULL, enriched_at = NOW(), updated_at = NOW()
 		WHERE id = $1`, record.ID, record.Summary, tags, record.Score)
 	return err
 }

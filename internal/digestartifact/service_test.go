@@ -3,6 +3,7 @@ package digestartifact
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,12 +37,15 @@ func TestChoiceDecodesTheSelectPromptsSnakeCaseJSON(t *testing.T) {
 }
 
 type memoryStore struct {
-	articles  []Article
-	artifacts map[string]Artifact
+	articles     []Article
+	artifacts    map[string]Artifact
+	since, until time.Time
+	lookback     time.Duration
 }
 
-func (s *memoryStore) Candidates(context.Context, time.Time) ([]Article, error) {
-	return s.articles, nil
+func (s *memoryStore) Candidates(_ context.Context, _ time.Time, lookback time.Duration) (Pool, error) {
+	s.lookback = lookback
+	return Pool{Since: s.since, Until: s.until, Articles: s.articles}, nil
 }
 func (s *memoryStore) Find(_ context.Context, day time.Time) (Artifact, bool, error) {
 	a, ok := s.artifacts[day.Format("2006-01-02")]
@@ -56,10 +60,16 @@ func (s *memoryStore) Save(_ context.Context, a Artifact) (Artifact, bool, error
 	return a, true, nil
 }
 
-type fakeFrontier struct{ calls int }
+type fakeFrontier struct {
+	calls      int
+	chooseNone bool
+}
 
 func (f *fakeFrontier) Select(_ context.Context, candidates []Candidate) ([]Choice, error) {
 	f.calls++
+	if f.chooseNone {
+		return nil, nil
+	}
 	choices := make([]Choice, len(candidates))
 	for i, c := range candidates {
 		choices[i] = Choice{ArticleID: c.ID, Why: "Worth reading"}
@@ -107,14 +117,94 @@ func TestServicePersistsAndReusesADailyArtifact(t *testing.T) {
 	}
 }
 
-func TestServiceProducesSmallEmptyDigestWithoutCallingFrontier(t *testing.T) {
+// #79's AC12: with zero candidates a small empty Digest is still produced
+// (n8n sends it), but it is not persisted. Persisting it froze the date: the
+// endpoint is idempotent, so once an empty artifact was saved, re-running the
+// workflow after fixing the pipeline could only re-send the same empty email.
+func TestServiceProducesButDoesNotPersistAnEmptyDigest(t *testing.T) {
 	store := &memoryStore{artifacts: map[string]Artifact{}}
 	frontier := &fakeFrontier{}
-	artifact, _, err := NewService(store, frontier, "https://agregado.example", 3, 10).ForDate(context.Background(), time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC))
+	service := NewService(store, frontier, "https://agregado.example", 3, 10)
+	day := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+
+	artifact, created, err := service.ForDate(context.Background(), day)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if created || len(store.artifacts) != 0 {
+		t.Fatalf("empty digest was persisted: created = %v, stored = %d", created, len(store.artifacts))
+	}
 	if artifact.SelectedCount != 0 || frontier.calls != 0 {
 		t.Fatalf("empty artifact = %+v, calls = %d", artifact, frontier.calls)
+	}
+	if artifact.EmptyReason == "" || !strings.Contains(artifact.Text, artifact.EmptyReason) {
+		t.Fatalf("empty digest must say why it is empty: reason %q, text %q", artifact.EmptyReason, artifact.Text)
+	}
+
+	store.articles = []Article{{ID: "a", CanonicalURL: "https://a", Title: "A", Score: 4}}
+	later, created, err := service.ForDate(context.Background(), day)
+	if err != nil || !created || later.SelectedCount != 1 {
+		t.Fatalf("re-run after an empty digest = (%+v, %v, %v), want a fresh persisted artifact", later, created, err)
+	}
+}
+
+// #79's AC12: "low-scoring candidates do not otherwise force an empty
+// result". The top-up used to run only when at least one Article passed the
+// floor, so a day of score-2 Articles shipped "No Articles passed".
+func TestServiceTopsUpWithExplorationPicksWhenNothingPassesTheFloor(t *testing.T) {
+	store := &memoryStore{articles: []Article{
+		{ID: "a", CanonicalURL: "https://a", Title: "A", Score: 2, Source: "one"},
+		{ID: "b", CanonicalURL: "https://b", Title: "B", Score: 2, Source: "two"},
+		{ID: "c", CanonicalURL: "https://c", Title: "C", Score: 1, Source: "three"},
+		{ID: "d", CanonicalURL: "https://d", Title: "D", Score: 1, Source: "four"},
+	}, artifacts: map[string]Artifact{}}
+	artifact, _, err := NewService(store, &fakeFrontier{}, "https://agregado.example", 3, 10).ForDate(context.Background(), time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.FloorPassCount != 0 || artifact.SelectedCount != 3 {
+		t.Fatalf("counts = floor %d / selected %d, want 0/3", artifact.FloorPassCount, artifact.SelectedCount)
+	}
+	for _, item := range artifact.Items {
+		if !item.Exploration {
+			t.Fatalf("%s must be marked as an exploration pick", item.ID)
+		}
+	}
+}
+
+// A frontier answer that matches no candidate is how #158 hid for weeks: the
+// artifact rendered as empty and was persisted as if it were a quiet day.
+func TestServiceDoesNotPersistWhenTheFrontierChoosesNothing(t *testing.T) {
+	store := &memoryStore{articles: []Article{{ID: "a", CanonicalURL: "https://a", Title: "A", Score: 4}}, artifacts: map[string]Artifact{}}
+	artifact, created, err := NewService(store, &fakeFrontier{chooseNone: true}, "https://agregado.example", 3, 10).ForDate(context.Background(), time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created || len(store.artifacts) != 0 {
+		t.Fatal("a digest the frontier selected nothing for must not be persisted")
+	}
+	if artifact.CandidateCount != 1 || !strings.Contains(artifact.EmptyReason, "1 candidate") {
+		t.Fatalf("reason must name the candidates the frontier rejected: %+v", artifact)
+	}
+}
+
+// The candidate window is "successful Enrichment since the previous
+// successful Digest, with a bounded fallback lookback"
+// (docs/architecture/agregado.md), not a UTC published_at day. The store
+// resolves it; the artifact records it so the next Digest starts exactly
+// where this one ended.
+func TestServiceRecordsTheCandidateWindowOnTheArtifact(t *testing.T) {
+	since := time.Date(2026, 9, 13, 13, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
+	store := &memoryStore{since: since, until: until, articles: []Article{{ID: "a", CanonicalURL: "https://a", Title: "A", Score: 4}}, artifacts: map[string]Artifact{}}
+	artifact, _, err := NewService(store, &fakeFrontier{}, "https://agregado.example", 3, 10).ForDate(context.Background(), time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !artifact.WindowStart.Equal(since) || !artifact.WindowEnd.Equal(until) {
+		t.Fatalf("window = %v..%v, want %v..%v", artifact.WindowStart, artifact.WindowEnd, since, until)
+	}
+	if store.lookback != FallbackLookback {
+		t.Fatalf("lookback = %v, want %v", store.lookback, FallbackLookback)
 	}
 }

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { digestDateKey, buildDigestRequest } = require("../src/digest");
+const { digestDateKey, buildDigestRequest, emptyDigestAlert } = require("../src/digest");
 
 test("digestDateKey formats as YYYY-MM-DD in UTC", () => {
 	assert.equal(digestDateKey("2026-09-14T23:30:00Z"), "2026-09-14");
@@ -33,4 +33,17 @@ test("buildDigestRequest is deterministic: a retry for the same instant rebuilds
 test("a missing base URL fails loudly rather than building a request against the literal host 'undefined'", () => {
 	assert.throws(() => buildDigestRequest("2026-09-14T08:00:00Z", undefined), /AGREGADO_BASE_URL/);
 	assert.throws(() => buildDigestRequest("2026-09-14T08:00:00Z", ""), /AGREGADO_BASE_URL/);
+});
+
+test("emptyDigestAlert is null for a Digest with Articles", () => {
+	assert.equal(emptyDigestAlert({ SelectedCount: 3, EmptyReason: "" }, "2026-10-05"), null);
+});
+
+test("emptyDigestAlert carries Agregado's reason for an empty Digest", () => {
+	const alert = emptyDigestAlert({ SelectedCount: 0, EmptyReason: "No Articles finished Enrichment between Oct 4 13:00 and Oct 5 13:00." }, "2026-10-05");
+	assert.deepEqual(alert, { date: "2026-10-05", message: "empty: No Articles finished Enrichment between Oct 4 13:00 and Oct 5 13:00." });
+});
+
+test("emptyDigestAlert still alerts when an older Agregado sends no reason", () => {
+	assert.deepEqual(emptyDigestAlert({ SelectedCount: 0 }, "2026-10-05"), { date: "2026-10-05", message: "empty: no reason given" });
 });

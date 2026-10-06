@@ -36,6 +36,19 @@ test("Parse entries fans a Miniflux new_entries payload out into one item per en
 	assert.equal(out[1].json.entry.id, 2);
 });
 
+test("each parsed Article reaches the single-Article nodes through a one-item loop", () => {
+	const loop = workflow.nodes.find((n) => n.name === "Loop Articles");
+	assert.ok(loop, "batch input needs a loop before nodes that read $input.first()");
+	assert.equal(loop.type, "n8n-nodes-base.splitInBatches");
+	assert.equal(loop.typeVersion, 3);
+	assert.deepEqual(loop.parameters, { batchSize: 1, options: {} });
+	const edge = (node) => ({ node, type: "main", index: 0 });
+	assert.deepEqual(workflow.connections["Parse entries"].main, [[edge("Loop Articles")]]);
+	// SplitInBatches v3 output 0 is done; output 1 yields the next Article.
+	assert.deepEqual(workflow.connections["Loop Articles"].main, [[], [edge("Determine bridge match")]]);
+	assert.deepEqual(workflow.connections["Call enrich API"].main[0], [edge("Loop Articles")]);
+});
+
 test("Build enrich request produces the enrich endpoint's contract, with and without bridge_content", async () => {
 	const node = workflow.nodes.find((n) => n.name === "Build enrich request");
 	const fn = new AsyncFunction("$input", "$", "$env", "require", node.parameters.jsCode);
@@ -125,6 +138,8 @@ test("the failure branch is reachable from every fallible node", () => {
 });
 
 test("a retryable classification loops back to Call enrich API via a backoff wait", () => {
+	// Only a successful API call advances to the next Article.
+	assert.equal(workflow.connections["Call enrich API"].main[1][0].node, "Classify enrich failure");
 	assert.equal(workflow.connections["Retry enrich?"].main[0][0].node, "Wait before retry");
 	assert.equal(workflow.connections["Wait before retry"].main[0][0].node, "Call enrich API");
 });

@@ -30,6 +30,13 @@ test("the schedule matches DIGEST_SCHEDULE's default (internal/config/config.go)
 	assert.equal(trigger.parameters.rule.interval[0].expression, "0 8 * * *");
 });
 
+// The cron is read in the workflow's timezone, not n8n's GENERIC_TIMEZONE
+// (America/Chicago in homelab-apps), which made "0 8 * * *" fire at 15:00
+// for the reader. Pinned on the workflow so other workflows are unaffected.
+test("the schedule fires at 08:00 in the reader's timezone, not n8n's instance default", () => {
+	assert.equal(workflow.settings.timezone, "Europe/Berlin");
+});
+
 test("Build digest request computes today's date via src/digest.js, not an ad-hoc date", async () => {
 	const node = workflow.nodes.find((n) => n.name === "Build digest request");
 	const fn = new AsyncFunction("$input", "$", "$env", "require", node.parameters.jsCode);

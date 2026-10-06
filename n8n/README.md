@@ -85,7 +85,7 @@ is idempotent per `canonical_url` (#77's AC2), so a retried or duplicate
 ## Daily digest: flow (#145)
 
 ```
-Schedule (0 8 * * *, matching DIGEST_SCHEDULE's default) → Build digest request
+Schedule (0 8 * * * Europe/Berlin) → Build digest request
   → Get digest (POST /api/private/digests/{today}) → Send digest email
   → Check empty digest → [alert branch if the Digest selected nothing]
 any node's error output → Digest fetch failed / Classify send failure
@@ -192,6 +192,12 @@ default (`internal/config/config.go`) — the legacy scheduler this workflow
 replaces (#85, once #84 cuts over). It is not read from that env var; n8n's
 Schedule Trigger has no `$env` access of its own, so keep the two in sync by
 hand if `DIGEST_SCHEDULE` ever changes.
+
+The workflow sets its own timezone, `Europe/Berlin`, in its settings, so the
+cron fires at 08:00 the reader's time. Without it, n8n reads the cron in
+`GENERIC_TIMEZONE` (`America/Chicago` on the homelab), which sent the Digest
+at 15:00 Berlin time. The Digest's date key stays the UTC day; 08:00 Berlin is
+always the same UTC date.
 
 ## Deliberate deviations from the plan
 

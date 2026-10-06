@@ -13,6 +13,12 @@ const codeNode = (name, position, needs, body) => codeNodeFor(SRC, name, positio
 // Matches DIGEST_SCHEDULE's default (internal/config/config.go) — the legacy
 // scheduler this workflow replaces (#85) used the same cron string.
 const DIGEST_CRON = "0 8 * * *";
+// The cron is read in this workflow's timezone. n8n's instance default
+// (GENERIC_TIMEZONE, America/Chicago in homelab-apps) made 08:00 land at
+// 15:00 for the reader; pinning it here leaves other workflows alone. The
+// digest's date key stays UTC (src/digest.js): 08:00 Berlin is always the
+// same UTC day.
+const DIGEST_TIMEZONE = "Europe/Berlin";
 const MAX_SEND_RETRIES = 3;
 
 const nodes = [
@@ -200,7 +206,7 @@ const workflow = {
 	nodes,
 	connections,
 	active: false,
-	settings: { executionOrder: "v1" },
+	settings: { executionOrder: "v1", timezone: DIGEST_TIMEZONE },
 	pinData: {},
 	meta: { templateCredsSetupCompleted: false },
 };

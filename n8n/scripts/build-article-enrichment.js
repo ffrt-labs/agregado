@@ -62,6 +62,16 @@ const { payload } = $input.first().json;
 const entries = __mods.miniflux.parseNewEntries(payload);
 return entries.map((entry) => ({ json: { entry } }));
 `),
+	{
+		// The downstream Code nodes process one Article with $input.first().
+		// Keep each Article's lookup, request and retry path in one iteration.
+		parameters: { batchSize: 1, options: {} },
+		id: "loop-articles",
+		name: "Loop Articles",
+		type: "n8n-nodes-base.splitInBatches",
+		typeVersion: 3,
+		position: [880, 620],
+	},
 	codeNode("Determine bridge match", [880, 380], ["miniflux"], `
 const { entry } = $input.first().json;
 const permalinkUuid = __mods.miniflux.matchBridgePermalink(entry.url, $env.BRIDGE_ORIGIN);
@@ -217,7 +227,8 @@ const connections = {
 	"Miniflux Webhook": { main: [[link("Verify signature")]] },
 	"Verify signature": { main: [[link("Signature OK?")]] },
 	"Signature OK?": { main: [[link("Respond 200 accepted"), link("Parse entries")], [link("Respond 401")]] },
-	"Parse entries": { main: [[link("Determine bridge match")]] },
+	"Parse entries": { main: [[link("Loop Articles")]] },
+	"Loop Articles": { main: [[], [link("Determine bridge match")]] },
 	"Determine bridge match": { main: [[link("Is bridge permalink?")], [link("Entry failed")]] },
 	"Is bridge permalink?": { main: [[link("Bridge content query")], [link("Build enrich request")]] },
 	"Bridge content query": { main: [[link("Lookup bridge content")], [link("Entry failed")]] },
@@ -225,7 +236,7 @@ const connections = {
 	"Attach bridge content": { main: [[link("Build enrich request")], [link("Entry failed")]] },
 	"Entry failed": { main: [[link("Alert claim query")]] },
 	"Build enrich request": { main: [[link("Call enrich API")], [link("Entry failed")]] },
-	"Call enrich API": { main: [[], [link("Classify enrich failure")]] },
+	"Call enrich API": { main: [[link("Loop Articles")], [link("Classify enrich failure")]] },
 	"Classify enrich failure": { main: [[link("Retry enrich?")]] },
 	"Retry enrich?": { main: [[link("Wait before retry")], [link("Alert claim query")]] },
 	"Wait before retry": { main: [[link("Call enrich API")]] },

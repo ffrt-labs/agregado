@@ -108,6 +108,20 @@
     },
     {
       "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-articles",
+      "name": "Loop Articles",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        880,
+        620
+      ]
+    },
+    {
+      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
         "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.miniflux = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Miniflux's `new_entries` webhook: signature verification and payload\n// parsing, plus the small pure decisions the article-enrichment workflow\n// needs to make. No I/O, so it is unit-testable — the same pattern as\n// svix.js/extract.js for the newsletter-ingest workflow.\nconst crypto = require(\"crypto\");\n\n// Miniflux signs webhook deliveries with a single HMAC-SHA256 hex digest of\n// the raw body in `X-Miniflux-Signature`, unlike Resend/Svix's versioned,\n// timestamped scheme (svix.js) — no timestamp tolerance check applies here.\nfunction verifyMinifluxSignature({ secret, signatureHeader, rawBody }) {\n\tif (!secret || !signatureHeader || typeof rawBody !== \"string\") return false;\n\tconst expected = crypto.createHmac(\"sha256\", secret).update(rawBody, \"utf8\").digest(\"hex\");\n\tconst given = Buffer.from(String(signatureHeader), \"utf8\");\n\tconst wanted = Buffer.from(expected, \"utf8\");\n\treturn given.length === wanted.length && crypto.timingSafeEqual(given, wanted);\n}\n\n// Only `new_entries` carries Articles to enrich; other Miniflux webhook\n// event types are ignored by returning no entries.\nfunction parseNewEntries(payload) {\n\tif (!payload || payload.event_type !== \"new_entries\") return [];\n\treturn (payload.entries || []).map((e) => ({\n\t\tid: e.id,\n\t\turl: e.url,\n\t\ttitle: e.title,\n\t\tauthor: e.author || undefined,\n\t\tpublishedAt: e.published_at || undefined,\n\t}));\n}\n\n// Recognises `{bridge origin}/p/{uuid}` — an email-only Article served from\n// the Bridge's Worker (n8n/README.md's \"Enrichment\" section, agregado#100).\n// Ordinary RSS Article URLs never match.\nfunction matchBridgePermalink(url, bridgeOrigin) {\n\tif (!url || !bridgeOrigin) return null;\n\tconst escapedOrigin = String(bridgeOrigin)\n\t\t.replace(/\\/+$/, \"\")\n\t\t.replace(/[.*+?^${}()|[\\]\\\\]/g, \"\\\\$&\");\n\tconst re = new RegExp(`^${escapedOrigin}/p/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`, \"i\");\n\tconst match = String(url).match(re);\n\treturn match ? match[1].toLowerCase() : null;\n}\n\n// A 4xx from the enrich endpoint is a validation/contract problem a retry\n// cannot fix (issue criterion 6); anything else — network failure, timeout,\n// 5xx — is treated as transient and retried with backoff. n8n's HTTP node\n// surfaces a failed request as an error message rather than a structured\n// status field, so the code is parsed out of it.\nfunction classifyEnrichFailure(message) {\n\treturn /\\b4\\d{2}\\b/.test(String(message || \"\")) ? \"terminal\" : \"retryable\";\n}\n\nmodule.exports = { verifyMinifluxSignature, parseNewEntries, matchBridgePermalink, classifyEnrichFailure };\n\nreturn module.exports; })(__req);\n\n\nconst { entry } = $input.first().json;\nconst permalinkUuid = __mods.miniflux.matchBridgePermalink(entry.url, $env.BRIDGE_ORIGIN);\nreturn [{ json: { entry, permalinkUuid, isBridgePermalink: permalinkUuid !== null } }];\n"
@@ -454,6 +468,18 @@
       "main": [
         [
           {
+            "node": "Loop Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Articles": {
+      "main": [
+        [],
+        [
+          {
             "node": "Determine bridge match",
             "type": "main",
             "index": 0
@@ -582,7 +608,13 @@
     },
     "Call enrich API": {
       "main": [
-        [],
+        [
+          {
+            "node": "Loop Articles",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Classify enrich failure",

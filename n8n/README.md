@@ -63,6 +63,7 @@ Article Index is keyed on that URL and the Reader fetches it.
 Webhook (raw body) → Verify signature → [401 if bad]
   → Respond 200 (Miniflux gets no redelivery on failure, so ack immediately)
   → Parse entries (one item per Miniflux entry)
+  → Loop Articles (batch size 1)
   → Determine bridge match
      bridge permalink → Lookup bridge content (D1) → Attach bridge content ┐
      ordinary Article  ───────────────────────────────────────────────────┤
@@ -73,7 +74,13 @@ any node's error output (post-Parse-entries) → Entry failed
 Call enrich API's error output → Classify enrich failure
   → retryable & under 3 attempts → Wait (2s/4s/8s backoff) → Call enrich API again
   → terminal, or retries exhausted → Alert claim query (same as above)
+Call enrich API's success output → Loop Articles (next Article)
 ```
+
+`Loop Articles` serializes the parsed batch for the downstream Code nodes,
+which read one Article with `$input.first()`. A successful API call advances
+the loop; retry/backoff stays on the current Article, and terminal failure
+keeps the existing alert-and-fail behavior.
 
 Fire-and-forget, unlike Resend/Bridge: `docs/architecture/ecosystem.md`'s
 reliability model notes Miniflux delivers `new_entries` with no redelivery on

@@ -47,6 +47,9 @@ Digest selection and the PREFERENCES.md regeneration. Machine input: not shown t
 The human-facing line in the Digest is the "why it matters", not the Summary. A summary
 you read would be a separate thing, written only for selected Articles.
 Judged by whether the judgements made from it are good, not by how it reads.
+Structured claims from the cheap model — JSON `{kind, claims, entities}` — falling back
+to the lead extract (title + first 150 words) when the model fails or when content is
+only Miniflux's feed content (marked `[content: partial]`). See ADR 0009.
 _Avoid_: Blurb, Abstract, Excerpt (an Excerpt is raw content, not derived)
 
 **Score**:

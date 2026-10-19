@@ -23,7 +23,7 @@ never stored in the Article Index.
 fetching the canonical URL fails or returns nothing; the Summary is then built from it and
 marked `[content: partial]`. Without it, a failed fetch fails the Article.
 
-`summary` is a JSON string `{"kind","claims"(≤3),"entities"(≤6)}` (ADR 0009). If the model
+`summary` is a JSON string (prefixed `[content: partial]` + newline when built from feed content) `{"kind","claims"(≤3),"entities"(≤6)}` (ADR 0009). If the model
 errors or returns invalid JSON it is the lead extract instead (title, newline, first 150
 words), so consumers must accept both. Each AI call logs `ai: usage` with token counts and an
 estimated Neuron cost; the structured Summary was measured at ~520 Neurons/day for 10 candidates.

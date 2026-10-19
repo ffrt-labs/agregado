@@ -19,6 +19,15 @@ For an Email-only Article, n8n uses its unguessable bridge permalink as
 the bridge-provided content is used only while producing derived fields and is
 never stored in the Article Index.
 
+`feed_content` (optional) is Miniflux's own content for the entry. It is used only when
+fetching the canonical URL fails or returns nothing; the Summary is then built from it and
+marked `[content: partial]`. Without it, a failed fetch fails the Article.
+
+`summary` is a JSON string `{"kind","claims"(≤3),"entities"(≤6)}` (ADR 0009). If the model
+errors or returns invalid JSON it is the lead extract instead (title, newline, first 150
+words), so consumers must accept both. Each AI call logs `ai: usage` with token counts and an
+estimated Neuron cost; the structured Summary was measured at ~520 Neurons/day for 10 candidates.
+
 The canonical URL is the idempotency key. A first request returns `201`; any
 repeat returns `200` with the existing processing status and makes no fetch or
 model call. The Index stores its identifying fields, summary, tags, score, and status only.

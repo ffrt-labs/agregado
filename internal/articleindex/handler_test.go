@@ -69,7 +69,7 @@ func (p fakePreferences) Read() (string, error) { return p.text, nil }
 func TestHandlerProcessesCanonicalArticleOnlyOnce(t *testing.T) {
 	store := &fakeStore{records: map[string]Record{}}
 	fetcher := &fakeFetcher{text: "fetched canonical article"}
-	model := &fakeModel{summary: "A short summary", tag: "technology", score: 4}
+	model := &fakeModel{summary: `{"kind":"news","claims":["A short summary"],"entities":[]}`, tag: "technology", score: 4}
 	h := NewHandler("test-secret", NewService(store, fetcher, model, fakePreferences{"# Preferences\n- technology"}))
 
 	body := `{"entry_id":42,"canonical_url":"https://example.com/article","title":"An article"}`
@@ -91,7 +91,7 @@ func TestHandlerProcessesCanonicalArticleOnlyOnce(t *testing.T) {
 		t.Fatalf("duplicate called fetch/model %d/%d times, want 1/3", fetcher.calls, model.calls)
 	}
 	record := store.records["https://example.com/article"]
-	if record.Status != Complete || record.Summary != "A short summary" || record.Score != 4 {
+	if record.Status != Complete || record.Summary != `{"kind":"news","claims":["A short summary"],"entities":[]}` || record.Score != 4 {
 		t.Fatalf("stored record = %+v, want completed content-free enrichment", record)
 	}
 	if record.MinifluxEntryID != 42 || len(record.Tags) != 1 || record.Tags[0] != "technology" {
@@ -105,7 +105,7 @@ func TestHandlerProcessesCanonicalArticleOnlyOnce(t *testing.T) {
 func TestHandlerUsesBridgeContentWithoutFetching(t *testing.T) {
 	store := &fakeStore{records: map[string]Record{}}
 	fetcher := &fakeFetcher{text: "should not be used"}
-	model := &fakeModel{summary: "summary", tag: "newsletter", score: 3}
+	model := &fakeModel{summary: `{"kind":"other","claims":["c"],"entities":[]}`, tag: "newsletter", score: 3}
 	h := NewHandler("test-secret", NewService(store, fetcher, model, fakePreferences{"seed"}))
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"entry_id":8,"canonical_url":"https://bridge.example/uuid","title":"Email-only","bridge_content":"email body"}`))
 	r.Header.Set("X-Enrichment-Secret", "test-secret")

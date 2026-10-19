@@ -6,6 +6,7 @@ package articleindex
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -69,6 +70,9 @@ type Request struct {
 	Author          string     `json:"author,omitempty"`
 	PublishedAt     *time.Time `json:"published_at,omitempty"`
 	BridgeContent   string     `json:"bridge_content,omitempty"`
+	// FeedContent is Miniflux's own content for the entry, used only when the
+	// Article cannot be fetched; the Summary is then marked [content: partial].
+	FeedContent string `json:"feed_content,omitempty"`
 }
 
 func (r Request) validate() error {
@@ -108,26 +112,29 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 		return record, created, err
 	}
 
-	content := strings.TrimSpace(request.BridgeContent)
+	content, partial := strings.TrimSpace(request.BridgeContent), false
+	var fetchErr error
 	if content == "" {
-		result, fetchErr := s.fetcher.Fetch(ctx, request.CanonicalURL)
-		if fetchErr != nil {
-			return s.fail(ctx, record, fetchErr)
+		var result fetch.Result
+		if result, fetchErr = s.fetcher.Fetch(ctx, request.CanonicalURL); fetchErr == nil {
+			content = strings.TrimSpace(result.Markdown)
 		}
-		content = strings.TrimSpace(result.Markdown)
 	}
 	if content == "" {
-		return s.fail(ctx, record, fmt.Errorf("no readable article content"))
+		if content = strings.TrimSpace(request.FeedContent); content != "" {
+			partial = true
+		} else if fetchErr != nil {
+			return s.fail(ctx, record, fetchErr)
+		} else {
+			return s.fail(ctx, record, fmt.Errorf("no readable article content"))
+		}
 	}
 
 	preferences, err := s.preferences.Read()
 	if err != nil {
 		return s.fail(ctx, record, err)
 	}
-	summary, err := s.model.Summarize(ctx, request.Title, content)
-	if err != nil {
-		return s.fail(ctx, record, err)
-	}
+	summary := s.summarize(ctx, request.Title, content, partial)
 	tag, err := s.model.Categorize(ctx, request.Title, content)
 	if err != nil {
 		return s.fail(ctx, record, err)
@@ -145,6 +152,24 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 		return record, true, err
 	}
 	return record, true, nil
+}
+
+// summarize never fails the Article: a model error or unusable JSON degrades to
+// the lead extract (ADR 0009), so selection always has input.
+func (s *Service) summarize(ctx context.Context, title, content string, partial bool) string {
+	input := content
+	if partial {
+		input = partialMarker + "\n" + content
+	}
+	raw, err := s.model.Summarize(ctx, title, input)
+	if err == nil {
+		if summary, ok := normalizeSummary(raw); ok {
+			return summary
+		}
+		err = fmt.Errorf("invalid structured summary")
+	}
+	slog.Warn("summary: falling back to lead extract", "component", "articleindex", "title", title, "err", err)
+	return leadExtract(title, content, partial)
 }
 
 func (s *Service) fail(ctx context.Context, record Record, cause error) (Record, bool, error) {

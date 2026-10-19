@@ -7,6 +7,7 @@ const (
 	OpScore           = "score"
 	OpCategorize      = "categorize"
 	OpSummarize       = "summarize"
+	OpArticleSummary  = "article_summary"
 	OpDigest          = "digest"
 	OpReason          = "reason"
 	OpPreferenceScore = "preference_score"
@@ -18,9 +19,12 @@ const (
 // seeds. The categorize default deliberately omits the slug list — the live tags
 // are appended at call time (see CloudflareProvider.Categorize).
 var DefaultPrompts = map[string]string{
-	OpScore:           "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer.",
-	OpCategorize:      "You are a content classifier. Given an article title and content, return exactly one category slug from the list provided. Return only the slug — no explanation, no punctuation.",
-	OpSummarize:       "You are a news digest assistant. Given a list of articles — each with a title, a one-line reason it matters, and a short excerpt of its actual content — write a 2-3 sentence summary capturing the key themes. Be concise and direct.",
+	OpScore:      "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer.",
+	OpCategorize: "You are a content classifier. Given an article title and content, return exactly one category slug from the list provided. Return only the slug — no explanation, no punctuation.",
+	OpSummarize:  "You are a news digest assistant. Given a list of articles — each with a title, a one-line reason it matters, and a short excerpt of its actual content — write a 2-3 sentence summary capturing the key themes. Be concise and direct.",
+	OpArticleSummary: `You prepare an article for a model that will decide whether it belongs in a reader's daily digest. Nobody reads your output except that model. Return only JSON:
+{"kind":"news|analysis|tutorial|opinion|announcement|newsletter|other","claims":["the article's main claim or finding, one sentence each, at most 3"],"entities":["people, companies, products, places it is about, at most 6"]}
+Be factual: state only what the content says. If the content is a stub or truncated, say so in claims.`,
 	OpDigest:          "You are a news digest assistant. Write a 2-sentence introduction for a daily digest email. Mention the main themes and why they matter. Be concise and direct. No bullet points.",
 	OpReason:          "You are a news analyst. Given an article title and content, explain in one short sentence (max 20 words) why this article matters to a curious reader. Return only that sentence — no preamble, no quotes, no explanation of your reasoning.",
 	OpPreferenceScore: "You are a personal content score giver. Given an article and the reader's PREFERENCES.md, return only a relevance score from 1 to 5. 1=not relevant, 3=worth reading, 5=essential. Follow the preferences rather than general significance.",

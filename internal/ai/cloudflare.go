@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -126,7 +128,15 @@ func (p *CloudflareProvider) complete(ctx context.Context, operation, systemProm
 	defer cancel()
 
 	start := time.Now()
-	response, err := p.doComplete(callCtx, systemPrompt, userPrompt)
+	response, used, err := p.doComplete(callCtx, systemPrompt, userPrompt)
+	if used.Prompt+used.Completion > 0 {
+		attrs := []any{"component", "ai", "operation", operation, "model", p.model,
+			"prompt_tokens", used.Prompt, "completion_tokens", used.Completion}
+		if n, ok := used.neurons(p.model); ok {
+			attrs = append(attrs, "neurons", math.Round(n*100)/100)
+		}
+		slog.Info("ai: usage", attrs...)
+	}
 	p.record(ctx, operation, systemPrompt, userPrompt, response, err, time.Since(start))
 	return response, err
 }
@@ -157,7 +167,7 @@ func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt
 	p.logs.Record(ctx, entry)
 }
 
-func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string) (string, usage, error) {
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", p.accountID, p.model)
 	body := struct {
 		Messages []Messages `json:"messages"`
@@ -169,12 +179,12 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
-		return "", err
+		return "", usage{}, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
 	if err != nil {
-		return "", err
+		return "", usage{}, err
 	}
 
 	req.Header.Set("Authorization", "Bearer "+p.apiToken)
@@ -182,7 +192,7 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	response, err := p.client.Do(req)
 
 	if err != nil {
-		return "", err
+		return "", usage{}, err
 	}
 	defer response.Body.Close()
 
@@ -193,6 +203,10 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 					Content string `json:"content"`
 				} `json:"message"`
 			} `json:"choices"`
+			Usage struct {
+				Prompt     int `json:"prompt_tokens"`
+				Completion int `json:"completion_tokens"`
+			} `json:"usage"`
 		} `json:"result"`
 		Success bool `json:"success"`
 		Errors  []struct {
@@ -202,18 +216,19 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	}
 
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("Error decoding result")
+		return "", usage{}, fmt.Errorf("Error decoding result")
 	}
 
 	if !result.Success {
-		return "", fmt.Errorf("cloudflare AI error: %v", result.Errors)
+		return "", usage{}, fmt.Errorf("cloudflare AI error: %v", result.Errors)
 	}
 
+	used := usage{Prompt: result.Result.Usage.Prompt, Completion: result.Result.Usage.Completion}
 	if len(result.Result.Choices) == 0 {
-		return "", fmt.Errorf("cloudflare AI returned no choices")
+		return "", used, fmt.Errorf("cloudflare AI returned no choices")
 	}
 
-	return result.Result.Choices[0].Message.Content, nil
+	return result.Result.Choices[0].Message.Content, used, nil
 }
 
 // defaultSummarizeExcerptChars bounds each article's content excerpt in the
@@ -246,6 +261,14 @@ func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Ar
 	userPrompt := fmt.Sprintf("Articles:\n%s\nSummary:", body.String())
 
 	return p.complete(ctx, OpSummarize, systemPrompt, userPrompt)
+}
+
+// SummarizeArticle produces the machine-input Summary for one Article (ADR 0009):
+// the raw model response to the structured-claims prompt. Validation and the
+// lead-extract fallback live in internal/articleindex, which owns the contract.
+func (p *CloudflareProvider) SummarizeArticle(ctx context.Context, title, content string) (string, error) {
+	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
+	return p.complete(ctx, OpArticleSummary, p.systemPrompt(ctx, OpArticleSummary), userPrompt)
 }
 
 func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {

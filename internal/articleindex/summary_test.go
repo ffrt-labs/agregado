@@ -109,6 +109,16 @@ func TestFeedContentIsPartialFallbackWhenFetchFails(t *testing.T) {
 	}
 }
 
+func TestPartialMarkerSurvivesOnStructuredSummary(t *testing.T) {
+	m := &summaryModel{fakeModel: fakeModel{tag: "t", score: 3}, raw: `{"kind":"news","claims":["c"],"entities":[]}`}
+	req := request()
+	req.FeedContent = "teaser"
+	record, _ := process(t, errFetcher{}, m, req)
+	if !strings.HasPrefix(record.Summary, "[content: partial]\n{") {
+		t.Fatalf("selection must see the marker, got %q", record.Summary)
+	}
+}
+
 func TestFullContentIsNotMarkedPartial(t *testing.T) {
 	m := &summaryModel{fakeModel: fakeModel{tag: "t", score: 3}, raw: `{"kind":"news","claims":["c"],"entities":[]}`}
 	req := request()

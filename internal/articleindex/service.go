@@ -123,6 +123,7 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 	if content == "" {
 		if content = strings.TrimSpace(request.FeedContent); content != "" {
 			partial = true
+			slog.Warn("fetch failed or empty, using feed content", "component", "articleindex", "url", request.CanonicalURL, "err", fetchErr)
 		} else if fetchErr != nil {
 			return s.fail(ctx, record, fetchErr)
 		} else {
@@ -164,6 +165,9 @@ func (s *Service) summarize(ctx context.Context, title, content string, partial 
 	raw, err := s.model.Summarize(ctx, title, input)
 	if err == nil {
 		if summary, ok := normalizeSummary(raw); ok {
+			if partial {
+				summary = partialMarker + "\n" + summary
+			}
 			return summary
 		}
 		err = fmt.Errorf("invalid structured summary")

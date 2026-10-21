@@ -230,6 +230,14 @@ always the same UTC date.
   everything `Build enrich request` needs — so `Parse entries` reads them
   straight off the webhook body instead of making a redundant `GET` back to
   Miniflux for the same data.
+- **Miniflux's own entry content is sent as `feed_content`** (#184).
+  `new_entries` already embeds each entry's `content`, so `Parse entries`
+  passes it through and `Build enrich request` includes it (trimmed, capped at
+  200,000 characters to stay under the endpoint's 1 MiB body limit; omitted
+  when empty). Agregado uses it only when fetching the canonical URL fails or
+  returns nothing, producing a `[content: partial]` Summary instead of a failed
+  Article (`docs/article-index-api.md`). It is sent for every entry, bridge
+  permalinks included; when the fetch succeeds it is ignored.
 - **`source_id` is never sent.** The enrich endpoint's body contract
   (`docs/article-index-api.md`) lists it as optional, and nothing in the
   `new_entries` payload maps cleanly to Agregado's own Source id (the

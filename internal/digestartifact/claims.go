@@ -26,7 +26,7 @@ func claims(summary string) []string {
 	var candidates []string
 	if err := json.Unmarshal([]byte(body), &parsed); err == nil && len(parsed.Claims) > 0 {
 		candidates = parsed.Claims
-	} else {
+	} else if !strings.HasPrefix(body, "{") {
 		// Lead extract: drop the title line, which the item already shows.
 		_, content, _ := strings.Cut(body, "\n")
 		candidates = sentences(content)

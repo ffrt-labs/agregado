@@ -196,7 +196,7 @@ sequenceDiagram
     else artifact absent
         A->>I: Load newly enriched candidates
         A->>A: Deduplicate; quality floor; soft diversity; exploration top-up
-        A->>M: One batched ordering and why-it-matters call
+        A->>M: One batched selection call returning ordered article IDs
         A->>D: Persist subject, HTML, text, selection and counts
     end
     A-->>N: Complete artifact

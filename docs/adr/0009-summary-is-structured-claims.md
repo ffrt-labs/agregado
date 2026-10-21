@@ -7,9 +7,10 @@
 ## Context
 
 A **Summary** is machine input: it stands in for an Article's content when a
-model judges it (Digest selection, `PREFERENCES.md` regeneration). It is never
-shown to the Reader (CONTEXT.md → Summary). It is therefore judged downstream,
-by whether the Digests built from it are good, not by how it reads.
+model judges it (Digest selection, `PREFERENCES.md` regeneration). It was never
+shown to the Reader when this was written; since #183 the Digest shows up to two
+claims per item (CONTEXT.md → Summary), so how it reads can now be judged too.
+It is still judged mainly downstream, by whether the Digests built from it are good.
 
 Production ran `OpSummarize` on every candidate: a model call over a 400-character
 excerpt. #86 asked whether that spend buys anything.

@@ -43,10 +43,12 @@ _Avoid_: Metadata, Analysis, Processing
 
 **Summary**:
 The Enrichment that stands in for an Article's content wherever a model judges it —
-Digest selection and the PREFERENCES.md regeneration. Machine input: not shown to you.
-The human-facing line in the Digest is the "why it matters", not the Summary. A summary
-you read would be a separate thing, written only for selected Articles.
-Judged by whether the judgements made from it are good, not by how it reads.
+Digest selection and the PREFERENCES.md regeneration. Also the source of the text under
+each Digest item: up to two of its claims are shown to you at render time, with
+truncation claims ("truncated", "stub") filtered out; if none remain the item is title
+and links only. There is no separate reader-facing summary and no "why it matters".
+Judged mainly by whether the judgements made from it are good; the shown claims let you
+check how it reads day to day.
 Structured claims from the cheap model — JSON `{kind, claims, entities}` — falling back
 to the lead extract (title + first 150 words) when the model fails or when content is
 only Miniflux's feed content (marked `[content: partial]`). See ADR 0009.

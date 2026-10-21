@@ -41,9 +41,17 @@ test("parseNewEntries maps every entry, dropping empty optional fields", () => {
 		],
 	});
 	assert.deepEqual(out, [
-		{ id: 1, url: "https://example.com/a", title: "A", author: "Jo", publishedAt: "2026-09-14T12:00:00Z" },
-		{ id: 2, url: "https://example.com/b", title: "B", author: undefined, publishedAt: undefined },
+		{ id: 1, url: "https://example.com/a", title: "A", author: "Jo", publishedAt: "2026-09-14T12:00:00Z", feedContent: undefined },
+		{ id: 2, url: "https://example.com/b", title: "B", author: undefined, publishedAt: undefined, feedContent: undefined },
 	]);
+});
+
+test("parseNewEntries carries Miniflux's own entry content as feedContent", () => {
+	const [entry] = parseNewEntries({
+		event_type: "new_entries",
+		entries: [{ id: 3, url: "https://example.com/c", title: "C", content: "<p>From the feed</p>" }],
+	});
+	assert.equal(entry.feedContent, "<p>From the feed</p>");
 });
 
 test("matchBridgePermalink recognises {bridge origin}/p/{uuid} case-insensitively", () => {

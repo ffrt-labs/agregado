@@ -35,3 +35,18 @@ test("empty bridge content is treated the same as absent", () => {
 	const body = buildEnrichRequest(entry, "");
 	assert.ok(!("bridge_content" in body));
 });
+
+test("feed content is sent as feed_content when the entry carries it", () => {
+	const body = buildEnrichRequest({ ...entry, feedContent: "<p>From the feed</p>" });
+	assert.equal(body.feed_content, "<p>From the feed</p>");
+});
+
+test("empty or whitespace-only feed content is omitted", () => {
+	assert.ok(!("feed_content" in buildEnrichRequest({ ...entry, feedContent: "" })));
+	assert.ok(!("feed_content" in buildEnrichRequest({ ...entry, feedContent: "  \n " })));
+});
+
+test("oversized feed content is capped so the request stays under the API's body limit", () => {
+	const body = buildEnrichRequest({ ...entry, feedContent: "x".repeat(500000) });
+	assert.equal(body.feed_content.length, 200000);
+});

@@ -26,7 +26,7 @@ test("Parse entries fans a Miniflux new_entries payload out into one item per en
 	const payload = {
 		event_type: "new_entries",
 		entries: [
-			{ id: 1, url: "https://example.com/a", title: "A" },
+			{ id: 1, url: "https://example.com/a", title: "A", content: "<p>feed</p>" },
 			{ id: 2, url: "https://example.com/b", title: "B" },
 		],
 	};
@@ -34,6 +34,7 @@ test("Parse entries fans a Miniflux new_entries payload out into one item per en
 	assert.equal(out.length, 2);
 	assert.equal(out[0].json.entry.id, 1);
 	assert.equal(out[1].json.entry.id, 2);
+	assert.equal(out[0].json.entry.feedContent, "<p>feed</p>");
 });
 
 test("Build enrich request produces the enrich endpoint's contract, with and without bridge_content", async () => {
@@ -47,6 +48,14 @@ test("Build enrich request produces the enrich endpoint's contract, with and wit
 		require
 	);
 	assert.deepEqual(ordinary[0].json.body, { entry_id: 1, canonical_url: "https://example.com/a", title: "A" });
+
+	const fed = await fn(
+		{ first: () => ({ json: { entry: { id: 3, url: "https://example.com/c", title: "C", feedContent: "<p>feed</p>" } } }) },
+		() => {},
+		{},
+		require
+	);
+	assert.equal(fed[0].json.body.feed_content, "<p>feed</p>");
 
 	const bridged = await fn(
 		{ first: () => ({ json: { entry: { id: 2, url: "https://bridge.example.com/p/uuid", title: "B" }, bridgeContent: "<p>x</p>" } }) },

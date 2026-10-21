@@ -289,7 +289,7 @@ func (p *CloudflareProvider) Select(ctx context.Context, candidates []digestarti
 	}
 	payload := make([]candidate, len(candidates))
 	for i, c := range candidates {
-		payload[i] = candidate{c.ID, c.Title, c.Summary, c.Score, c.Topics, c.Exploration}
+		payload[i] = candidate{c.ID, c.Title, flattenSummary(c.Summary), c.Score, c.Topics, c.Exploration}
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -299,13 +299,52 @@ func (p *CloudflareProvider) Select(ctx context.Context, candidates []digestarti
 	if err != nil {
 		return nil, err
 	}
+	ids, err := decodeSelection(result)
+	if err != nil {
+		return nil, err
+	}
+	choices := make([]digestartifact.Choice, len(ids))
+	for i, id := range ids {
+		choices[i] = digestartifact.Choice{ArticleID: id}
+	}
+	return choices, nil
+}
+
+// decodeSelection reads the ordered IDs OpDigestSelect's prompt promises:
+// {"article_ids":["..."]}.
+func decodeSelection(result string) ([]string, error) {
 	var response struct {
-		Choices []digestartifact.Choice `json:"choices"`
+		ArticleIDs []string `json:"article_ids"`
 	}
 	if err := json.Unmarshal([]byte(extractJSON(result)), &response); err != nil {
 		return nil, fmt.Errorf("decode digest selection: %w", err)
 	}
-	return response.Choices, nil
+	return response.ArticleIDs, nil
+}
+
+// flattenSummary turns a stored Summary into plain text for the selection
+// payload, so the model does not read JSON inside a JSON string. It accepts
+// the three stored forms: structured JSON, the plain-text lead extract
+// (returned unchanged), and either with a leading [content: partial] line.
+func flattenSummary(summary string) string {
+	const partialMarker = "[content: partial]"
+	body, prefix := summary, ""
+	if rest, ok := strings.CutPrefix(summary, partialMarker+"\n"); ok {
+		body, prefix = rest, partialMarker+" "
+	}
+	var s struct {
+		Kind     string   `json:"kind"`
+		Claims   []string `json:"claims"`
+		Entities []string `json:"entities"`
+	}
+	if err := json.Unmarshal([]byte(body), &s); err != nil || len(s.Claims) == 0 {
+		return summary
+	}
+	out := s.Kind + ": " + strings.Join(s.Claims, "; ")
+	if len(s.Entities) > 0 {
+		out += " (entities: " + strings.Join(s.Entities, ", ") + ")"
+	}
+	return prefix + out
 }
 
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {

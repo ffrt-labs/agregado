@@ -21,19 +21,14 @@ type Candidate struct {
 	Article
 	Exploration bool
 }
-// ArticleID/Why must carry explicit json tags: OpDigestSelect's prompt
-// (internal/ai/prompts.go) promises a snake_case {"article_id":...,"why":...}
-// shape, and encoding/json's untagged case-insensitive fallback does not
-// bridge that naming convention — it matched "Why" against "why" by luck but
-// never "ArticleID" against "article_id", so every real selection silently
-// discarded its article IDs.
+// Choice is one selected Article. The frontier model returns only IDs; the
+// human-facing text comes from the Article itself, not from the selection call.
 type Choice struct {
 	ArticleID string `json:"article_id"`
-	Why       string `json:"why"`
 }
 type Item struct {
 	Candidate
-	Why, ReadURL, UpvoteURL, DownvoteURL string
+	ReadURL, UpvoteURL, DownvoteURL string
 }
 // WindowStart/WindowEnd are the Enrichment window the candidates came from;
 // the next Digest's window starts at this one's WindowEnd. EmptyReason is set
@@ -122,8 +117,8 @@ func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, e
 			byID[choice.ArticleID] = choice
 		}
 		for _, candidate := range candidates.items {
-			if choice, ok := byID[candidate.ID]; ok {
-				artifact.Items = append(artifact.Items, s.item(candidate, choice.Why))
+			if _, ok := byID[candidate.ID]; ok {
+				artifact.Items = append(artifact.Items, s.item(candidate))
 			}
 		}
 	}
@@ -205,8 +200,8 @@ func diverse(articles []Article, limit int) []Candidate {
 	}
 	return out
 }
-func (s *Service) item(c Candidate, why string) Item {
-	return Item{Candidate: c, Why: why, ReadURL: s.baseURL + "/r/" + c.ID, UpvoteURL: s.baseURL + "/f/" + c.ID + "/up", DownvoteURL: s.baseURL + "/f/" + c.ID + "/down"}
+func (s *Service) item(c Candidate) Item {
+	return Item{Candidate: c, ReadURL: s.baseURL + "/r/" + c.ID, UpvoteURL: s.baseURL + "/f/" + c.ID + "/up", DownvoteURL: s.baseURL + "/f/" + c.ID + "/down"}
 }
 func emptyReason(a Artifact) string {
 	if a.CandidateCount == 0 {
@@ -227,8 +222,8 @@ func render(a Artifact) (string, string) {
 		if i.Exploration {
 			label += " <em>Exploration pick</em>"
 		}
-		fmt.Fprintf(&html, "<li><a href=%q>%s</a><p>%s</p><a href=%q>👍</a> <a href=%q>👎</a></li>", i.ReadURL, label, template.HTMLEscapeString(i.Why), i.UpvoteURL, i.DownvoteURL)
-		fmt.Fprintf(&text, "%s%s\n%s\n%s\n👍 %s  👎 %s\n\n", i.Title, map[bool]string{true: " [Exploration pick]", false: ""}[i.Exploration], i.Why, i.ReadURL, i.UpvoteURL, i.DownvoteURL)
+		fmt.Fprintf(&html, "<li><a href=%q>%s</a><br><a href=%q>👍</a> <a href=%q>👎</a></li>", i.ReadURL, label, i.UpvoteURL, i.DownvoteURL)
+		fmt.Fprintf(&text, "%s%s\n%s\n👍 %s  👎 %s\n\n", i.Title, map[bool]string{true: " [Exploration pick]", false: ""}[i.Exploration], i.ReadURL, i.UpvoteURL, i.DownvoteURL)
 	}
 	html.WriteString("</ol>")
 	return html.String(), text.String()

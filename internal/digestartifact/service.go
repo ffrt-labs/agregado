@@ -222,8 +222,13 @@ func render(a Artifact) (string, string) {
 		if i.Exploration {
 			label += " <em>Exploration pick</em>"
 		}
-		fmt.Fprintf(&html, "<li><a href=%q>%s</a><br><a href=%q>👍</a> <a href=%q>👎</a></li>", i.ReadURL, label, i.UpvoteURL, i.DownvoteURL)
-		fmt.Fprintf(&text, "%s%s\n%s\n👍 %s  👎 %s\n\n", i.Title, map[bool]string{true: " [Exploration pick]", false: ""}[i.Exploration], i.ReadURL, i.UpvoteURL, i.DownvoteURL)
+		var htmlClaims, textClaims strings.Builder
+		for _, c := range claims(i.Summary) {
+			fmt.Fprintf(&htmlClaims, "<p>%s</p>", template.HTMLEscapeString(c))
+			textClaims.WriteString(c + "\n")
+		}
+		fmt.Fprintf(&html, "<li><a href=%q>%s</a>%s<br><a href=%q>👍</a> <a href=%q>👎</a></li>", i.ReadURL, label, htmlClaims.String(), i.UpvoteURL, i.DownvoteURL)
+		fmt.Fprintf(&text, "%s%s\n%s%s\n👍 %s  👎 %s\n\n", i.Title, map[bool]string{true: " [Exploration pick]", false: ""}[i.Exploration], textClaims.String(), i.ReadURL, i.UpvoteURL, i.DownvoteURL)
 	}
 	html.WriteString("</ol>")
 	return html.String(), text.String()

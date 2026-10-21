@@ -25,6 +25,7 @@ function parseNewEntries(payload) {
 		title: e.title,
 		author: e.author || undefined,
 		publishedAt: e.published_at || undefined,
+		feedContent: e.content || undefined,
 	}));
 }
 

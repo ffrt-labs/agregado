@@ -46,6 +46,38 @@ func TestCompletionRequestForSelectDisablesThinkingAndCapsTokens(t *testing.T) {
 	}
 }
 
+func TestCompletionRequestForIngestionDisablesThinkingWithAnswerSizedCaps(t *testing.T) {
+	tests := []struct {
+		name string
+		opts callOptions
+		cap  int
+	}{
+		{"categorize and preference_score", shortAnswerOptions, 32},
+		{"article_summary", articleSummaryOptions, 512},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := completionRequest("sys", "user", tt.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body struct {
+				MaxCompletionTokens int            `json:"max_completion_tokens"`
+				ChatTemplateKwargs  map[string]any `json:"chat_template_kwargs"`
+			}
+			if err := json.Unmarshal(data, &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.MaxCompletionTokens != tt.cap {
+				t.Errorf("max_completion_tokens = %d, want %d", body.MaxCompletionTokens, tt.cap)
+			}
+			if v, ok := body.ChatTemplateKwargs["enable_thinking"]; !ok || v != false {
+				t.Errorf("chat_template_kwargs = %v, want enable_thinking: false", body.ChatTemplateKwargs)
+			}
+		})
+	}
+}
+
 func TestDecodeCompletionReturnsContentAndUsage(t *testing.T) {
 	got, used, err := decodeCompletion(strings.NewReader(`{"success":true,"result":{"choices":[{"message":{"content":"{\"article_ids\":[\"a\"]}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}}`))
 	if err != nil {

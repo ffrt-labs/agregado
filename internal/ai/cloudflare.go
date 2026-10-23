@@ -145,6 +145,17 @@ type callOptions struct {
 // truncated instead of running into the timeout.
 var selectOptions = callOptions{MaxCompletionTokens: 1024, DisableThinking: true}
 
+// Ingestion calls answer with a slug, a digit, or a short JSON Summary, yet
+// with reasoning on they averaged ~620 (categorize), ~1,370 (preference_score)
+// and ~1,060 (article_summary) completion tokens on 2026-10-23 — most of
+// Agregado's ~12k neurons/24h against Workers AI's 10k free allocation.
+// The caps leave room for the answer only: 32 for a slug or digit, 512 for a
+// Summary (the longest stored one is 688 chars, about 200 tokens).
+var (
+	shortAnswerOptions    = callOptions{MaxCompletionTokens: 32, DisableThinking: true}
+	articleSummaryOptions = callOptions{MaxCompletionTokens: 512, DisableThinking: true}
+)
+
 func (p *CloudflareProvider) completeWith(ctx context.Context, operation, systemPrompt, userPrompt string, opts callOptions) (string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
 	defer cancel()
@@ -313,7 +324,7 @@ func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Ar
 // lead-extract fallback live in internal/articleindex, which owns the contract.
 func (p *CloudflareProvider) SummarizeArticle(ctx context.Context, title, content string) (string, error) {
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
-	return p.complete(ctx, OpArticleSummary, p.systemPrompt(ctx, OpArticleSummary), userPrompt)
+	return p.completeWith(ctx, OpArticleSummary, p.systemPrompt(ctx, OpArticleSummary), userPrompt, articleSummaryOptions)
 }
 
 func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {
@@ -398,7 +409,7 @@ func (p *CloudflareProvider) Categorize(ctx context.Context, title, content stri
 		" Allowed slugs: " + strings.Join(p.categorySlugs(ctx), ", ") + "."
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
 
-	return p.complete(ctx, OpCategorize, systemPrompt, userPrompt)
+	return p.completeWith(ctx, OpCategorize, systemPrompt, userPrompt, shortAnswerOptions)
 }
 
 func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {
@@ -436,7 +447,7 @@ func (p *CloudflareProvider) Score(ctx context.Context, title, content string, t
 // because preference scoring belongs to Agregado, not shared enrichment code.
 func (p *CloudflareProvider) ScoreWithPreferences(ctx context.Context, title, content, preferences string) (int, error) {
 	userPrompt := fmt.Sprintf("PREFERENCES.md:\n%s\n\nTitle: %s\n\nContent: %s", preferences, title, textutil.Clean(content, p.maxContentChars))
-	result, err := p.complete(ctx, OpPreferenceScore, p.systemPrompt(ctx, OpPreferenceScore), userPrompt)
+	result, err := p.completeWith(ctx, OpPreferenceScore, p.systemPrompt(ctx, OpPreferenceScore), userPrompt, shortAnswerOptions)
 	if err != nil {
 		return 0, err
 	}

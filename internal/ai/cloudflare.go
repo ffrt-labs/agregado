@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -124,11 +125,32 @@ func (p *CloudflareProvider) categorySlugs(ctx context.Context) []string {
 // several of these calls back to back under one overall budget, and a single
 // slow call must not eat the time reserved for the calls after it.
 func (p *CloudflareProvider) complete(ctx context.Context, operation, systemPrompt, userPrompt string) (string, error) {
+	return p.completeWith(ctx, operation, systemPrompt, userPrompt, callOptions{})
+}
+
+// callOptions are per-call generation controls. The zero value sends neither
+// field, leaving Workers AI's model defaults in place.
+type callOptions struct {
+	// MaxCompletionTokens caps generated tokens; 0 leaves it unset.
+	MaxCompletionTokens int
+	// DisableThinking asks the chat template to skip the reasoning trace.
+	DisableThinking bool
+}
+
+// selectOptions keep the digest-select call well inside p.requestTimeout.
+// With reasoning on, the 2026-10-22 call spent 71s emitting 3,876 completion
+// tokens for an answer of a few hundred, and 2026-10-23's ran past 90s. The
+// answer is at most 10 IDs, so 1024 tokens is ample once thinking is off; if
+// the model ever reasons anyway, the call stops at the cap and fails fast as
+// truncated instead of running into the timeout.
+var selectOptions = callOptions{MaxCompletionTokens: 1024, DisableThinking: true}
+
+func (p *CloudflareProvider) completeWith(ctx context.Context, operation, systemPrompt, userPrompt string, opts callOptions) (string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
 	defer cancel()
 
 	start := time.Now()
-	response, used, err := p.doComplete(callCtx, systemPrompt, userPrompt)
+	response, used, err := p.doComplete(callCtx, systemPrompt, userPrompt, opts)
 	if used.Prompt+used.Completion > 0 {
 		attrs := []any{"component", "ai", "operation", operation, "model", p.model,
 			"prompt_tokens", used.Prompt, "completion_tokens", used.Completion}
@@ -167,17 +189,9 @@ func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt
 	p.logs.Record(ctx, entry)
 }
 
-func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string) (string, usage, error) {
+func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string, opts callOptions) (string, usage, error) {
 	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", p.accountID, p.model)
-	body := struct {
-		Messages []Messages `json:"messages"`
-	}{
-		Messages: []Messages{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-	}
-	data, err := json.Marshal(body)
+	data, err := completionRequest(systemPrompt, userPrompt, opts)
 	if err != nil {
 		return "", usage{}, err
 	}
@@ -195,13 +209,40 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 		return "", usage{}, err
 	}
 	defer response.Body.Close()
+	return decodeCompletion(response.Body)
+}
 
+// completionRequest builds the Workers AI request body. enable_thinking goes
+// through chat_template_kwargs, the model's pass-through to its chat template.
+func completionRequest(systemPrompt, userPrompt string, opts callOptions) ([]byte, error) {
+	body := struct {
+		Messages            []Messages     `json:"messages"`
+		MaxCompletionTokens int            `json:"max_completion_tokens,omitempty"`
+		ChatTemplateKwargs  map[string]any `json:"chat_template_kwargs,omitempty"`
+	}{
+		Messages: []Messages{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		MaxCompletionTokens: opts.MaxCompletionTokens,
+	}
+	if opts.DisableThinking {
+		body.ChatTemplateKwargs = map[string]any{"enable_thinking": false}
+	}
+	return json.Marshal(body)
+}
+
+// decodeCompletion reads a Workers AI response. A completion cut off by the
+// token cap is an error rather than content: its text is a partial answer
+// (or reasoning) that would only fail later as malformed JSON.
+func decodeCompletion(r io.Reader) (string, usage, error) {
 	var result struct {
 		Result struct {
 			Choices []struct {
 				Message struct {
 					Content string `json:"content"`
 				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage struct {
 				Prompt     int `json:"prompt_tokens"`
@@ -215,7 +256,7 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 		} `json:"errors"`
 	}
 
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(r).Decode(&result); err != nil {
 		return "", usage{}, fmt.Errorf("Error decoding result")
 	}
 
@@ -227,8 +268,12 @@ func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userP
 	if len(result.Result.Choices) == 0 {
 		return "", used, fmt.Errorf("cloudflare AI returned no choices")
 	}
+	choice := result.Result.Choices[0]
+	if choice.FinishReason == "length" {
+		return "", used, fmt.Errorf("cloudflare AI response truncated at the token cap (%d completion tokens)", used.Completion)
+	}
 
-	return result.Result.Choices[0].Message.Content, used, nil
+	return choice.Message.Content, used, nil
 }
 
 // defaultSummarizeExcerptChars bounds each article's content excerpt in the
@@ -295,7 +340,7 @@ func (p *CloudflareProvider) Select(ctx context.Context, candidates []digestarti
 	if err != nil {
 		return nil, err
 	}
-	result, err := p.complete(ctx, OpDigestSelect, p.systemPrompt(ctx, OpDigestSelect), "Candidates:\n"+string(data))
+	result, err := p.completeWith(ctx, OpDigestSelect, p.systemPrompt(ctx, OpDigestSelect), "Candidates:\n"+string(data), selectOptions)
 	if err != nil {
 		return nil, err
 	}

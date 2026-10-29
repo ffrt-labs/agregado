@@ -34,13 +34,6 @@ services:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS}
 
-  mailpit:
-    image: axllent/mailpit
-    restart: always
-    ports:
-      - "127.0.0.1:1025:1025"
-      - "127.0.0.1:8025:8025"
-
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: ["prod"]

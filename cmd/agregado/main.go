@@ -150,7 +150,11 @@ func main() {
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
-	go backupScheduler.Start(ctx)
+	go func() {
+		if err := backupScheduler.Start(ctx); err != nil {
+			fatal("failed to start backup scheduler", err)
+		}
+	}()
 	// A consumer that fails to attach leaves its queue with no reader: messages
 	// pile up silently and the process looks healthy the whole time — the exact
 	// failure mode the dead-letter drain exists to close, one level up. Fail

@@ -76,7 +76,8 @@ type SMTP struct {
 type Backup struct {
 	RecipientEmail string `env:"BACKUP_RECIPIENT_EMAIL" envDefault:""`
 	// Schedule defaults to weekly (Sun 03:00) — sources change rarely, unlike
-	// the daily digest content.
+	// the daily digest content. A set-but-empty BACKUP_SCHEDULE also gets this
+	// default (env/v10 treats "" like unset when envDefault is present).
 	Schedule string `env:"BACKUP_SCHEDULE" envDefault:"0 3 * * 0"`
 }
 

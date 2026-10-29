@@ -176,7 +176,12 @@ func (s *Scheduler) Send(ctx context.Context) error {
 		return err
 	}
 
-	return s.mailer.Send(ctx, s.config.RecipientEmail, digestedEmail.Subject, digestedEmail.HTML, digestedEmail.Text)
+	if err := s.mailer.Send(ctx, s.config.RecipientEmail, digestedEmail.Subject, digestedEmail.HTML, digestedEmail.Text); err != nil {
+		return err
+	}
+
+	slog.Info("digest: sent", "component", "digest", "recipient", s.config.RecipientEmail, "groups", len(computed.Groups))
+	return nil
 }
 
 func (s *Scheduler) Preview(ctx context.Context) (*DigestEmail, error) {

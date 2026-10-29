@@ -61,14 +61,21 @@ func (s *Scheduler) Send(ctx context.Context) error {
 	return s.sendBackup(ctx)
 }
 
-func (s *Scheduler) Start(ctx context.Context) {
+// Start runs the backup cron until ctx is done. An unschedulable spec returns
+// an error immediately: an empty cron would otherwise sit on ctx.Done(),
+// looking healthy while never sending a backup.
+func (s *Scheduler) Start(ctx context.Context) error {
 	c := cron.New()
-	c.AddFunc(s.config.Schedule, func() {
+	_, err := c.AddFunc(s.config.Schedule, func() {
 		if err := s.sendBackup(ctx); err != nil {
 			slog.Error("backup: send failed", "component", "backup", "err", err)
 		}
 	})
+	if err != nil {
+		return fmt.Errorf("backup: invalid BACKUP_SCHEDULE %q: %w", s.config.Schedule, err)
+	}
 	c.Start()
 	<-ctx.Done()
 	c.Stop()
+	return nil
 }

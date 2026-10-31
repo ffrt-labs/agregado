@@ -32,11 +32,25 @@ The canonical URL is the idempotency key. A first request returns `201`; any
 repeat returns `200` with the existing processing status and makes no fetch or
 model call. The Index stores its identifying fields, summary, tags, score, and status only.
 
-Agregado reads the hand-seeded PREFERENCES.md from the required `PREFERENCES_PATH`.
-The profile is personal editable data outside this repository; scoring receives it
-verbatim. In production, n8n is the sole writer for the read-only Agregado cache at
-`/srv/agregado/preferences/PREFERENCES.md`: it syncs the accepted Google Drive document
-every five minutes and atomically replaces the cache only after validation.
+Scoring receives the accepted PREFERENCES.md from Agregado's own database, with the
+`(example:` placeholder bullets removed (ADR-0010). Until a profile has been stored,
+Enrichment fails with "no preference profile has been stored yet".
+
+## Preference profile
+
+All three endpoints take the same `X-Enrichment-Secret`.
+
+- `PUT /api/private/preferences`: the body is the Google Doc exported as Markdown.
+  Agregado validates and stores it and answers `{"changed": bool}`. If the profile has the
+  wrong shape, it answers `400` with the reason. The shape is an H1 `PREFERENCES`, an
+  optional intro paragraph, and exactly the four bullet-only H2 sections *Topics I want*,
+  *Topics I skip*, *Sources I trust* and *Kinds of articles I skip*, in at most 8 KiB.
+- `GET /api/private/preferences`: returns the accepted profile as Markdown, or `404`.
+- `POST /api/private/preferences/regenerate`: rewrites the profile from current votes
+  (strong evidence) and first Opens (weak evidence) in one model call. It answers
+  `{"profile", "changed", "signals"}`. With no evidence it changes nothing and makes no
+  model call. If the model's output fails validation, Agregado answers `502` and keeps the
+  accepted profile. Before any profile is stored, it answers `409`.
 
 ## Preference-regeneration evidence
 

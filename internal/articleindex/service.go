@@ -60,7 +60,11 @@ type Model interface {
 	Score(ctx context.Context, title, content, preferences string) (int, error)
 }
 
-type Preferences interface{ Read() (string, error) }
+// Preferences supplies the accepted profile, placeholders already stripped
+// (internal/preferences).
+type Preferences interface {
+	Read(ctx context.Context) (string, error)
+}
 
 type Request struct {
 	MinifluxEntryID int64      `json:"entry_id"`
@@ -131,7 +135,7 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 		}
 	}
 
-	preferences, err := s.preferences.Read()
+	preferences, err := s.preferences.Read(ctx)
 	if err != nil {
 		return s.fail(ctx, record, err)
 	}

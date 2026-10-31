@@ -86,12 +86,13 @@ _Avoid_: Sync, Update (too generic — Decorate is one-directional, Agregado to 
 
 **PREFERENCES.md**:
 The preference profile a Score is judged against: structured prose (topics wanted,
-topics skipped, sources trusted) describing your taste. Agregado reads it from the
-explicit `PREFERENCES_PATH` outside this repository — the Bookmarker never scores, so
-it has no reason to read it (ADR-0005). Google Drive is authoritative; n8n syncs it to
-the homelab cache that Agregado reads. It is personal, editable data, not deployment
-configuration. The nightly job directly replaces the accepted Drive document after
-validation; Drive revision history is the rollback mechanism. Distinct from CONTEXT.md,
+topics skipped, sources trusted, kinds of articles skipped) describing your taste.
+The Google Doc `PREFERENCES` is authoritative and is where you edit it; n8n hands each
+version to Agregado over its private API, and Agregado keeps the accepted versions in its
+own database (ADR-0010). The Bookmarker never scores, so it has no reason to read it
+(ADR-0005). It is personal, editable data, not deployment configuration. The nightly
+regeneration replaces it from your votes and Opens after validation; the Doc's version
+history is the rollback mechanism. Distinct from CONTEXT.md,
 which is this project's glossary, not a taste profile.
 _Avoid_: Preferences (too vague — always the file), Profile (ambiguous outside context), Weights (the old `topic_weights` shape this replaces)
 

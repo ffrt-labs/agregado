@@ -17,6 +17,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
+	"github.com/felipeafreitas/agregado/internal/preferences"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -30,7 +31,7 @@ type Server struct {
 	backupScheduler *backup.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -101,6 +102,11 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	}
 	if preferenceExportHandler != nil {
 		r.Get("/api/private/preferences/signals", preferenceExportHandler.Handle)
+	}
+	if preferencesHandler != nil {
+		r.Get("/api/private/preferences", preferencesHandler.Get)
+		r.Put("/api/private/preferences", preferencesHandler.Put)
+		r.Post("/api/private/preferences/regenerate", preferencesHandler.Regenerate)
 	}
 
 	r.Post("/api/digest/send", s.Send)

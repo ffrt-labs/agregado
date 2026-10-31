@@ -45,8 +45,9 @@ Two facts constrain the answer:
 
 3. **Scoring stays in Agregado**, outside the library, and `PREFERENCES.md` is
    an explicit runtime input to it. Google Drive holds the authoritative personal
-   document; n8n validates and synchronizes it to the absolute `PREFERENCES_PATH`
-   cache on the homelab, which Agregado reads. The profile is personal editable data,
+   document; n8n hands it to Agregado's private API, and Agregado keeps it in its
+   own database (amended by ADR-0010; this originally said a `PREFERENCES_PATH`
+   file cache). The profile is personal editable data,
    not application source. The library never loads, parses, or knows about the
    preference profile.
 

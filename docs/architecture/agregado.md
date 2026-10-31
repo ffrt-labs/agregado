@@ -39,7 +39,7 @@ flowchart LR
     DIGEST --> ARTIFACT[(Digest artifacts)]
     OPEN[Open redirect] --> INDEX
     VOTE[Explicit vote] --> INDEX
-    PREF[(Validated preference cache)] --> SCORE
+    PREF[(Accepted preference profile)] --> SCORE
 
     classDef external fill:#f5f5f5,stroke:#666,color:#111;
     class N8N external;
@@ -78,7 +78,7 @@ flowchart TB
         VOT[Explicit vote] --> NEWDB
     end
 
-    PREF[PREFERENCES.md cache] --> PIPE
+    PREF[(Stored PREFERENCES.md)] --> PIPE
 ```
 
 The transition path already includes the private Enrichment endpoint, Article
@@ -117,7 +117,7 @@ flowchart TB
     subgraph DATA[Agregado-owned durable data]
         INDEX[(Article Index)]
         DIGESTS[(Digest artifacts)]
-        PREFCACHE[(Read-only PREFERENCES.md cache)]
+        PREFCACHE[(Accepted PREFERENCES.md versions)]
     end
 
     ENRICHAPI --> CLAIM --> RESOLVE --> EXTRACT --> SUMMARIZE --> TAG --> SCORE --> INDEX
@@ -138,7 +138,7 @@ flowchart TB
 | Enrichment pipeline | Fetching, readable extraction, summary, tags, Score, failure classification | Persistent Article bodies, Source subscriptions |
 | Article Index | Canonical identity, optional Miniflux provenance, Enrichment, status, first Open, current vote | Article content, duplicate preference events |
 | Digest builder | Candidate selection, diversity, exploration picks, ordering, rendering, immutable artifact | Scheduling or email delivery |
-| Preference reader | Validated local `PREFERENCES.md` snapshot | Editing or synchronizing the authoritative file |
+| Preference profile | Accepted `PREFERENCES.md` versions, validation, nightly regeneration from evidence (ADR-0010) | The authoritative Google Doc, which n8n reads and writes |
 | PostgreSQL | Article Index, Digest artifacts, compact behavioral history | n8n execution state, Miniflux content, Bookmarks |
 
 ## Core workflows
@@ -214,12 +214,13 @@ flowchart LR
     FEEDBACK[Thumbs up or down] --> VOTE[Store one current vote]
     OPEN --> INDEX[(Article Index)]
     VOTE --> INDEX
-    INDEX --> EXPORT[Bounded signal export]
-    EXPORT --> N8N[n8n nightly regeneration]
+    INDEX --> REGEN[Nightly regeneration in Agregado]
+    DOC[Google Doc PREFERENCES] -->|n8n PUT| REGEN
+    REGEN -->|n8n writes back| DOC
 
-    SILENCE[Silence] -. excluded .-> EXPORT
-    REPEAT[Repeated Opens] -. excluded .-> EXPORT
-    SAVE[Karakeep Save] -. excluded in v1 .-> EXPORT
+    SILENCE[Silence] -. excluded .-> REGEN
+    REPEAT[Repeated Opens] -. excluded .-> REGEN
+    SAVE[Karakeep Save] -. excluded in v1 .-> REGEN
 ```
 
 An Open is weak evidence; an explicit vote is strong evidence. Silence,
@@ -262,7 +263,7 @@ uses current compact evidence, not an unbounded raw click log.
 | Failure recovery | Failed canonical URL cannot be retried | Explicit retry transition; n8n owns schedule | New implementation slice |
 | Digest | Internal cron and SMTP plus artifact builder | Artifact builder only | #84/#85 |
 | Candidate window | Since previous persisted Digest, by `enriched_at`, 72h fallback lookback | Since previous successful Digest | Done |
-| Preference profile | Local file requirement partially wired | Drive-authoritative, validated cache, automatic regeneration | #89 plus n8n workflows |
+| Preference profile | Stored in Postgres via the private API; regeneration endpoint built (ADR-0010) | Doc-authoritative, nightly n8n sync and regeneration | #191 live verification |
 | Reader/admin UI | Full HTMX surface | Removed | #85 |
 | Bookmarks | Legacy local bookmark fields/UI | Karakeep, completely outside Agregado | #83/#85 |
 | Ingress | Cloudflare Tunnel routes public read paths to Agregado and the Resend webhook to n8n | Agregado uses Tailscale Serve only; Cloudflare keeps only the Bridge route to n8n | #84 and ADR-0008 |
@@ -281,8 +282,7 @@ uses current compact evidence, not an unbounded raw click log.
   Resend-to-n8n ingress. ADR-0008 removes only Cloudflare routes whose origin is
   Agregado after #84 moves the app to tailnet-only access.
 - The running Compose configuration still reflects RabbitMQ and internal SMTP
-  delivery, and it does not fully provide the new preference-path and private
-  API configuration. Its `cloudflared` container now also routes the Bridge's
+  delivery, and it does not fully provide the new private API configuration. Its `cloudflared` container now also routes the Bridge's
   Resend webhook to n8n, so that responsibility survives even when Cloudflare
   stops routing to Agregado.
 - The implemented Digest uses a UTC `published_at` day. The target's

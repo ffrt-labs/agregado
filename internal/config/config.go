@@ -1,8 +1,6 @@
 package config
 
 import (
-	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/caarlos0/env/v10"
@@ -48,8 +46,7 @@ type Webhook struct {
 // distinct from the email bridge secret: the two callers have different trust
 // boundaries and must be independently revocable.
 type Enrichment struct {
-	Secret          string `env:"ENRICHMENT_SECRET,required"`
-	PreferencesPath string `env:"PREFERENCES_PATH,required"`
+	Secret string `env:"ENRICHMENT_SECRET,required"`
 }
 
 type Digest struct {
@@ -149,9 +146,5 @@ func Load() (*Config, error) {
 	if err := env.Parse(cfg); err != nil {
 		return nil, err
 	}
-	if !filepath.IsAbs(cfg.Enrichment.PreferencesPath) {
-		return nil, fmt.Errorf("PREFERENCES_PATH must be an absolute path")
-	}
-
 	return cfg, nil
 }

@@ -454,6 +454,28 @@ func (p *CloudflareProvider) ScoreWithPreferences(ctx context.Context, title, co
 	return parseScore(result)
 }
 
+// preferenceRegenOptions leave room for the whole profile (preferences.MaxBytes
+// is 8 KiB, roughly 2,500 tokens) without a reasoning trace.
+var preferenceRegenOptions = callOptions{MaxCompletionTokens: 4096, DisableThinking: true}
+
+// markdownFenceRe matches a response wrapped in a single Markdown code fence.
+var markdownFenceRe = regexp.MustCompile("(?s)^```(?:markdown|md)?\\s*(.*?)\\s*```$")
+
+// RegeneratePreferences rewrites the whole PREFERENCES.md from the current
+// profile and rendered Reader evidence. The caller validates the result.
+func (p *CloudflareProvider) RegeneratePreferences(ctx context.Context, current, evidence string) (string, error) {
+	userPrompt := "Current PREFERENCES.md:\n" + current + "\n\nEvidence, strongest first:\n" + evidence
+	result, err := p.completeWith(ctx, OpPreferenceRegen, p.systemPrompt(ctx, OpPreferenceRegen), userPrompt, preferenceRegenOptions)
+	if err != nil {
+		return "", err
+	}
+	result = strings.TrimSpace(result)
+	if m := markdownFenceRe.FindStringSubmatch(result); len(m) == 2 {
+		result = m[1]
+	}
+	return result, nil
+}
+
 func parseScore(result string) (int, error) {
 	score, err := strconv.Atoi(strings.TrimSpace(result))
 	if err != nil {

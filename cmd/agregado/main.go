@@ -21,6 +21,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/logging"
 	"github.com/felipeafreitas/agregado/internal/mail"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
+	"github.com/felipeafreitas/agregado/internal/preferences"
 	"github.com/felipeafreitas/agregado/internal/storage"
 	"github.com/joho/godotenv"
 )
@@ -109,11 +110,13 @@ func main() {
 	aiLogger := storage.NewAILogger(settingsRepo, aiLogRepo)
 
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger)
+	preferenceService := preferences.NewService(storage.NewPreferenceProfileRepo(db), articleIndexRepo, provider)
+	preferencesHandler := preferences.NewHandler(cfg.Enrichment.Secret, preferenceService)
 	articleIndexHandler := articleindex.NewHandler(cfg.Enrichment.Secret, articleindex.NewService(
 		articleIndexRepo,
 		fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent),
 		articleindex.NewCloudflareModel(provider),
-		articleindex.FilePreferences{Path: cfg.Enrichment.PreferencesPath},
+		preferenceService,
 	))
 	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
 		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,
@@ -146,7 +149,7 @@ func main() {
 	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 	dlqHandler := broker.NewDeadLetterHandler()
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)

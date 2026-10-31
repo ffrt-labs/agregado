@@ -64,7 +64,7 @@ func (m *fakeModel) Score(ctx context.Context, title, content, preferences strin
 
 type fakePreferences struct{ text string }
 
-func (p fakePreferences) Read() (string, error) { return p.text, nil }
+func (p fakePreferences) Read(context.Context) (string, error) { return p.text, nil }
 
 func TestHandlerProcessesCanonicalArticleOnlyOnce(t *testing.T) {
 	store := &fakeStore{records: map[string]Record{}}

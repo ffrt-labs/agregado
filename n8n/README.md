@@ -1,12 +1,14 @@
 # Bridge and Agregado n8n workflows
 
-Three workflows live here, all in this repo per
+Four workflows live here, all in this repo per
 `docs/architecture/ecosystem.md`'s "n8n workflow source model": the Bridge
 (ADR-0007), which receives Resend's `email.received` webhook and writes the
 Worker's D1/R2 stores; Article enrichment (#144), which reacts to Miniflux's
 `new_entries` webhook and calls Agregado's enrichment API; and Daily digest
 (#145), which on a schedule fetches Agregado's persisted Digest artifact and
-sends it as email. Bridge spec:
+sends it as email; and Preferences sync (#191, ADR-0010), which every night
+hands the PREFERENCES Google Doc to Agregado, has Agregado regenerate it from
+the reader's votes and Opens, and writes the result back to the Doc. Bridge spec:
 [`docs/newsletter-ingestion-resend-n8n-plan.md`](../docs/newsletter-ingestion-resend-n8n-plan.md).
 
 - `src/` — all three workflows' logic as plain CommonJS modules (Svix/Miniflux
@@ -25,6 +27,9 @@ sends it as email. Bridge spec:
 - `workflows/article-enrichment.json` — the committed export (#144), same
   manual sync.
 - `workflows/daily-digest.json` — the committed export (#145), same manual
+  sync.
+- `workflows/preferences-sync.json` — the committed export (#191), built by
+  `scripts/build-preferences-sync.js` from `src/preferences.js`; same manual
   sync.
 
 ## Newsletter ingest: flow
@@ -128,6 +133,38 @@ workflow for that date after fixing the cause regenerates it instead of
 re-sending the empty one. The alert claim is keyed on the date, so an empty
 Digest and a send failure on the same day notify once between them.
 
+## Preferences sync: flow (#191)
+
+```
+Schedule (30 6 * * * Europe/Berlin) → Build requests
+  → Export Doc (Drive export as text/markdown)
+  → Store profile (PUT /api/private/preferences)
+  → Regenerate (POST /api/private/preferences/regenerate)
+  → Describe change → [ends here when nothing changed]
+  → Write Doc (Drive media upload of text/markdown into the same Doc)
+  → Notify change (BRIDGE_ALERT_URL: the bullets added and removed)
+any HTTP node's error output → Describe failure → Notify failure → Fail execution
+```
+
+The Google Doc is the authoritative copy and the only place the profile is
+edited (ADR-0010). Agregado stores each accepted version in its own database
+and never talks to Google. No file and no host path are involved.
+
+- `Store profile` runs before `Regenerate`, so a hand edit made on the phone
+  takes effect even when the regeneration fails. If the Doc is malformed
+  (wrong headings, a table, prose inside a section, over 8 KiB), Agregado
+  answers `400` with the reason and the alert says to fix the Doc. Scoring
+  keeps the last accepted version.
+- `Regenerate` makes no model call when there is no evidence. Output that
+  fails Agregado's validation is rejected (`502`), and the accepted profile
+  stays in place.
+- A changed profile replaces the Doc's content automatically, with no review
+  step. `Notify change` lists the bullets added and removed, and the Doc's
+  version history is the rollback. An unchanged profile writes nothing, so
+  the Doc gains no revision.
+- The run is daily and starts at 06:30, so a hand edit takes effect by the
+  next morning's Articles. To apply one sooner, run the workflow manually.
+
 ## Configuration (n8n)
 
 Environment on the n8n container, newsletter ingest:
@@ -192,6 +229,21 @@ default (`internal/config/config.go`) — the legacy scheduler this workflow
 replaces (#85, once #84 cuts over). It is not read from that env var; n8n's
 Schedule Trigger has no `$env` access of its own, so keep the two in sync by
 hand if `DIGEST_SCHEDULE` ever changes.
+
+Environment on the n8n container, preferences sync (#191) — shares
+`AGREGADO_BASE_URL`, `ENRICHMENT_SECRET` and `BRIDGE_ALERT_URL` with the
+workflows above:
+
+| Variable | Purpose |
+|---|---|
+| `PREFERENCES_DOC_ID` | the PREFERENCES Google Doc's file ID (the part of its URL after `/d/`) |
+
+Credentials to select after import: a **Google Drive OAuth2** credential on
+`Export Doc` and `Write Doc`, with the default full Drive scope. `drive.file`
+only reaches files n8n itself created. Publish the Google Cloud OAuth app to
+"In production"; in "Testing" Google expires its refresh token after 7 days.
+No Cloudflare credential: this workflow does not use the D1 alert claim, because
+it runs once a day.
 
 The workflow sets its own timezone, `Europe/Berlin`, in its settings, so the
 cron fires at 08:00 the reader's time. Without it, n8n reads the cron in

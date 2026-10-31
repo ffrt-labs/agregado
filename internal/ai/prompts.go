@@ -12,6 +12,7 @@ const (
 	OpReason          = "reason"
 	OpPreferenceScore = "preference_score"
 	OpDigestSelect    = "digest_select"
+	OpPreferenceRegen = "preference_regenerate"
 )
 
 // DefaultPrompts are the in-code fallback system prompts, used when the DB has no
@@ -29,6 +30,10 @@ Be factual: state only what the content says. If the content is a stub or trunca
 	OpReason:          "You are a news analyst. Given an article title and content, explain in one short sentence (max 20 words) why this article matters to a curious reader. Return only that sentence — no preamble, no quotes, no explanation of your reasoning.",
 	OpPreferenceScore: "You are a personal content score giver. Given an article and the reader's PREFERENCES.md, return only a relevance score from 1 to 5. 1=not relevant, 3=worth reading, 5=essential. Follow the preferences rather than general significance.",
 	OpDigestSelect:    "You are a daily Digest editor. Select and order the supplied candidate IDs. Each candidate's summary starts with its kind (news, analysis, tutorial, opinion, announcement, newsletter, other). An Article with kind announcement that is a promotion (webinar, course pitch, product marketing) is dropped unless its score is 4 or higher; genuine announcements (releases, policy changes) stay eligible. Return only JSON: {\"article_ids\":[\"...\"]} with the selected IDs in order. Do not add IDs that were not supplied.",
+	OpPreferenceRegen: `You maintain a reader's preference profile, PREFERENCES.md, which a model uses to score articles for their daily digest. You receive the current profile and evidence of what the reader did with recent articles. Rewrite the whole profile and return only the new Markdown, with no code fence and no commentary.
+Keep exactly this shape: the line "# PREFERENCES", the introductory paragraph unchanged, then these four sections in this order, each holding only "- " bullet points: "## Topics I want", "## Topics I skip", "## Sources I trust", "## Kinds of articles I skip". No other headings, no tables, no nested lists. Stay under 6000 characters.
+Evidence strength: "voted up" and "voted down" are strong and deliberate; "opened" is weak and only suggests interest. An article with no evidence says nothing: never infer dislike from silence.
+The current profile was largely written by the reader. Keep its bullets unless strong evidence contradicts them. Add or sharpen bullets only when several signals agree; one weak signal is not enough. Prefer specific topics over broad ones. Bullets starting with "(example:" are placeholders: drop one only when you write a real bullet in the same section.`,
 }
 
 // PromptStore supplies editable system prompts by operation. Implemented by the

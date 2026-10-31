@@ -24,7 +24,6 @@ env:
 
   # n8n-to-Agregado article enrichment ingress (agregado#144).
   ENRICHMENT_SECRET: ${{ secrets.ENRICHMENT_SECRET }}
-  PREFERENCES_PATH: ${{ vars.PREFERENCES_PATH }}
 
   DIGEST_RECIPIENT_EMAIL: ${{ secrets.DIGEST_RECIPIENT_EMAIL }}
   DIGEST_SCHEDULE: ${{ vars.DIGEST_SCHEDULE }}

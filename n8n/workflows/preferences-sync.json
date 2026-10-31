@@ -1,0 +1,363 @@
+{
+  "name": "Preferences sync (Google Doc ↔ Agregado, nightly regeneration)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "preferences-schedule",
+      "name": "Preferences schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.preferences = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the preferences-sync workflow (agregado#191, ADR-0010).\n// The Google Doc PREFERENCES is authoritative; this workflow exports it as\n// Markdown, hands it to Agregado (PUT /api/private/preferences), asks Agregado\n// to regenerate it from the Reader's votes and Opens, and writes a changed\n// result back to the Doc. No I/O here, so it is unit-testable.\n\nconst DRIVE_API = \"https://www.googleapis.com/drive/v3/files\";\nconst DRIVE_UPLOAD_API = \"https://www.googleapis.com/upload/drive/v3/files\";\n\nfunction buildRequests(env) {\n\tconst docId = env.PREFERENCES_DOC_ID;\n\tconst baseUrl = env.AGREGADO_BASE_URL;\n\tif (!docId) throw new Error(\"PREFERENCES_DOC_ID is not set\");\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst base = String(baseUrl).replace(/\\/+$/, \"\");\n\tconst id = encodeURIComponent(docId);\n\treturn {\n\t\t// Drive exports a native Google Doc as Markdown; the upload below\n\t\t// converts Markdown back into the same Doc, keeping its ID and history.\n\t\texportUrl: `${DRIVE_API}/${id}/export?mimeType=text%2Fmarkdown`,\n\t\tuploadUrl: `${DRIVE_UPLOAD_API}/${id}?uploadType=media`,\n\t\tstoreUrl: `${base}/api/private/preferences`,\n\t\tregenerateUrl: `${base}/api/private/preferences/regenerate`,\n\t};\n}\n\n// Mirrors preferences.Normalize in Go: Docs appends two spaces to list items.\nfunction normalize(text) {\n\treturn String(text || \"\")\n\t\t.replace(/\\r\\n/g, \"\\n\")\n\t\t.split(\"\\n\")\n\t\t.map((line) => line.replace(/[ \\t]+$/, \"\"))\n\t\t.join(\"\\n\")\n\t\t.trim() + \"\\n\";\n}\n\n// bulletsBySection maps each \"## \" section to its bullet texts.\nfunction bulletsBySection(text) {\n\tconst sections = {};\n\tlet current = null;\n\tfor (const line of normalize(text).split(\"\\n\")) {\n\t\tif (line.startsWith(\"## \")) {\n\t\t\tcurrent = line.slice(3).trim();\n\t\t\tsections[current] = sections[current] || [];\n\t\t} else if (current && /^[-*] /.test(line)) {\n\t\t\tsections[current].push(line.slice(2).trim());\n\t\t}\n\t}\n\treturn sections;\n}\n\n// describeChange lists the bullets the regeneration added and removed, so a\n// bad rewrite is noticed from the notification alone. Capped to fit one\n// notification; the Doc's version history has the full diff.\nfunction describeChange(before, after, maxChars = 900) {\n\tconst a = bulletsBySection(before);\n\tconst b = bulletsBySection(after);\n\tconst lines = [];\n\tfor (const section of new Set([...Object.keys(a), ...Object.keys(b)])) {\n\t\tconst was = new Set(a[section] || []);\n\t\tconst now = new Set(b[section] || []);\n\t\tfor (const bullet of now) if (!was.has(bullet)) lines.push(`+ ${section}: ${bullet}`);\n\t\tfor (const bullet of was) if (!now.has(bullet)) lines.push(`- ${section}: ${bullet}`);\n\t}\n\tif (lines.length === 0) return \"wording changed only\";\n\tlet out = \"\";\n\tfor (const [i, line] of lines.entries()) {\n\t\tif (out.length + line.length + 1 > maxChars) return `${out}… and ${lines.length - i} more`;\n\t\tout += (out ? \"\\n\" : \"\") + line;\n\t}\n\treturn out;\n}\n\n// failureMessage turns an HTTP node's error item into one line. A 400 from\n// the store step means the Doc itself is malformed, which the reader fixes.\nfunction failureMessage(step, item) {\n\tconst err = (item && item.error) || item || {};\n\tconst detail = err.description || err.message || (typeof err === \"string\" ? err : \"\") || \"unknown error\";\n\tconst hint = step === \"Store profile\" && /400/.test(String(err.httpCode || err.message || \"\"))\n\t\t? \" Fix the PREFERENCES Doc: keep the title and the four bullet-only sections.\"\n\t\t: \"\";\n\treturn `Preferences sync failed at \"${step}\": ${detail}.${hint}`;\n}\n\nmodule.exports = { buildRequests, normalize, bulletsBySection, describeChange, failureMessage };\n\nreturn module.exports; })(__req);\n\n\nreturn [{ json: __mods.preferences.buildRequests($env) }];\n"
+      },
+      "id": "build-requests",
+      "name": "Build requests",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.exportUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "markdown"
+            }
+          }
+        }
+      },
+      "id": "export-doc",
+      "name": "Export Doc",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Build requests').first().json.storeUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Enrichment-Secret",
+              "value": "={{ $env.ENRICHMENT_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/markdown",
+        "body": "={{ $json.markdown }}",
+        "options": {}
+      },
+      "id": "store-profile",
+      "name": "Store profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Build requests').first().json.regenerateUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Enrichment-Secret",
+              "value": "={{ $env.ENRICHMENT_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "regenerate",
+      "name": "Regenerate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.preferences = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the preferences-sync workflow (agregado#191, ADR-0010).\n// The Google Doc PREFERENCES is authoritative; this workflow exports it as\n// Markdown, hands it to Agregado (PUT /api/private/preferences), asks Agregado\n// to regenerate it from the Reader's votes and Opens, and writes a changed\n// result back to the Doc. No I/O here, so it is unit-testable.\n\nconst DRIVE_API = \"https://www.googleapis.com/drive/v3/files\";\nconst DRIVE_UPLOAD_API = \"https://www.googleapis.com/upload/drive/v3/files\";\n\nfunction buildRequests(env) {\n\tconst docId = env.PREFERENCES_DOC_ID;\n\tconst baseUrl = env.AGREGADO_BASE_URL;\n\tif (!docId) throw new Error(\"PREFERENCES_DOC_ID is not set\");\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst base = String(baseUrl).replace(/\\/+$/, \"\");\n\tconst id = encodeURIComponent(docId);\n\treturn {\n\t\t// Drive exports a native Google Doc as Markdown; the upload below\n\t\t// converts Markdown back into the same Doc, keeping its ID and history.\n\t\texportUrl: `${DRIVE_API}/${id}/export?mimeType=text%2Fmarkdown`,\n\t\tuploadUrl: `${DRIVE_UPLOAD_API}/${id}?uploadType=media`,\n\t\tstoreUrl: `${base}/api/private/preferences`,\n\t\tregenerateUrl: `${base}/api/private/preferences/regenerate`,\n\t};\n}\n\n// Mirrors preferences.Normalize in Go: Docs appends two spaces to list items.\nfunction normalize(text) {\n\treturn String(text || \"\")\n\t\t.replace(/\\r\\n/g, \"\\n\")\n\t\t.split(\"\\n\")\n\t\t.map((line) => line.replace(/[ \\t]+$/, \"\"))\n\t\t.join(\"\\n\")\n\t\t.trim() + \"\\n\";\n}\n\n// bulletsBySection maps each \"## \" section to its bullet texts.\nfunction bulletsBySection(text) {\n\tconst sections = {};\n\tlet current = null;\n\tfor (const line of normalize(text).split(\"\\n\")) {\n\t\tif (line.startsWith(\"## \")) {\n\t\t\tcurrent = line.slice(3).trim();\n\t\t\tsections[current] = sections[current] || [];\n\t\t} else if (current && /^[-*] /.test(line)) {\n\t\t\tsections[current].push(line.slice(2).trim());\n\t\t}\n\t}\n\treturn sections;\n}\n\n// describeChange lists the bullets the regeneration added and removed, so a\n// bad rewrite is noticed from the notification alone. Capped to fit one\n// notification; the Doc's version history has the full diff.\nfunction describeChange(before, after, maxChars = 900) {\n\tconst a = bulletsBySection(before);\n\tconst b = bulletsBySection(after);\n\tconst lines = [];\n\tfor (const section of new Set([...Object.keys(a), ...Object.keys(b)])) {\n\t\tconst was = new Set(a[section] || []);\n\t\tconst now = new Set(b[section] || []);\n\t\tfor (const bullet of now) if (!was.has(bullet)) lines.push(`+ ${section}: ${bullet}`);\n\t\tfor (const bullet of was) if (!now.has(bullet)) lines.push(`- ${section}: ${bullet}`);\n\t}\n\tif (lines.length === 0) return \"wording changed only\";\n\tlet out = \"\";\n\tfor (const [i, line] of lines.entries()) {\n\t\tif (out.length + line.length + 1 > maxChars) return `${out}… and ${lines.length - i} more`;\n\t\tout += (out ? \"\\n\" : \"\") + line;\n\t}\n\treturn out;\n}\n\n// failureMessage turns an HTTP node's error item into one line. A 400 from\n// the store step means the Doc itself is malformed, which the reader fixes.\nfunction failureMessage(step, item) {\n\tconst err = (item && item.error) || item || {};\n\tconst detail = err.description || err.message || (typeof err === \"string\" ? err : \"\") || \"unknown error\";\n\tconst hint = step === \"Store profile\" && /400/.test(String(err.httpCode || err.message || \"\"))\n\t\t? \" Fix the PREFERENCES Doc: keep the title and the four bullet-only sections.\"\n\t\t: \"\";\n\treturn `Preferences sync failed at \"${step}\": ${detail}.${hint}`;\n}\n\nmodule.exports = { buildRequests, normalize, bulletsBySection, describeChange, failureMessage };\n\nreturn module.exports; })(__req);\n\n\nconst result = $input.first().json;\nif (!result.changed) return [];\nconst before = $('Export Doc').first().json.markdown;\nreturn [{ json: { profile: result.profile, signals: result.signals, change: __mods.preferences.describeChange(before, result.profile) } }];\n"
+      },
+      "id": "describe-change",
+      "name": "Describe change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Build requests').first().json.uploadUrl }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleDriveOAuth2Api",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/markdown",
+        "body": "={{ $json.profile }}",
+        "options": {}
+      },
+      "id": "write-doc",
+      "name": "Write Doc",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BRIDGE_ALERT_URL }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "=PREFERENCES updated from {{ $('Describe change').first().json.signals }} signals:\n{{ $('Describe change').first().json.change }}\nUndo with File → Version history in the Doc.",
+        "options": {}
+      },
+      "id": "notify-change",
+      "name": "Notify change",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const __mods = {};\nconst __req = (p) => (p.startsWith('./') ? __mods[p.slice(2)] : require(p));\n__mods.preferences = (function (require) { const module = { exports: {} }; const exports = module.exports;\n// Pure helpers for the preferences-sync workflow (agregado#191, ADR-0010).\n// The Google Doc PREFERENCES is authoritative; this workflow exports it as\n// Markdown, hands it to Agregado (PUT /api/private/preferences), asks Agregado\n// to regenerate it from the Reader's votes and Opens, and writes a changed\n// result back to the Doc. No I/O here, so it is unit-testable.\n\nconst DRIVE_API = \"https://www.googleapis.com/drive/v3/files\";\nconst DRIVE_UPLOAD_API = \"https://www.googleapis.com/upload/drive/v3/files\";\n\nfunction buildRequests(env) {\n\tconst docId = env.PREFERENCES_DOC_ID;\n\tconst baseUrl = env.AGREGADO_BASE_URL;\n\tif (!docId) throw new Error(\"PREFERENCES_DOC_ID is not set\");\n\tif (!baseUrl) throw new Error(\"AGREGADO_BASE_URL is not set\");\n\tconst base = String(baseUrl).replace(/\\/+$/, \"\");\n\tconst id = encodeURIComponent(docId);\n\treturn {\n\t\t// Drive exports a native Google Doc as Markdown; the upload below\n\t\t// converts Markdown back into the same Doc, keeping its ID and history.\n\t\texportUrl: `${DRIVE_API}/${id}/export?mimeType=text%2Fmarkdown`,\n\t\tuploadUrl: `${DRIVE_UPLOAD_API}/${id}?uploadType=media`,\n\t\tstoreUrl: `${base}/api/private/preferences`,\n\t\tregenerateUrl: `${base}/api/private/preferences/regenerate`,\n\t};\n}\n\n// Mirrors preferences.Normalize in Go: Docs appends two spaces to list items.\nfunction normalize(text) {\n\treturn String(text || \"\")\n\t\t.replace(/\\r\\n/g, \"\\n\")\n\t\t.split(\"\\n\")\n\t\t.map((line) => line.replace(/[ \\t]+$/, \"\"))\n\t\t.join(\"\\n\")\n\t\t.trim() + \"\\n\";\n}\n\n// bulletsBySection maps each \"## \" section to its bullet texts.\nfunction bulletsBySection(text) {\n\tconst sections = {};\n\tlet current = null;\n\tfor (const line of normalize(text).split(\"\\n\")) {\n\t\tif (line.startsWith(\"## \")) {\n\t\t\tcurrent = line.slice(3).trim();\n\t\t\tsections[current] = sections[current] || [];\n\t\t} else if (current && /^[-*] /.test(line)) {\n\t\t\tsections[current].push(line.slice(2).trim());\n\t\t}\n\t}\n\treturn sections;\n}\n\n// describeChange lists the bullets the regeneration added and removed, so a\n// bad rewrite is noticed from the notification alone. Capped to fit one\n// notification; the Doc's version history has the full diff.\nfunction describeChange(before, after, maxChars = 900) {\n\tconst a = bulletsBySection(before);\n\tconst b = bulletsBySection(after);\n\tconst lines = [];\n\tfor (const section of new Set([...Object.keys(a), ...Object.keys(b)])) {\n\t\tconst was = new Set(a[section] || []);\n\t\tconst now = new Set(b[section] || []);\n\t\tfor (const bullet of now) if (!was.has(bullet)) lines.push(`+ ${section}: ${bullet}`);\n\t\tfor (const bullet of was) if (!now.has(bullet)) lines.push(`- ${section}: ${bullet}`);\n\t}\n\tif (lines.length === 0) return \"wording changed only\";\n\tlet out = \"\";\n\tfor (const [i, line] of lines.entries()) {\n\t\tif (out.length + line.length + 1 > maxChars) return `${out}… and ${lines.length - i} more`;\n\t\tout += (out ? \"\\n\" : \"\") + line;\n\t}\n\treturn out;\n}\n\n// failureMessage turns an HTTP node's error item into one line. A 400 from\n// the store step means the Doc itself is malformed, which the reader fixes.\nfunction failureMessage(step, item) {\n\tconst err = (item && item.error) || item || {};\n\tconst detail = err.description || err.message || (typeof err === \"string\" ? err : \"\") || \"unknown error\";\n\tconst hint = step === \"Store profile\" && /400/.test(String(err.httpCode || err.message || \"\"))\n\t\t? \" Fix the PREFERENCES Doc: keep the title and the four bullet-only sections.\"\n\t\t: \"\";\n\treturn `Preferences sync failed at \"${step}\": ${detail}.${hint}`;\n}\n\nmodule.exports = { buildRequests, normalize, bulletsBySection, describeChange, failureMessage };\n\nreturn module.exports; })(__req);\n\n\nreturn [{ json: { message: __mods.preferences.failureMessage($prevNode.name, $input.first().json) } }];\n"
+      },
+      "id": "describe-failure",
+      "name": "Describe failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        520
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BRIDGE_ALERT_URL }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ $json.message }} Check n8n execution {{ $execution.id }}.",
+        "options": {}
+      },
+      "id": "notify-failure",
+      "name": "Notify failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "preferences sync failed"
+      },
+      "id": "fail",
+      "name": "Fail execution",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Preferences schedule": {
+      "main": [
+        [
+          {
+            "node": "Build requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build requests": {
+      "main": [
+        [
+          {
+            "node": "Export Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Doc": {
+      "main": [
+        [
+          {
+            "node": "Store profile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Describe failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store profile": {
+      "main": [
+        [
+          {
+            "node": "Regenerate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Describe failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regenerate": {
+      "main": [
+        [
+          {
+            "node": "Describe change",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Describe failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Describe change": {
+      "main": [
+        [
+          {
+            "node": "Write Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Doc": {
+      "main": [
+        [
+          {
+            "node": "Notify change",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Describe failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Describe failure": {
+      "main": [
+        [
+          {
+            "node": "Notify failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify failure": {
+      "main": [
+        [
+          {
+            "node": "Fail execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -3488,3 +3488,39 @@ call) and deterministic, so they can be charted per prompt version.
 - **Without an answer there is no check.** If categorize fails, the Article
   fails and no `slug_allowed` is emitted, because there is nothing to check. The
   summary scores were already emitted, since summarize runs first.
+
+## Langfuse 5 — `opened` and `selected` scores (issue #204, spec #198)
+
+Two more boolean scores land on each Article's `article-enrichment` trace:
+`opened` from the `/r/{id}` handler, and `selected` from the Digest artifact
+service. Next to `preference_score` they show what actually happened to the
+Article.
+
+- **A stable timestamp comes from the row, not from the clock.**
+  `ArticleIndexRepo.Open` already kept the first Open with
+  `COALESCE(opened_at, NOW())`. Adding `opened_at` to its `RETURNING` hands
+  the handler that first time on every later Open too, so each Open re-emits
+  the same (ID, timestamp) pair and Langfuse keeps a single score.
+  `selected` uses the Digest date, which is fixed per Digest.
+- **`selected` goes on the candidates' traces, not the Digest's.** The
+  question is "did the Digest pick this Article?", so each candidate's
+  `ArticleIndexKey(id)` gets 1 or 0. Candidates the select call never saw
+  (cut by the diversity limit) get nothing, because they had no chance.
+- **Emit only when this call saved the Digest.** `Save` returns
+  `created=false` when another request saved the date first, and `Find`
+  serves a saved Digest without computing it. Neither path emits, because
+  the call that created the Digest already did. Empty Digests are never saved,
+  so they emit nothing either.
+- **Legacy opens fall out of the error path.** The fallback runs on
+  `ErrNotFound` before the emit, so a legacy Article can't produce a score
+  for a trace that doesn't exist.
+- **Testing "the sink can't change the result":** run the same Digest once
+  with no sink and once with a failing sink, then compare the HTML and
+  counts. Another check confirms the failing sink was called, so the test
+  can't pass just because nothing emitted.
+
+### Recommended reading (15–30 min)
+
+PostgreSQL's `UPDATE ... RETURNING` docs, the part that says `RETURNING`
+sees the row's new values. That's why `opened_at` comes back already
+COALESCEd.

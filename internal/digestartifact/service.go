@@ -78,6 +78,22 @@ type Service struct {
 	baseURL    string
 	floor, max int
 	tracer     trace.Tracer
+	scores     telemetry.ScoreSink
+}
+
+// SelectedScore is the Langfuse score name, on each candidate's Article
+// trace, for whether a saved Digest chose that candidate.
+const SelectedScore = "selected"
+
+// WithScoreSink sends a `selected` score to each candidate's Article trace
+// once a non-empty Digest is saved. Without it (or with nil) scores are
+// discarded.
+func WithScoreSink(sink telemetry.ScoreSink) Option {
+	return func(s *Service) {
+		if sink != nil {
+			s.scores = sink
+		}
+	}
 }
 
 // Option configures an optional Service seam.
@@ -101,7 +117,7 @@ func NewService(store Store, frontier Frontier, baseURL string, floor, max int, 
 		floor = 3
 	}
 	s := &Service{store: store, frontier: frontier, baseURL: strings.TrimSuffix(baseURL, "/"), floor: floor, max: max,
-		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName)}
+		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName), scores: telemetry.NopScoreSink{}}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -200,7 +216,27 @@ func (s *Service) compute(ctx context.Context, span trace.Span, day time.Time) (
 		return artifact, false, nil
 	}
 	artifact.HTML, artifact.Text = render(artifact)
-	return s.store.Save(ctx, artifact)
+	saved, created, err := s.store.Save(ctx, artifact)
+	if err == nil && created {
+		s.scoreSelected(ctx, candidates.items, artifact)
+	}
+	return saved, created, err
+}
+
+// scoreSelected marks every candidate's Article trace with whether the saved
+// Digest chose it. The Digest date is the timestamp: it is fixed per Digest,
+// so a re-emitted score overwrites rather than adds (internal/telemetry).
+func (s *Service) scoreSelected(ctx context.Context, candidates []Candidate, digest Artifact) {
+	chosen := make(map[string]bool, len(digest.Items))
+	for _, item := range digest.Items {
+		chosen[item.ID] = true
+	}
+	for _, c := range candidates {
+		score := telemetry.BooleanScore(telemetry.ArticleIndexKey(c.ID), SelectedScore, chosen[c.ID], digest.Date)
+		if err := s.scores.Emit(ctx, score); err != nil {
+			slog.Warn("langfuse: selected score not sent", "component", "langfuse", "article_index_id", c.ID, "err", err)
+		}
+	}
 }
 
 func jsonIDs(ids []string) string {

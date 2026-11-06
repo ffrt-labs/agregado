@@ -40,16 +40,33 @@ func WithTracerProvider(tp trace.TracerProvider) CloudflareOption {
 // generationAttrs describe a model call before it is made: what Langfuse
 // shows as the generation's model, parameters and input. Cost is not sent;
 // Langfuse prices the usage with its model definition (in neurons).
-func generationAttrs(operation, model, systemPrompt, userPrompt string, opts callOptions) []attribute.KeyValue {
-	messages, _ := json.Marshal([]Messages{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	})
+//
+// A call compiled from a prompt template records the variables as its input,
+// so the trace can become a dataset item the eval harness compiles against
+// another prompt version; a Langfuse-managed version (not an in-code
+// default, version 0) is also linked by name and version. Other calls
+// record the messages.
+func generationAttrs(operation, model, systemPrompt, userPrompt string, opts callOptions, from *compiledPrompt) []attribute.KeyValue {
+	var input []byte
+	if from != nil {
+		input, _ = json.Marshal(from.vars)
+	} else {
+		input, _ = json.Marshal([]Messages{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		})
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String(telemetry.AttrObsType, "generation"),
 		telemetry.ObservationMetadata("operation").String(operation),
 		attribute.String(telemetry.AttrGenAIModel, model),
-		attribute.String(telemetry.AttrObsInput, string(messages)),
+		attribute.String(telemetry.AttrObsInput, string(input)),
+	}
+	if from != nil && from.prompt.Version > 0 {
+		attrs = append(attrs,
+			attribute.String(telemetry.AttrObsPromptName, from.prompt.Name),
+			attribute.Int(telemetry.AttrObsPromptVersion, from.prompt.Version),
+		)
 	}
 	if opts.MaxCompletionTokens > 0 {
 		attrs = append(attrs, attribute.Int(telemetry.AttrGenAIMaxTokens, opts.MaxCompletionTokens))

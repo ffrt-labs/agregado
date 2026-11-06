@@ -132,6 +132,9 @@ type Langfuse struct {
 	BaseURL   string `env:"LANGFUSE_BASE_URL"`
 	PublicKey string `env:"LANGFUSE_PUBLIC_KEY"`
 	SecretKey string `env:"LANGFUSE_SECRET_KEY"`
+	// PromptCacheTTL is how long a Langfuse prompt is served from memory
+	// before a background refresh; promoting a version takes effect within it.
+	PromptCacheTTL time.Duration `env:"LANGFUSE_PROMPT_CACHE_TTL" envDefault:"60s"`
 }
 
 type Config struct {

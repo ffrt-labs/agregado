@@ -1,7 +1,7 @@
 include .env
 export
 
-.PHONY: dev-deps dev-deps-down dev build migrate-up migrate-down migrate-ownership migrate-ownership-apply legacy-dump
+.PHONY: dev-deps dev-deps-down dev build migrate-up migrate-down migrate-ownership migrate-ownership-apply legacy-dump seed-langfuse-prompts
 
 dev-deps:
 	docker-compose up -d
@@ -28,6 +28,10 @@ migrate-ownership:
 
 migrate-ownership-apply:
 	go run ./cmd/migrate-ownership -apply
+
+# Idempotent: creates each Langfuse-managed prompt's v1 only if absent (#201).
+seed-langfuse-prompts:
+	go run ./cmd/seed-langfuse-prompts
 
 # Final cold dump of the old Postgres, with a restore check. Run last.
 legacy-dump:

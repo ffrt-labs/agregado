@@ -125,8 +125,12 @@ func main() {
 	// no-op when Langfuse is unconfigured.
 	scores := langfuse.NewScores(langfuseCfg)
 
+	// Langfuse-managed prompts (#201): unconfigured, every template call
+	// uses its in-code default and the ai_prompts row, as before.
+	langfusePrompts := langfuse.NewPrompts(langfuseCfg, cfg.Langfuse.PromptCacheTTL)
+
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger,
-		ai.WithTracerProvider(tracerProvider))
+		ai.WithTracerProvider(tracerProvider), ai.WithTemplates(langfusePrompts))
 	preferenceService := preferences.NewService(storage.NewPreferenceProfileRepo(db), articleIndexRepo, provider)
 	preferencesHandler := preferences.NewHandler(cfg.Enrichment.Secret, preferenceService)
 	articleIndexHandler := articleindex.NewHandler(cfg.Enrichment.Secret, articleindex.NewService(

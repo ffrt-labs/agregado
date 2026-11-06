@@ -29,7 +29,8 @@ var skipDirs = map[string]bool{
 // This list is deliberately explicit rather than a `cmd/` wildcard:
 // cmd/agregado is the service, and it stays covered.
 var operatorTools = map[string]bool{
-	"cmd/migrate-ownership/main.go": true,
+	"cmd/migrate-ownership/main.go":     true,
+	"cmd/seed-langfuse-prompts/main.go": true,
 }
 
 // moduleRoot walks up from the working directory to the directory holding

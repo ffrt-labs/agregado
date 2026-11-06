@@ -3524,3 +3524,48 @@ Article.
 PostgreSQL's `UPDATE ... RETURNING` docs, the part that says `RETURNING`
 sees the row's new values. That's why `opened_at` comes back already
 COALESCEd.
+
+## Langfuse 6 — Serving the preference_score prompt from Langfuse (issue #201, spec #198)
+
+- **Prompt management is a cache problem with a fallback chain.** Langfuse's
+  SDKs cache prompts with a TTL (60s) and serve the stale copy while one
+  background request refreshes it. Agregado's Go client does the same and adds
+  two rules: a failed refresh keeps the last good copy, and a failed *cold*
+  fetch (one with nothing cached) is not retried until the TTL passes again.
+  Without that second rule, Langfuse being down would add a request timeout to
+  every model call. The chain is: cached Langfuse version, then the in-code
+  default. The default is never an error path.
+- **Gotcha: folder-style prompt names must be path-escaped.**
+  `agregado/preference_score` becomes `/api/public/v2/prompts/agregado%2Fpreference_score`.
+  In Go, `url.PathEscape` gives `%2F`, and a test can check
+  `r.URL.EscapedPath()` on the httptest side to see that the slash really
+  stayed encoded.
+- **Gotcha: creating a prompt is not idempotent.** `POST /api/public/v2/prompts`
+  adds a new version every time. The seeder asks
+  `GET /api/public/v2/prompts?name=...` (the list endpoint, which sees every
+  version and label) and creates only when that is empty. A GET by label would
+  miss a prompt that exists but has no `production` label, and the seeder would
+  then add a duplicate v2.
+- **Strict compilation turns schema drift into a warning, not a wrong Score.**
+  `{{name}}` substitution is single pass, because article content can contain
+  `{{`. A template that references a variable the code doesn't supply, or
+  leaves one unused, is invalid. The call then uses the default and logs a
+  warning. Langfuse's own SDK leaves unknown variables in the text, which would
+  send a literal `{{author}}` to the model and never say so.
+- **The generation's input becomes the variables, not the messages.** That is
+  what makes "trace to dataset item to experiment" work: the eval harness
+  compiles `item.input` against a candidate version. The prompt link
+  (`langfuse.observation.prompt.name` / `.version`, an integer) is set only for
+  Langfuse versions. An in-code default is version 0 and stays unlinked.
+- **An expand step keeps the change small.** The bare-string `PromptStore`
+  stays for the legacy operations. A separate `TemplateStore` plus
+  `completeTemplate` serves the migrated ones, and each in-code default's system
+  message still comes from the `ai_prompts` row. With Langfuse unconfigured,
+  the bytes sent to Workers AI are exactly what they were before.
+
+### Recommended reading (15–30 min)
+
+Langfuse's prompt management docs on caching and the "Prompt Management Data
+Model" (langfuse.com/docs/prompt-management), then `TemplateParser` in
+`langfuse-python`'s `model.py` to see the reference compile semantics this
+client deliberately tightens.

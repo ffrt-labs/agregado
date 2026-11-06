@@ -18,6 +18,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
+	"github.com/felipeafreitas/agregado/internal/langfuse"
 	"github.com/felipeafreitas/agregado/internal/logging"
 	"github.com/felipeafreitas/agregado/internal/mail"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
@@ -109,7 +110,19 @@ func main() {
 	aiLogRepo := storage.NewAILogRepo(db)
 	aiLogger := storage.NewAILogger(settingsRepo, aiLogRepo)
 
-	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger)
+	// Langfuse tracing is optional: unconfigured, the tracer provider is a
+	// no-op and nothing is exported (spec #198).
+	tracing, err := langfuse.NewTracing(ctx, langfuse.Config{
+		BaseURL: cfg.Langfuse.BaseURL, PublicKey: cfg.Langfuse.PublicKey, SecretKey: cfg.Langfuse.SecretKey,
+	})
+	if err != nil {
+		fatal("failed to set up Langfuse tracing", err)
+	}
+	slog.Info("langfuse tracing", "component", "main", "enabled", tracing.Enabled())
+	tracerProvider := tracing.TracerProvider()
+
+	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger,
+		ai.WithTracerProvider(tracerProvider))
 	preferenceService := preferences.NewService(storage.NewPreferenceProfileRepo(db), articleIndexRepo, provider)
 	preferencesHandler := preferences.NewHandler(cfg.Enrichment.Secret, preferenceService)
 	articleIndexHandler := articleindex.NewHandler(cfg.Enrichment.Secret, articleindex.NewService(
@@ -117,6 +130,7 @@ func main() {
 		fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent),
 		articleindex.NewCloudflareModel(provider),
 		preferenceService,
+		articleindex.WithTracerProvider(tracerProvider),
 	))
 	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
 		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,
@@ -179,6 +193,10 @@ func main() {
 	defer shutdownCancel()
 
 	server.Shutdown(shutdownCtx)
+	// After the server, so spans of requests that just finished are flushed too.
+	if err := tracing.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("langfuse: flushing spans at shutdown failed", "component", "langfuse", "err", err)
+	}
 	publisher.Close()
 	consumer.Close()
 	enrichConsumer.Close()

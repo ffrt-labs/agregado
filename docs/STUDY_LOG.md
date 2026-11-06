@@ -3322,3 +3322,53 @@ the child-logger pattern is actually doing: `slog.With` isn't string
 concatenation, it pre-formats the attributes once per component rather than per
 record, which is why binding a component logger at construction beats passing
 fields at every call site.
+
+## Langfuse 1 — Tracing each Article's enrichment (issue #199, spec #198)
+
+- **Langfuse has no Go SDK, and that turns out to be the interesting part.**
+  The integration is plain OpenTelemetry: an OTLP/HTTP exporter pointed at
+  `{base}/api/public/otel/v1/traces`, Basic auth from the project key pair, and
+  attribute names Langfuse maps (`langfuse.trace.*`, `langfuse.observation.*`,
+  `gen_ai.*`). Everything a Langfuse SDK "does" for traces is attribute naming.
+  The mapping lives in `packages/shared/src/server/otel/attributes.ts` in the
+  Langfuse repo; reading that file was faster and more accurate than the docs
+  table. Two things the docs don't shout about: send
+  `x-langfuse-ingestion-version: 4` or v4 may take up to ten minutes to show
+  OTel data, and there is no gRPC endpoint, only HTTP (protobuf or JSON).
+- **A deterministic trace ID means faking a parent, not choosing an ID.** OTel
+  only lets you pick a trace ID by inheriting it. The Python SDK's
+  `create_trace_id(seed)` is `sha256(seed)[:16]`, and to force it the SDK
+  parents the new span on a synthetic, sampled span context with that trace ID
+  and sets `langfuse.internal.as_root=true` so Langfuse treats the span as the
+  root anyway. `telemetry.StartTrace` does the same in Go. Using the exact same
+  hash means a Python script can compute any Agregado trace ID from
+  `article-index:<record id>` without asking Postgres.
+- **The idempotency boundary is also the tracing boundary.** Opening the trace
+  after `store.Create` returns `created=true` gets "a duplicate request creates
+  no trace" for free: the duplicate path returns before any model call, so it has
+  nothing to trace. Traces line up with real model work because they start where
+  model work starts.
+- **One completion path pays off again.** Every operation, legacy ones included,
+  already goes through `completeWith`, so a single span there covers all of
+  them. The generation nests under whatever span is in `ctx`, so the provider
+  needs no idea whether it is serving an enrichment or a Digest.
+- **The batch processor is what "Langfuse being down never slows enrichment"
+  rests on.** `span.End()` only enqueues; when the queue is full, spans are
+  dropped instead of waited on. `Shutdown(ctx)` flushes and gives up when the
+  5s shutdown context ends. The test drives 5,000 spans into a Langfuse stub
+  that never answers and checks that they still finish within a second.
+- **Gotcha: the OTel Go release line moves past your toolchain.** OTel v1.47
+  needs Go 1.26; this repo builds on `golang:1.25`, so v1.46.0 is pinned.
+- **Gotcha: a leaf package avoids an import cycle that comes later.** `ai`
+  imports `digestartifact`, so the shared trace-ID helper and attribute names
+  live in `internal/telemetry`, which imports no Agregado package. That way the
+  Digest service (#200) and the Langfuse score sink (#202) can use the same
+  helper. `internal/langfuse` holds the exporter, which only `main` imports.
+
+### Recommended reading (15–30 min)
+
+**Langfuse's OpenTelemetry integration page** (langfuse.com/integrations/native/opentelemetry),
+the property-mapping table, then `attributes.ts` in the Langfuse repo for
+the version you deploy. After that, read the OTel Go `sdk/trace` docs for
+`BatchSpanProcessor` options (`WithMaxQueueSize`, `WithBatchTimeout`) to see
+which knobs decide when spans are dropped and when they are sent.

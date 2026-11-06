@@ -19,6 +19,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
 	"github.com/felipeafreitas/agregado/internal/preferences"
 	"github.com/felipeafreitas/agregado/internal/storage"
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -31,7 +32,7 @@ type Server struct {
 	backupScheduler *backup.Scheduler
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -66,7 +67,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		weightsRepo,
 		articleRepo,
 	)
-	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo)
+	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, scores)
 	bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
 
 	tagRepo := storage.NewTagRepo(db)

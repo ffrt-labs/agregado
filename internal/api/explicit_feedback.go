@@ -2,23 +2,37 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 )
 
 // ExplicitVoteRecorder keeps the single current strong preference signal for
-// an Article. It is separate from an Open, which is weak evidence.
+// an Article. It is separate from an Open, which is weak evidence. SetCurrent
+// returns when the Article was first voted on, which a changed vote keeps.
 type ExplicitVoteRecorder interface {
-	SetCurrent(ctx context.Context, articleID, vote string) error
+	SetCurrent(ctx context.Context, articleID, vote string) (firstVotedAt time.Time, err error)
 }
+
+// UserVoteScore is the Langfuse score a Digest vote becomes.
+const UserVoteScore = "user_vote"
 
 // ExplicitFeedbackHandler serves the public feedback links in a Digest. The
 // confirmation intentionally offers no reading surface.
-type ExplicitFeedbackHandler struct{ votes ExplicitVoteRecorder }
+type ExplicitFeedbackHandler struct {
+	votes  ExplicitVoteRecorder
+	scores telemetry.ScoreSink
+}
 
-func NewExplicitFeedbackHandler(votes ExplicitVoteRecorder) *ExplicitFeedbackHandler {
-	return &ExplicitFeedbackHandler{votes: votes}
+func NewExplicitFeedbackHandler(votes ExplicitVoteRecorder, scores telemetry.ScoreSink) *ExplicitFeedbackHandler {
+	if scores == nil {
+		scores = telemetry.NopScoreSink{}
+	}
+	return &ExplicitFeedbackHandler{votes: votes, scores: scores}
 }
 
 func (h *ExplicitFeedbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -28,9 +42,18 @@ func (h *ExplicitFeedbackHandler) Handle(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.votes.SetCurrent(r.Context(), chi.URLParam(r, "id"), vote); err != nil {
+	articleID := chi.URLParam(r, "id")
+	firstVotedAt, err := h.votes.SetCurrent(r.Context(), articleID, vote)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// The first vote's time keeps the Langfuse score's timestamp stable, so a
+	// changed vote overwrites the earlier user_vote instead of adding one.
+	score := telemetry.CategoricalScore(telemetry.ArticleIndexKey(articleID), UserVoteScore, vote, firstVotedAt)
+	if err := h.scores.Emit(r.Context(), score); err != nil {
+		slog.Warn("langfuse: user_vote score not sent", "component", "langfuse", "article_index_id", articleID, "err", err)
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

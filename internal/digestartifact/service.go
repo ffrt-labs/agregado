@@ -4,12 +4,19 @@ package digestartifact
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"sort"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 )
 
 type Article struct {
@@ -70,16 +77,35 @@ type Service struct {
 	frontier   Frontier
 	baseURL    string
 	floor, max int
+	tracer     trace.Tracer
 }
 
-func NewService(store Store, frontier Frontier, baseURL string, floor, max int) *Service {
+// Option configures an optional Service seam.
+type Option func(*Service)
+
+// WithTracerProvider records each computed Digest as one Langfuse trace.
+// Without it (or with nil) the Service's tracer is a no-op.
+func WithTracerProvider(tp trace.TracerProvider) Option {
+	return func(s *Service) {
+		if tp != nil {
+			s.tracer = tp.Tracer(telemetry.TracerName)
+		}
+	}
+}
+
+func NewService(store Store, frontier Frontier, baseURL string, floor, max int, opts ...Option) *Service {
 	if max <= 0 || max > 10 {
 		max = 10
 	}
 	if floor <= 0 {
 		floor = 3
 	}
-	return &Service{store: store, frontier: frontier, baseURL: strings.TrimSuffix(baseURL, "/"), floor: floor, max: max}
+	s := &Service{store: store, frontier: frontier, baseURL: strings.TrimSuffix(baseURL, "/"), floor: floor, max: max,
+		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName)}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 // ForDate's intermediate steps are logged at Info — the frontier call in
 // particular can legitimately run for tens of seconds to several minutes
@@ -90,15 +116,55 @@ func NewService(store Store, frontier Frontier, baseURL string, floor, max int) 
 // wait with no visibility into how far the request had gotten).
 func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, error) {
 	day = date(day)
-	dateStr := day.Format("2006-01-02")
 	if saved, ok, err := s.store.Find(ctx, day); err != nil || ok {
 		return saved, false, err
 	}
+	// The trace opens only once the Digest has to be computed: a saved
+	// artifact is served without a model call, so it leaves no trace. The key
+	// is the date ID, fixed before Save swaps in the stored UUID.
+	id := day.Format("20060102")
+	ctx, span := telemetry.StartTrace(ctx, s.tracer, "digest", telemetry.DigestKey(id),
+		telemetry.TraceMetadata("artifact_id").String(id))
+	defer span.End()
+	artifact, created, err := s.compute(ctx, span, day)
+	if err != nil {
+		telemetry.Fail(span, err.Error())
+		return artifact, created, err
+	}
+	chosen := make([]string, len(artifact.Items))
+	for i, item := range artifact.Items {
+		chosen[i] = item.ID
+	}
+	span.SetAttributes(
+		attribute.String(telemetry.AttrObsOutput, jsonIDs(chosen)),
+		telemetry.TraceMetadata("selected_count").Int(artifact.SelectedCount),
+	)
+	if artifact.EmptyReason != "" {
+		span.SetAttributes(telemetry.TraceMetadata("empty_reason").String(artifact.EmptyReason))
+	}
+	return artifact, created, nil
+}
+
+// compute builds and saves the Digest for day. What the select call is given
+// goes on span as soon as it is known, so a failed call still shows it.
+func (s *Service) compute(ctx context.Context, span trace.Span, day time.Time) (Artifact, bool, error) {
+	dateStr := day.Format("2006-01-02")
 	pool, err := s.store.Candidates(ctx, day, FallbackLookback)
 	if err != nil {
 		return Artifact{}, false, err
 	}
 	candidates := uniqueAndDiverse(pool.Articles, s.floor, s.max)
+	candidateIDs := make([]string, len(candidates.items))
+	for i, c := range candidates.items {
+		candidateIDs[i] = c.ID
+	}
+	span.SetAttributes(
+		attribute.String(telemetry.AttrObsInput, jsonIDs(candidateIDs)),
+		telemetry.TraceMetadata("candidate_count").Int(candidates.total),
+		telemetry.TraceMetadata("floor_pass_count").Int(candidates.floorPass),
+		telemetry.TraceMetadata("window_since").String(pool.Since.Format(time.RFC3339)),
+		telemetry.TraceMetadata("window_until").String(pool.Until.Format(time.RFC3339)),
+	)
 	slog.Info("digest: candidates prepared", "component", "digestartifact", "date", dateStr,
 		"since", pool.Since, "until", pool.Until,
 		"pool", len(pool.Articles), "unique", candidates.total, "floor_pass", candidates.floorPass, "selected", len(candidates.items))
@@ -135,6 +201,11 @@ func (s *Service) ForDate(ctx context.Context, day time.Time) (Artifact, bool, e
 	}
 	artifact.HTML, artifact.Text = render(artifact)
 	return s.store.Save(ctx, artifact)
+}
+
+func jsonIDs(ids []string) string {
+	data, _ := json.Marshal(ids)
+	return string(data)
 }
 
 type prepared struct {

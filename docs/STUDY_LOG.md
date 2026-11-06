@@ -3372,3 +3372,38 @@ the property-mapping table, then `attributes.ts` in the Langfuse repo for
 the version you deploy. After that, read the OTel Go `sdk/trace` docs for
 `BatchSpanProcessor` options (`WithMaxQueueSize`, `WithBatchTimeout`) to see
 which knobs decide when spans are dropped and when they are sent.
+
+## Langfuse 2 — Tracing each Digest (issue #200, spec #198)
+
+- **The cache check is the tracing boundary again.** `ForDate` returns a saved
+  artifact before anything else, so opening the `digest` trace right after the
+  `Find` miss means "a reused Digest makes no trace" needs no extra code. Same
+  shape as enrichment's idempotency boundary in #199.
+- **Key the trace before the store renames the thing.** The Postgres store's
+  `Save` hands back the artifact with a UUID `ID`. The trace key is
+  `digest:<date ID>` (`digest:20261030`), fixed before `Save` runs, so anyone
+  who knows the date can find the trace (`telemetry.TraceIDHex`). Nothing needs
+  to be stored.
+- **Record the input as soon as you know it, the output only on success.** The
+  candidate IDs and counts go on the root span before the select call, so a
+  failed call's trace still shows what the model was given. Chosen IDs and
+  `selected_count` are set only when the Digest was built. A failure (select
+  error, decode error, store error) ends the trace at ERROR. An empty Digest is
+  not a failure: it ends normally, with output `[]` and its `empty_reason` as
+  metadata.
+- **Gotcha: an import cycle reaches into the tests.** `ai` imports
+  `digestartifact`, so a test that drives the Digest service with a real
+  `ai.CloudflareProvider` cannot be in `package digestartifact`. It goes in
+  `package digestartifact_test`. The existing in-package fake store is exposed
+  to it through `export_test.go` (`NewMemoryStore`). That file compiles only
+  into the test binary, so production code never sees the fake.
+- **Assert the trace ID against an independent value.** The test hardcodes
+  `sha256("digest:20261030")[:16]` worked out with `sha256sum`. If it called
+  `telemetry.TraceID`, it would agree with itself no matter what the helper did.
+
+### Recommended reading (15–30 min)
+
+The Go blog / `go help test` section on **external test packages** (`_test`
+suffix) and the `export_test.go` idiom (used throughout the standard library,
+e.g. `net/http/export_test.go`). It is the standard way to test across an
+import cycle without exporting test-only API in production code.

@@ -27,7 +27,7 @@ import (
 // the caller doesn't configure a budget.
 const defaultMaxContentChars = 8000
 
-// defaultCategorySlugs is the fallback allowed-list appended to the categorize
+// defaultCategorySlugs is the fallback allowed_slugs variable of the categorize
 // prompt when no live tags are available (nil TagLister or empty result), so the
 // prompt is always well-formed.
 var defaultCategorySlugs = []string{"tech", "business", "personal", "politics", "economy", "science", "health", "entertainment"}
@@ -348,8 +348,10 @@ func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Ar
 // the raw model response to the structured-claims prompt. Validation and the
 // lead-extract fallback live in internal/articleindex, which owns the contract.
 func (p *CloudflareProvider) SummarizeArticle(ctx context.Context, title, content string) (string, error) {
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
-	return p.completeWith(ctx, OpArticleSummary, p.systemPrompt(ctx, OpArticleSummary), userPrompt, articleSummaryOptions)
+	return p.completeTemplate(ctx, OpArticleSummary, map[string]string{
+		"title":   title,
+		"content": textutil.Clean(content, p.maxContentChars),
+	}, articleSummaryOptions)
 }
 
 func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {
@@ -376,7 +378,7 @@ func (p *CloudflareProvider) Select(ctx context.Context, candidates []digestarti
 	if err != nil {
 		return nil, err
 	}
-	result, err := p.completeWith(ctx, OpDigestSelect, p.systemPrompt(ctx, OpDigestSelect), "Candidates:\n"+string(data), selectOptions)
+	result, err := p.completeTemplate(ctx, OpDigestSelect, map[string]string{"candidates": string(data)}, selectOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -429,12 +431,13 @@ func flattenSummary(summary string) string {
 }
 
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {
-	// Append the live tag slugs so the classifier can only pick from current tags.
-	systemPrompt := p.systemPrompt(ctx, OpCategorize) +
-		" Allowed slugs: " + strings.Join(p.categorySlugs(ctx), ", ") + "."
-	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
-
-	return p.completeWith(ctx, OpCategorize, systemPrompt, userPrompt, shortAnswerOptions)
+	// The live tag slugs are a variable so the classifier can only pick from
+	// current tags, however a prompt version phrases the list.
+	return p.completeTemplate(ctx, OpCategorize, map[string]string{
+		"allowed_slugs": strings.Join(p.categorySlugs(ctx), ", "),
+		"title":         title,
+		"content":       textutil.Clean(content, p.maxContentChars),
+	}, shortAnswerOptions)
 }
 
 func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {

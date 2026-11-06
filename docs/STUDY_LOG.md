@@ -3616,3 +3616,39 @@ client deliberately tightens.
 `run_experiment` and `_process_experiment_item` in `langfuse-python`'s
 `_client/client.py`, and the experiment docs at
 langfuse.com/docs/evaluation/experiments/experiments-via-sdk.
+
+## Langfuse 8 — Serving article_summary, categorize and digest_select from Langfuse (issue #203, spec #198)
+
+- **Once the seam exists, migrating an operation is data plus one call.**
+  #201 built `completeTemplate`, the fallback chain and the seeder. Here each
+  operation adds its user template to `defaultUserTemplates` and calls
+  `completeTemplate` with a variables map. The seeder and the fallback pick it
+  up with no change to their code. Only the seeder test had to learn there are
+  now four prompts.
+- **A value Go spliced into the system message becomes a variable.**
+  Categorize used to append `" Allowed slugs: tech, science."` to the system
+  prompt. Now the live slugs are `{{allowed_slugs}}`, and the default template's
+  system message is the `ai_prompts` row plus
+  `" Allowed slugs: {{allowed_slugs}}."` (a per-operation system suffix). The
+  bytes sent are unchanged, and a Langfuse version can rephrase the list,
+  which an append in Go could never allow.
+- **Gotcha: "the same variables" means after cleaning.** `textutil.Clean`
+  collapses whitespace, so the `[content: partial]\n` marker articleindex
+  prepends reaches the model as `[content: partial] ` followed by the text.
+  That was true before too. The recorded variable is the cleaned value, which
+  is what an eval should compile against.
+- **A derived check must not depend on the prompt.** `CategorizeChecked`
+  (#205) re-reads the slug list instead of parsing it back out of the prompt,
+  so it keeps working whatever a Langfuse version does with
+  `{{allowed_slugs}}`.
+- **Service-level proof of "linked to v1".** A fake `TemplateStore` that
+  serves each `DefaultTemplate` as version 1 is exactly what the seeder
+  creates. Running a real enrichment and Digest through it shows every
+  generation linked to `agregado/<op>` v1 with the same outcome as without
+  Langfuse.
+
+### Recommended reading (15–30 min)
+
+Langfuse's "Link prompts to traces" page (langfuse.com/docs/prompt-management/features/link-to-traces),
+then a live trace's generation in the UI after seeding, to compare the
+recorded variables with the compiled messages.

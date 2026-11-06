@@ -17,8 +17,8 @@ const (
 
 // DefaultPrompts are the in-code fallback system prompts, used when the DB has no
 // row for an operation (or the store errors). They mirror the migration 000011
-// seeds. The categorize default deliberately omits the slug list — the live tags
-// are appended at call time (see CloudflareProvider.Categorize).
+// seeds. The categorize default deliberately omits the slug list — its template
+// appends the live tags as {{allowed_slugs}} (see defaultSystemSuffixes).
 var DefaultPrompts = map[string]string{
 	OpScore:      "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer.",
 	OpCategorize: "You are a content classifier. Given an article title and content, return exactly one category slug from the list provided. Return only the slug — no explanation, no punctuation.",

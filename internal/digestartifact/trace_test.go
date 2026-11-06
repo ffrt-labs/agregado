@@ -64,14 +64,14 @@ type tracedDigest struct {
 	spans   *tracetest.InMemoryExporter
 }
 
-func newTracedDigest(t *testing.T, stub *selectStub, articles []digestartifact.Article) tracedDigest {
+func newTracedDigest(t *testing.T, stub *selectStub, articles []digestartifact.Article, opts ...ai.CloudflareOption) tracedDigest {
 	t.Helper()
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
 	spans := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans))
-	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil,
-		ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp))
+	opts = append([]ai.CloudflareOption{ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp)}, opts...)
+	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil, opts...)
 	store := digestartifact.NewMemoryStore(articles, traceSince, traceUntil)
 	service := digestartifact.NewService(store, provider, "https://agregado.example", 3, 10,
 		digestartifact.WithTracerProvider(tp))
@@ -231,5 +231,34 @@ func TestEmptyDigestTraceRecordsItsEmptyReason(t *testing.T) {
 			wantAttr(t, root, "langfuse.trace.metadata.selected_count", "0")
 			wantAttr(t, root, "langfuse.observation.output", `[]`)
 		})
+	}
+}
+
+// seededSelect serves digest_select's in-code default as Langfuse v1, which
+// is what the seeding command creates.
+type seededSelect struct{}
+
+func (seededSelect) Template(ctx context.Context, name string) (ai.Prompt, error) {
+	p, _ := ai.DefaultTemplate(ctx, nil, ai.OpDigestSelect)
+	if name != p.Name {
+		return ai.Prompt{}, fmt.Errorf("no prompt %s", name)
+	}
+	p.Version = 1
+	return p, nil
+}
+
+func TestSeededPromptLinksTheSelectGenerationToVersionOne(t *testing.T) {
+	run := newTracedDigest(t, &selectStub{answer: `{"article_ids":["c","a"]}`}, traceArticles(), ai.WithTemplates(seededSelect{}))
+	artifact, _, err := run.service.ForDate(context.Background(), traceDay)
+	if err != nil || artifact.SelectedCount != 2 {
+		t.Fatalf("ForDate() = %+v, %v; want the same Digest as without Langfuse", artifact, err)
+	}
+	gen := spanNamed(t, run.spans.GetSpans(), ai.OpDigestSelect)
+	wantAttr(t, gen, "langfuse.observation.prompt.name", "agregado/digest_select")
+	wantAttr(t, gen, "langfuse.observation.prompt.version", "1")
+	input, _ := attr(gen, "langfuse.observation.input")
+	var vars map[string]string
+	if err := json.Unmarshal([]byte(input.AsString()), &vars); err != nil || len(vars) != 1 || vars["candidates"] == "" {
+		t.Fatalf("select input = %q, want only the candidates variable", input.AsString())
 	}
 }

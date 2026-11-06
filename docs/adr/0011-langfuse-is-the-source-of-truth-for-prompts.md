@@ -42,8 +42,11 @@ failure path.**
 - Version 1 is seeded from the prompt in force by `cmd/seed-langfuse-prompts`.
   It never overwrites a prompt that Langfuse already has.
 - Migration happens one operation at a time. `preference_score` is first
-  (#201); the others follow (#203). Until an operation is migrated it keeps its
-  current path.
+  (#201); `article_summary`, `categorize` and `digest_select` follow (#203).
+  The legacy operations (score, summarize, digest, reason) are not migrated
+  and keep their current path. Categorize's live tag slugs are the
+  `{{allowed_slugs}}` variable; its default template appends
+  ` Allowed slugs: {{allowed_slugs}}.` to the `ai_prompts` row, as Go did.
 
 ## Consequences
 

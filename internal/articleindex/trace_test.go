@@ -28,6 +28,7 @@ type workersAIStub struct {
 	mu             sync.Mutex
 	calls          int
 	failCategorize bool
+	category       string // categorize's answer; "" means "tech"
 }
 
 func (s *workersAIStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +51,10 @@ func (s *workersAIStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"success":false,"errors":[{"code":3040,"message":"capacity exceeded"}]}`)
 			return
 		}
-		answer = "tech"
+		answer = s.category
+		if answer == "" {
+			answer = "tech"
+		}
 	case strings.HasPrefix(user, "PREFERENCES.md:"):
 		answer = "4"
 	default:
@@ -65,6 +69,7 @@ type tracedRun struct {
 	store   *fakeStore
 	stub    *workersAIStub
 	spans   *tracetest.InMemoryExporter
+	scores  *fakeScoreSink
 }
 
 func newTracedRun(t *testing.T, stub *workersAIStub, fetcher Fetcher) tracedRun {
@@ -76,8 +81,10 @@ func newTracedRun(t *testing.T, stub *workersAIStub, fetcher Fetcher) tracedRun 
 	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil,
 		ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp))
 	store := &fakeStore{records: map[string]Record{}}
-	service := NewService(store, fetcher, NewCloudflareModel(provider), fakePreferences{text: "likes Go"}, WithTracerProvider(tp))
-	return tracedRun{service: service, store: store, stub: stub, spans: spans}
+	scores := &fakeScoreSink{}
+	service := NewService(store, fetcher, NewCloudflareModel(provider), fakePreferences{text: "likes Go"},
+		WithTracerProvider(tp), WithScoreSink(scores))
+	return tracedRun{service: service, store: store, stub: stub, spans: spans, scores: scores}
 }
 
 func tracedRequest() Request {
@@ -238,5 +245,32 @@ func TestDuplicateEnrichmentProducesNoTrace(t *testing.T) {
 	}
 	if run.stub.calls != calls {
 		t.Fatalf("duplicate made %d model calls", run.stub.calls-calls)
+	}
+}
+
+func TestAllowedCategoryScoresSlugAllowed(t *testing.T) {
+	run := newTracedRun(t, &workersAIStub{}, &fakeFetcher{text: "fetched body"})
+	if _, _, err := run.service.Process(context.Background(), tracedRequest()); err != nil {
+		t.Fatal(err)
+	}
+	wantScores(t, run.scores, map[string]float64{"summary_valid": 1, "summary_fallback": 0, "slug_allowed": 1})
+}
+
+func TestInventedCategoryScoresSlugDisallowedAndIsStoredAsToday(t *testing.T) {
+	run := newTracedRun(t, &workersAIStub{category: "astrology"}, &fakeFetcher{text: "fetched body"})
+	record, _, err := run.service.Process(context.Background(), tracedRequest())
+	if err != nil || record.Status != Complete || len(record.Tags) != 1 || record.Tags[0] != "astrology" {
+		t.Fatalf("Process() = %#v, %v; want the invented tag stored as today", record, err)
+	}
+	wantScores(t, run.scores, map[string]float64{"slug_allowed": 0})
+}
+
+func TestFailedCategorizeEmitsNoSlugScore(t *testing.T) {
+	run := newTracedRun(t, &workersAIStub{failCategorize: true}, &fakeFetcher{text: "fetched body"})
+	run.service.Process(context.Background(), tracedRequest())
+	for _, e := range run.scores.events {
+		if e.Name == "slug_allowed" {
+			t.Fatalf("no answer, nothing to check: %+v", e)
+		}
 	}
 }

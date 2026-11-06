@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 )
 
 type summaryModel struct {
@@ -126,6 +127,88 @@ func TestFullContentIsNotMarkedPartial(t *testing.T) {
 	process(t, &fakeFetcher{text: "full body"}, m, req)
 	if strings.Contains(m.gotContent, "partial") {
 		t.Fatalf("got %q", m.gotContent)
+	}
+}
+
+// fakeScoreSink records Langfuse score events; err makes every Emit fail like
+// a full queue.
+type fakeScoreSink struct {
+	events []telemetry.ScoreEvent
+	err    error
+}
+
+func (f *fakeScoreSink) Emit(_ context.Context, event telemetry.ScoreEvent) error {
+	f.events = append(f.events, event)
+	return f.err
+}
+
+func processScored(t *testing.T, sink telemetry.ScoreSink, m Model) (Record, error) {
+	t.Helper()
+	store := &fakeStore{records: map[string]Record{}}
+	record, _, err := NewService(store, &fakeFetcher{text: "the body"}, m, fakePreferences{}, WithScoreSink(sink)).
+		Process(context.Background(), request())
+	return record, err
+}
+
+// wantScores checks the named scores were emitted as Booleans with these
+// values on the enrichment's trace.
+func wantScores(t *testing.T, sink *fakeScoreSink, want map[string]float64) {
+	t.Helper()
+	got := map[string]float64{}
+	for _, e := range sink.events {
+		if e.TraceKey != telemetry.ArticleIndexKey("index-1") || e.DataType != telemetry.Boolean {
+			t.Fatalf("score must be a Boolean on the enrichment trace: %+v", e)
+		}
+		got[e.Name] = e.Value
+	}
+	for name, v := range want {
+		if g, ok := got[name]; !ok || g != v {
+			t.Errorf("score %s = %v (emitted %v), want %v; all: %v", name, g, ok, v, got)
+		}
+	}
+}
+
+func TestValidSummaryScoresValidAndNoFallback(t *testing.T) {
+	sink := &fakeScoreSink{}
+	m := &summaryModel{fakeModel: fakeModel{tag: "tech", score: 3}, raw: `{"kind":"news","claims":["c"],"entities":[]}`}
+	if _, err := processScored(t, sink, m); err != nil {
+		t.Fatal(err)
+	}
+	wantScores(t, sink, map[string]float64{"summary_valid": 1, "summary_fallback": 0})
+	for _, e := range sink.events {
+		if e.Timestamp.IsZero() || !e.Timestamp.Equal(sink.events[0].Timestamp) {
+			t.Fatalf("one enrichment's scores share one stable timestamp: %+v", sink.events)
+		}
+	}
+}
+
+func TestInvalidJSONSummaryScoresInvalidAndFallback(t *testing.T) {
+	sink := &fakeScoreSink{}
+	m := &summaryModel{fakeModel: fakeModel{tag: "tech", score: 3}, raw: "not json"}
+	processScored(t, sink, m)
+	wantScores(t, sink, map[string]float64{"summary_valid": 0, "summary_fallback": 1})
+}
+
+func TestSummaryModelErrorScoresInvalidAndFallback(t *testing.T) {
+	sink := &fakeScoreSink{}
+	m := &summaryModel{fakeModel: fakeModel{tag: "tech", score: 3}, err: errors.New("cloudflare down")}
+	processScored(t, sink, m)
+	wantScores(t, sink, map[string]float64{"summary_valid": 0, "summary_fallback": 1})
+}
+
+func TestFailingScoreSinkDoesNotChangeEnrichment(t *testing.T) {
+	m := &summaryModel{fakeModel: fakeModel{tag: "tech", score: 3}, raw: `{"kind":"news","claims":["c"],"entities":[]}`}
+	want, err := processScored(t, telemetry.NopScoreSink{}, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &fakeScoreSink{err: errors.New("queue full")}
+	got, err := processScored(t, sink, m)
+	if err != nil || got.Status != Complete || got.Summary != want.Summary || got.Tags[0] != want.Tags[0] || got.Score != want.Score {
+		t.Fatalf("failing sink changed the result: %+v, %v; want %+v", got, err, want)
+	}
+	if len(sink.events) != 3 {
+		t.Fatalf("want all three scores attempted, got %d", len(sink.events))
 	}
 }
 

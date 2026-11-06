@@ -3453,3 +3453,38 @@ Langfuse's "Scores via API/SDK" docs page (the "update an existing score"
 note), then `worker/src/services/IngestionService/index.ts` in the Langfuse
 repo, where scores are merged, to see why the timestamp is part of a score's
 identity.
+
+## Langfuse 4 — Enrichment code checks as Langfuse scores (issue #205, spec #198)
+
+Every `article-enrichment` trace now carries three Boolean scores:
+`summary_valid`, `summary_fallback` and `slug_allowed`. They are free (no model
+call) and deterministic, so they can be charted per prompt version.
+
+- **A check observes; it never steers.** `summarize` now returns `(summary,
+  valid)` instead of logging and swallowing the outcome, and `Model.Categorize`
+  returns `(tag, allowed, err)`. The Service emits the scores from those values
+  and otherwise behaves exactly as before: an invented slug is still stored as
+  the tag. The test asserts the stored tag is the invented one.
+- **Compute the check where the facts are, emit it where the trace key is.** Only
+  `ai.CloudflareProvider` knows the live slug list. Only the Article Index
+  Service knows the record ID, and the trace key comes from that ID. So
+  `CategorizeChecked` in `ai` returns a bool, and `articleindex` turns it into a
+  score. The provider never needs a sink or a trace key.
+- **`CategorizeChecked` wraps `Categorize` without changing it.** It reads the
+  slug list a second time, so `Categorize` and its legacy caller
+  (`storage.categorizeArticle`) stay as they were. That keeps the merge with
+  the prompt-management work in `cloudflare.go` simple. The cost is one extra
+  tag query per enrichment, plus a theoretical race if a tag is edited between
+  the two reads. It normalises the slug the same way the legacy tag lookup does
+  (trim and lower-case).
+- **Use one stable timestamp per enrichment.** `codeChecks` captures `time.Now()`
+  once, when the trace opens, and stamps all three scores with it. Langfuse
+  overwrites a score only when both the ID and the timestamp match (see
+  Langfuse 3), so a re-emitted check replaces the old one and doesn't create a
+  duplicate.
+- **`summary_valid` and `summary_fallback` are complements today.** A model error
+  counts as "not valid", so the two always disagree. We keep both because the
+  spec names them separately, and the Python harness reuses the same names.
+- **Without an answer there is no check.** If categorize fails, the Article
+  fails and no `slug_allowed` is emitted, because there is nothing to check. The
+  summary scores were already emitted, since summarize runs first.

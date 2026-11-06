@@ -121,7 +121,7 @@ func main() {
 	}
 	slog.Info("langfuse tracing", "component", "main", "enabled", tracing.Enabled())
 	tracerProvider := tracing.TracerProvider()
-	// Langfuse scores (user_vote, ...) go through a bounded async queue; a
+	// Langfuse scores (user_vote, code checks, ...) go through a bounded async queue; a
 	// no-op when Langfuse is unconfigured.
 	scores := langfuse.NewScores(langfuseCfg)
 
@@ -135,6 +135,7 @@ func main() {
 		articleindex.NewCloudflareModel(provider),
 		preferenceService,
 		articleindex.WithTracerProvider(tracerProvider),
+		articleindex.WithScoreSink(scores),
 	))
 	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
 		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,

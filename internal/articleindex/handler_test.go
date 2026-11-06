@@ -52,9 +52,9 @@ func (m *fakeModel) Summarize(ctx context.Context, title, content string) (strin
 	m.calls++
 	return m.summary, nil
 }
-func (m *fakeModel) Categorize(ctx context.Context, title, content string) (string, error) {
+func (m *fakeModel) Categorize(ctx context.Context, title, content string) (string, bool, error) {
 	m.calls++
-	return m.tag, nil
+	return m.tag, true, nil
 }
 func (m *fakeModel) Score(ctx context.Context, title, content, preferences string) (int, error) {
 	m.calls++

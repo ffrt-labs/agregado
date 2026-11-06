@@ -171,6 +171,14 @@ func TestEnrichmentProducesOneTraceKeyedByRecordID(t *testing.T) {
 		wantAttr(t, gen, "gen_ai.usage.input_tokens", "120")
 		wantAttr(t, gen, "gen_ai.usage.output_tokens", "7")
 		input, _ := attr(gen, "langfuse.observation.input")
+		if op == ai.OpPreferenceScore {
+			// A template operation records its variables (#201).
+			var vars map[string]string
+			if err := json.Unmarshal([]byte(input.AsString()), &vars); err != nil || vars["title"] != "A title" {
+				t.Fatalf("%s input = %q, want the prompt variables", op, input.AsString())
+			}
+			continue
+		}
 		var messages []struct{ Role, Content string }
 		if err := json.Unmarshal([]byte(input.AsString()), &messages); err != nil || len(messages) != 2 ||
 			messages[0].Role != "system" || !strings.Contains(messages[1].Content, "A title") {

@@ -70,7 +70,8 @@ type CloudflareProvider struct {
 	requestTimeout  time.Duration
 	maxContentChars int
 
-	prompts PromptStore // editable system prompts; nil → in-code defaults
+	prompts   PromptStore   // editable system prompts; nil → in-code defaults
+	templates TemplateStore // Langfuse-managed prompts; nil → in-code defaults
 	tags    TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
 	logs    AILogSink   // request/response logging; nil → no logging
 	tracer  trace.Tracer
@@ -169,12 +170,18 @@ var (
 )
 
 func (p *CloudflareProvider) completeWith(ctx context.Context, operation, systemPrompt, userPrompt string, opts callOptions) (string, error) {
+	return p.call(ctx, operation, systemPrompt, userPrompt, opts, nil)
+}
+
+// call makes one model call. from is the prompt and variables the messages
+// were compiled from, or nil for an operation that builds them in Go.
+func (p *CloudflareProvider) call(ctx context.Context, operation, systemPrompt, userPrompt string, opts callOptions, from *compiledPrompt) (string, error) {
 	callCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
 	defer cancel()
 
 	// The generation span hangs off ctx's span (the enrichment or Digest
 	// trace) and ends before this returns, so it never outlives the call.
-	_, span := p.tracer.Start(ctx, operation, trace.WithAttributes(generationAttrs(operation, p.model, systemPrompt, userPrompt, opts)...))
+	_, span := p.tracer.Start(ctx, operation, trace.WithAttributes(generationAttrs(operation, p.model, systemPrompt, userPrompt, opts, from)...))
 	defer span.End()
 
 	start := time.Now()
@@ -464,8 +471,11 @@ func (p *CloudflareProvider) Score(ctx context.Context, title, content string, t
 // PREFERENCES.md verbatim. It is separate from the legacy topic-weight scorer
 // because preference scoring belongs to Agregado, not shared enrichment code.
 func (p *CloudflareProvider) ScoreWithPreferences(ctx context.Context, title, content, preferences string) (int, error) {
-	userPrompt := fmt.Sprintf("PREFERENCES.md:\n%s\n\nTitle: %s\n\nContent: %s", preferences, title, textutil.Clean(content, p.maxContentChars))
-	result, err := p.completeWith(ctx, OpPreferenceScore, p.systemPrompt(ctx, OpPreferenceScore), userPrompt, shortAnswerOptions)
+	result, err := p.completeTemplate(ctx, OpPreferenceScore, map[string]string{
+		"preferences": preferences,
+		"title":       title,
+		"content":     textutil.Clean(content, p.maxContentChars),
+	}, shortAnswerOptions)
 	if err != nil {
 		return 0, err
 	}

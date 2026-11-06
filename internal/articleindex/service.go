@@ -62,7 +62,9 @@ type Fetcher interface {
 // shared extraction/enrichment code (ADR-0005).
 type Model interface {
 	Summarize(ctx context.Context, title, content string) (string, error)
-	Categorize(ctx context.Context, title, content string) (string, error)
+	// Categorize returns the tag and whether it is one of the live allowed
+	// slugs; a disallowed tag is still stored, only scored (slug_allowed).
+	Categorize(ctx context.Context, title, content string) (tag string, allowed bool, err error)
 	Score(ctx context.Context, title, content, preferences string) (int, error)
 }
 
@@ -105,6 +107,7 @@ type Service struct {
 	model       Model
 	preferences Preferences
 	tracer      trace.Tracer
+	scores      telemetry.ScoreSink
 }
 
 // Option configures an optional Service seam.
@@ -120,9 +123,20 @@ func WithTracerProvider(tp trace.TracerProvider) Option {
 	}
 }
 
+// WithScoreSink records each new Article's code checks (summary_valid,
+// summary_fallback, slug_allowed) as Langfuse scores on its enrichment trace.
+// Without it (or with nil) the scores are discarded.
+func WithScoreSink(sink telemetry.ScoreSink) Option {
+	return func(s *Service) {
+		if sink != nil {
+			s.scores = sink
+		}
+	}
+}
+
 func NewService(store Store, fetcher Fetcher, model Model, preferences Preferences, opts ...Option) *Service {
 	s := &Service{store: store, fetcher: fetcher, model: model, preferences: preferences,
-		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName)}
+		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName), scores: telemetry.NopScoreSink{}}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -145,7 +159,8 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 	// request, which makes no model calls, leaves no trace either.
 	ctx, span := s.startTrace(ctx, record, request)
 	defer span.End()
-	record, err = s.enrich(ctx, record, request)
+	checks := codeChecks{sink: s.scores, traceKey: telemetry.ArticleIndexKey(record.ID), at: time.Now()}
+	record, err = s.enrich(ctx, record, request, checks)
 	if err != nil {
 		reason := record.FailureReason
 		if reason == "" { // the record completed but could not be saved
@@ -207,7 +222,7 @@ func (s *Service) content(ctx context.Context, request Request) (content string,
 	return content, partial, err
 }
 
-func (s *Service) enrich(ctx context.Context, record Record, request Request) (Record, error) {
+func (s *Service) enrich(ctx context.Context, record Record, request Request, checks codeChecks) (Record, error) {
 	content, partial, err := s.content(ctx, request)
 	if err != nil {
 		return s.fail(ctx, record, err)
@@ -217,11 +232,14 @@ func (s *Service) enrich(ctx context.Context, record Record, request Request) (R
 	if err != nil {
 		return s.fail(ctx, record, err)
 	}
-	summary := s.summarize(ctx, request.Title, content, partial)
-	tag, err := s.model.Categorize(ctx, request.Title, content)
+	summary, valid := s.summarize(ctx, request.Title, content, partial)
+	checks.emit(ctx, scoreSummaryValid, valid)
+	checks.emit(ctx, scoreSummaryFallback, !valid)
+	tag, allowed, err := s.model.Categorize(ctx, request.Title, content)
 	if err != nil {
 		return s.fail(ctx, record, err)
 	}
+	checks.emit(ctx, scoreSlugAllowed, allowed)
 	score, err := s.model.Score(ctx, request.Title, content, preferences)
 	if err != nil {
 		return s.fail(ctx, record, err)
@@ -235,8 +253,9 @@ func (s *Service) enrich(ctx context.Context, record Record, request Request) (R
 }
 
 // summarize never fails the Article: a model error or unusable JSON degrades to
-// the lead extract (ADR 0009), so selection always has input.
-func (s *Service) summarize(ctx context.Context, title, content string, partial bool) string {
+// the lead extract (ADR 0009), so selection always has input. valid reports
+// whether the model's structured Summary was usable (false means fallback).
+func (s *Service) summarize(ctx context.Context, title, content string, partial bool) (summary string, valid bool) {
 	input := content
 	if partial {
 		input = partialMarker + "\n" + content
@@ -247,12 +266,12 @@ func (s *Service) summarize(ctx context.Context, title, content string, partial 
 			if partial {
 				summary = partialMarker + "\n" + summary
 			}
-			return summary
+			return summary, true
 		}
 		err = fmt.Errorf("invalid structured summary")
 	}
 	slog.Warn("summary: falling back to lead extract", "component", "articleindex", "title", title, "err", err)
-	return leadExtract(title, content, partial)
+	return leadExtract(title, content, partial), false
 }
 
 func (s *Service) fail(ctx context.Context, record Record, cause error) (Record, error) {

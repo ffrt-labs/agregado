@@ -127,16 +127,12 @@ func WithTracerProvider(tp trace.TracerProvider) Option {
 // summary_fallback, slug_allowed) as Langfuse scores on its enrichment trace.
 // Without it (or with nil) the scores are discarded.
 func WithScoreSink(sink telemetry.ScoreSink) Option {
-	return func(s *Service) {
-		if sink != nil {
-			s.scores = sink
-		}
-	}
+	return func(s *Service) { s.scores = sink }
 }
 
 func NewService(store Store, fetcher Fetcher, model Model, preferences Preferences, opts ...Option) *Service {
 	s := &Service{store: store, fetcher: fetcher, model: model, preferences: preferences,
-		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName), scores: telemetry.NopScoreSink{}}
+		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName)}
 	for _, opt := range opts {
 		opt(s)
 	}

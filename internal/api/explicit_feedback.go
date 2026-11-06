@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -29,9 +28,6 @@ type ExplicitFeedbackHandler struct {
 }
 
 func NewExplicitFeedbackHandler(votes ExplicitVoteRecorder, scores telemetry.ScoreSink) *ExplicitFeedbackHandler {
-	if scores == nil {
-		scores = telemetry.NopScoreSink{}
-	}
 	return &ExplicitFeedbackHandler{votes: votes, scores: scores}
 }
 
@@ -52,9 +48,7 @@ func (h *ExplicitFeedbackHandler) Handle(w http.ResponseWriter, r *http.Request)
 	// The first vote's time keeps the Langfuse score's timestamp stable, so a
 	// changed vote overwrites the earlier user_vote instead of adding one.
 	score := telemetry.CategoricalScore(telemetry.ArticleIndexKey(articleID), UserVoteScore, vote, firstVotedAt)
-	if err := h.scores.Emit(r.Context(), score); err != nil {
-		slog.Warn("langfuse: user_vote score not sent", "component", "langfuse", "article_index_id", articleID, "err", err)
-	}
+	telemetry.EmitScore(r.Context(), h.scores, score)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

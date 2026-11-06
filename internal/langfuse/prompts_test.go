@@ -139,6 +139,19 @@ func mustTemplate(t *testing.T, p *Prompts) ai.Prompt {
 	return got
 }
 
+// fetched asks for the prompt until the background fetch a cold cache
+// starts has filled it.
+func fetched(t *testing.T, p *Prompts) ai.Prompt {
+	t.Helper()
+	var got ai.Prompt
+	eventually(t, "the prompt to be fetched", func() bool {
+		var err error
+		got, err = p.Template(context.Background(), scoreName)
+		return err == nil
+	})
+	return got
+}
+
 // eventually polls until cond holds, for what a background refresh changes.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
@@ -155,7 +168,7 @@ func TestTemplateFetchesTheProductionLabelWithBasicAuth(t *testing.T) {
 	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "sys {{title}}", "user {{content}}")}}
 	p, _ := newPrompts(t, fake)
 
-	got := mustTemplate(t, p)
+	got := fetched(t, p)
 	want := ai.Prompt{Name: scoreName, Version: 1, System: "sys {{title}}", User: "user {{content}}"}
 	if got != want {
 		t.Fatalf("Template() = %+v, want %+v", got, want)
@@ -169,7 +182,7 @@ func TestTemplateIsServedFromCacheWithinTheTTL(t *testing.T) {
 	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "s", "u")}}
 	p, clk := newPrompts(t, fake)
 
-	mustTemplate(t, p)
+	fetched(t, p)
 	fake.set(func(f *fakeLangfuse) { f.versions = append(f.versions, chatPrompt(2, "s2", "u2")) })
 	clk.advance(59 * time.Second)
 
@@ -184,7 +197,7 @@ func TestTemplateIsServedFromCacheWithinTheTTL(t *testing.T) {
 func TestTemplateRefreshesInTheBackgroundAfterTheTTL(t *testing.T) {
 	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "s", "u")}}
 	p, clk := newPrompts(t, fake)
-	mustTemplate(t, p)
+	fetched(t, p)
 
 	// Promote v2, and hold the refresh so the caller can't be waiting on it.
 	hold := make(chan struct{})
@@ -207,7 +220,7 @@ func TestTemplateRefreshesInTheBackgroundAfterTheTTL(t *testing.T) {
 func TestTemplateKeepsTheLastGoodCopyWhenLangfuseFails(t *testing.T) {
 	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "s", "u")}}
 	p, clk := newPrompts(t, fake)
-	mustTemplate(t, p)
+	fetched(t, p)
 
 	fake.set(func(f *fakeLangfuse) { f.fail = true })
 	clk.advance(61 * time.Second)
@@ -223,6 +236,42 @@ func TestTemplateKeepsTheLastGoodCopyWhenLangfuseFails(t *testing.T) {
 	}
 }
 
+func TestTemplateOnAColdCacheErrorsAtOnceAndFetchesInTheBackground(t *testing.T) {
+	hold := make(chan struct{})
+	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "s", "u")}, hold: hold}
+	p, _ := newPrompts(t, fake)
+
+	// Langfuse is holding every fetch: the calls must not wait on it, and
+	// only one fetch may be in flight however many calls ask.
+	for range 3 {
+		if _, err := p.Template(context.Background(), scoreName); err == nil {
+			t.Fatal("Template() on a cold cache = nil error, want one so the caller uses its default now")
+		}
+	}
+	close(hold)
+	if got := fetched(t, p); got.Version != 1 {
+		t.Fatalf("Template() once fetched = v%d, want v1", got.Version)
+	}
+	if n := fake.fetchCount(); n != 1 {
+		t.Fatalf("fetches = %d, want a single background fetch", n)
+	}
+}
+
+func TestWarmFetchesThePromptsBeforeTheFirstCall(t *testing.T) {
+	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "s", "u")}}
+	p, _ := newPrompts(t, fake)
+
+	p.Warm(scoreName)
+	eventually(t, "the warm-up fetch", func() bool { return fake.fetchCount() == 1 })
+	eventually(t, "the warm-up to be stored", func() bool {
+		_, err := p.Template(context.Background(), scoreName)
+		return err == nil
+	})
+	if n := fake.fetchCount(); n != 1 {
+		t.Fatalf("fetches = %d, want only the warm-up", n)
+	}
+}
+
 func TestTemplateErrorsFromAColdStartWithLangfuseDown(t *testing.T) {
 	fake := &fakeLangfuse{versions: []json.RawMessage{chatPrompt(1, "s", "u")}, fail: true}
 	p, clk := newPrompts(t, fake)
@@ -230,13 +279,21 @@ func TestTemplateErrorsFromAColdStartWithLangfuseDown(t *testing.T) {
 	if _, err := p.Template(context.Background(), scoreName); err == nil {
 		t.Fatal("Template() with nothing ever fetched = nil error, want one so the caller uses its default")
 	}
+	eventually(t, "the failed fetch to finish", func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return !p.cache[scoreName].refreshing
+	})
 	// Within the TTL a cold failure isn't retried on every call.
 	fake.set(func(f *fakeLangfuse) { f.fail = false })
 	if _, err := p.Template(context.Background(), scoreName); err == nil {
 		t.Fatal("Template() retried within the TTL of a failed fetch")
 	}
+	if n := fake.fetchCount(); n != 0 {
+		t.Fatalf("fetches = %d, want none past the failed one", n)
+	}
 	clk.advance(61 * time.Second)
-	if got := mustTemplate(t, p); got.Version != 1 {
+	if got := fetched(t, p); got.Version != 1 {
 		t.Fatalf("Template() once Langfuse is back = v%d, want v1", got.Version)
 	}
 }
@@ -249,7 +306,14 @@ func TestTemplateRejectsPromptsThatAreNotASystemAndUserMessage(t *testing.T) {
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
-			p, _ := newPrompts(t, &fakeLangfuse{versions: []json.RawMessage{json.RawMessage(body)}})
+			fake := &fakeLangfuse{versions: []json.RawMessage{json.RawMessage(body)}}
+			p, _ := newPrompts(t, fake)
+			p.Template(context.Background(), scoreName) // starts the fetch
+			eventually(t, "the fetch to finish", func() bool {
+				p.mu.Lock()
+				defer p.mu.Unlock()
+				return !p.cache[scoreName].refreshing
+			})
 			if got, err := p.Template(context.Background(), scoreName); err == nil {
 				t.Fatalf("Template() = %+v, want an error", got)
 			}

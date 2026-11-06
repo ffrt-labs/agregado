@@ -43,24 +43,26 @@ func WithTracerProvider(tp trace.TracerProvider) CloudflareOption {
 //
 // A call compiled from a prompt template records the variables as its input,
 // so the trace can become a dataset item the eval harness compiles against
-// another prompt version; a Langfuse-managed version (not an in-code
-// default, version 0) is also linked by name and version. Other calls
-// record the messages.
+// another prompt version, and the compiled messages as metadata.messages; a
+// Langfuse-managed version (not an in-code default, version 0) is also
+// linked by name and version. Other calls record the messages as the input.
 func generationAttrs(operation, model, systemPrompt, userPrompt string, opts callOptions, from *compiledPrompt) []attribute.KeyValue {
-	var input []byte
+	messages, _ := json.Marshal([]Messages{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userPrompt},
+	})
+	input := messages
 	if from != nil {
 		input, _ = json.Marshal(from.vars)
-	} else {
-		input, _ = json.Marshal([]Messages{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		})
 	}
 	attrs := []attribute.KeyValue{
 		attribute.String(telemetry.AttrObsType, "generation"),
 		telemetry.ObservationMetadata("operation").String(operation),
 		attribute.String(telemetry.AttrGenAIModel, model),
 		attribute.String(telemetry.AttrObsInput, string(input)),
+	}
+	if from != nil {
+		attrs = append(attrs, telemetry.ObservationMetadata("messages").String(string(messages)))
 	}
 	if from != nil && from.prompt.Version > 0 {
 		attrs = append(attrs,

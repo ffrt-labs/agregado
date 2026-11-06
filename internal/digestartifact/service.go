@@ -28,6 +28,7 @@ type Candidate struct {
 	Article
 	Exploration bool
 }
+
 // Choice is one selected Article. The frontier model returns only IDs; the
 // human-facing text comes from the Article itself, not from the selection call.
 type Choice struct {
@@ -37,6 +38,7 @@ type Item struct {
 	Candidate
 	ReadURL, UpvoteURL, DownvoteURL string
 }
+
 // WindowStart/WindowEnd are the Enrichment window the candidates came from;
 // the next Digest's window starts at this one's WindowEnd. EmptyReason is set
 // only on an artifact with no items, which is never persisted.
@@ -89,11 +91,7 @@ const SelectedScore = "selected"
 // once a non-empty Digest is saved. Without it (or with nil) scores are
 // discarded.
 func WithScoreSink(sink telemetry.ScoreSink) Option {
-	return func(s *Service) {
-		if sink != nil {
-			s.scores = sink
-		}
-	}
+	return func(s *Service) { s.scores = sink }
 }
 
 // Option configures an optional Service seam.
@@ -117,12 +115,13 @@ func NewService(store Store, frontier Frontier, baseURL string, floor, max int, 
 		floor = 3
 	}
 	s := &Service{store: store, frontier: frontier, baseURL: strings.TrimSuffix(baseURL, "/"), floor: floor, max: max,
-		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName), scores: telemetry.NopScoreSink{}}
+		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName)}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
 }
+
 // ForDate's intermediate steps are logged at Info — the frontier call in
 // particular can legitimately run for tens of seconds to several minutes
 // (a single request scoring/explaining several candidates against a
@@ -233,9 +232,7 @@ func (s *Service) scoreSelected(ctx context.Context, candidates []Candidate, dig
 	}
 	for _, c := range candidates {
 		score := telemetry.BooleanScore(telemetry.ArticleIndexKey(c.ID), SelectedScore, chosen[c.ID], digest.Date)
-		if err := s.scores.Emit(ctx, score); err != nil {
-			slog.Warn("langfuse: selected score not sent", "component", "langfuse", "article_index_id", c.ID, "err", err)
-		}
+		telemetry.EmitScore(ctx, s.scores, score)
 	}
 }
 

@@ -112,9 +112,7 @@ func main() {
 
 	// Langfuse tracing is optional: unconfigured, the tracer provider is a
 	// no-op and nothing is exported (spec #198).
-	langfuseCfg := langfuse.Config{
-		BaseURL: cfg.Langfuse.BaseURL, PublicKey: cfg.Langfuse.PublicKey, SecretKey: cfg.Langfuse.SecretKey,
-	}
+	langfuseCfg := langfuse.ConfigFrom(cfg.Langfuse)
 	tracing, err := langfuse.NewTracing(ctx, langfuseCfg)
 	if err != nil {
 		fatal("failed to set up Langfuse tracing", err)
@@ -126,8 +124,12 @@ func main() {
 	scores := langfuse.NewScores(langfuseCfg)
 
 	// Langfuse-managed prompts (#201): unconfigured, every template call
-	// uses its in-code default and the ai_prompts row, as before.
+	// uses its in-code default and the ai_prompts row, as before. The cache is
+	// filled in the background, so the defaults serve only the first calls.
 	langfusePrompts := langfuse.NewPrompts(langfuseCfg, cfg.Langfuse.PromptCacheTTL)
+	for _, op := range ai.TemplateOperations() {
+		langfusePrompts.Warm(ai.PromptName(op))
+	}
 
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger,
 		ai.WithTracerProvider(tracerProvider), ai.WithTemplates(langfusePrompts))

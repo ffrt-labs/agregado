@@ -39,7 +39,7 @@ func run() error {
 	}
 	logging.Setup(cfg.Level, cfg.Format)
 
-	lf := langfuse.Config{BaseURL: cfg.Langfuse.BaseURL, PublicKey: cfg.Langfuse.PublicKey, SecretKey: cfg.Langfuse.SecretKey}
+	lf := langfuse.ConfigFrom(cfg.Langfuse)
 	if !lf.Enabled() {
 		return errors.New("LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required")
 	}

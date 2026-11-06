@@ -18,6 +18,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/felipeafreitas/agregado/internal/config"
 )
 
 // Config locates a Langfuse project. All three fields must be set for
@@ -26,6 +28,11 @@ type Config struct {
 	BaseURL   string // e.g. http://langfuse-web:3000
 	PublicKey string // pk-lf-...
 	SecretKey string // sk-lf-...
+}
+
+// ConfigFrom is the Langfuse project the environment configures.
+func ConfigFrom(env config.Langfuse) Config {
+	return Config{BaseURL: env.BaseURL, PublicKey: env.PublicKey, SecretKey: env.SecretKey}
 }
 
 // Enabled reports whether Langfuse is configured.

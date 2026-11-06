@@ -29,7 +29,9 @@ failure path.**
   means moving that label. There is no deploy.
 - Agregado caches each prompt in memory for `LANGFUSE_PROMPT_CACHE_TTL`
   (default 60s) and refreshes it in the background, serving the stale copy in
-  the meantime. A failed fetch keeps the last good copy.
+  the meantime. A failed fetch keeps the last good copy. A model call never
+  waits on a fetch: with nothing cached yet it uses the in-code default while
+  one background fetch runs, and startup warms every managed prompt.
 - Each operation keeps an **in-code default** (version 0): today's system
   prompt (the `ai_prompts` row if present, otherwise `ai.DefaultPrompts`) and
   today's Go-built user text as a template. The default is used when Langfuse
@@ -38,7 +40,7 @@ failure path.**
   unused, fails to compile and is logged as a warning.
 - Every generation compiled from a managed version is linked to its name and
   version, and records its variables as input, so a trace can become a dataset
-  item.
+  item. The compiled messages go in the generation's `messages` metadata.
 - Version 1 is seeded from the prompt in force by `cmd/seed-langfuse-prompts`.
   It never overwrites a prompt that Langfuse already has.
 - Migration happens one operation at a time. `preference_score` is first
@@ -60,3 +62,14 @@ failure path.**
   supplies are a contract in code (`ai.Prompt.Compile` rejects mismatches), and
   the eval harness compiles dataset inputs against a candidate version with the
   same variables.
+
+## Deviation from the spec
+
+Spec #198 said to widen `ai.PromptStore` to serve templates. The code adds a
+separate `ai.TemplateStore` (implemented by `internal/langfuse`) instead, and
+deliberately so: `PromptStore` is the `ai_prompts` row lookup (a system prompt
+string per operation), which the legacy operations and the in-code defaults
+still read, while a `TemplateStore` returns a versioned system-and-user
+`ai.Prompt`. Widening one interface would have made the Postgres repo
+implement Langfuse's shape, or Langfuse the row lookup. `PromptStore` stays
+for the legacy operations until #207 removes it.

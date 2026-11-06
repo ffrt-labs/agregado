@@ -189,8 +189,8 @@ LOG_FORMAT=text LOG_LEVEL=debug make dev
 ```
 
 Every record carries a `component` field (`main`, `broker`, `deadletter`,
-`storage`, `enrich`, `ai`, `digest`, `api`, `backup`, `poller`) — deliberately
-low-cardinality, so it can become a log-store label. High-cardinality
+`storage`, `enrich`, `ai`, `digest`, `api`, `backup`, `poller`, `langfuse`) —
+deliberately low-cardinality, so it can become a log-store label. High-cardinality
 identifiers like `article_id` and `url` are line fields, never labels.
 
 Failures surface at `ERROR` the moment they happen: a handler error is logged

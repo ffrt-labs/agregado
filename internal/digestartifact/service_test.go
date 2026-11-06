@@ -2,9 +2,12 @@ package digestartifact
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 )
 
 type memoryStore struct {
@@ -177,5 +180,103 @@ func TestServiceRecordsTheCandidateWindowOnTheArtifact(t *testing.T) {
 	}
 	if store.lookback != FallbackLookback {
 		t.Fatalf("lookback = %v, want %v", store.lookback, FallbackLookback)
+	}
+}
+
+// fakeScoreSink records Langfuse score events; err makes it fail like a full
+// or closed queue.
+type fakeScoreSink struct {
+	events []telemetry.ScoreEvent
+	err    error
+}
+
+func (f *fakeScoreSink) Emit(_ context.Context, event telemetry.ScoreEvent) error {
+	f.events = append(f.events, event)
+	return f.err
+}
+
+// pickingFrontier chooses only the listed candidate IDs.
+type pickingFrontier struct{ pick []string }
+
+func (f pickingFrontier) Select(_ context.Context, _ []Candidate) ([]Choice, error) {
+	choices := []Choice{}
+	for _, id := range f.pick {
+		choices = append(choices, Choice{ArticleID: id})
+	}
+	return choices, nil
+}
+
+func scoreArticles() []Article {
+	return []Article{
+		{ID: "a", CanonicalURL: "https://a", Title: "A", Score: 5, Source: "one"},
+		{ID: "b", CanonicalURL: "https://b", Title: "B", Score: 4, Source: "two"},
+		{ID: "c", CanonicalURL: "https://c", Title: "C", Score: 2, Source: "three"},
+	}
+}
+
+func TestServiceScoresEveryCandidateTraceWithWhetherTheSavedDigestChoseIt(t *testing.T) {
+	store := &memoryStore{articles: scoreArticles(), artifacts: map[string]Artifact{}}
+	sink := &fakeScoreSink{}
+	service := NewService(store, pickingFrontier{pick: []string{"a", "c"}}, "https://agregado.example", 3, 10, WithScoreSink(sink))
+	day := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+
+	if _, created, err := service.ForDate(context.Background(), day); err != nil || !created {
+		t.Fatalf("created = %v, err = %v", created, err)
+	}
+	want := map[string]telemetry.ScoreEvent{
+		"article-index:a": {TraceKey: "article-index:a", Name: "selected", DataType: telemetry.Boolean, Value: 1, Timestamp: day},
+		"article-index:b": {TraceKey: "article-index:b", Name: "selected", DataType: telemetry.Boolean, Value: 0, Timestamp: day},
+		"article-index:c": {TraceKey: "article-index:c", Name: "selected", DataType: telemetry.Boolean, Value: 1, Timestamp: day},
+	}
+	if len(sink.events) != len(want) {
+		t.Fatalf("events = %+v, want one per candidate %+v", sink.events, want)
+	}
+	for _, event := range sink.events {
+		if want[event.TraceKey] != event {
+			t.Fatalf("event = %+v, want %+v", event, want[event.TraceKey])
+		}
+	}
+
+	// A reused artifact was already scored when it was saved.
+	if _, _, err := service.ForDate(context.Background(), day); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.events) != len(want) {
+		t.Fatalf("reusing the saved Digest emitted %d more events", len(sink.events)-len(want))
+	}
+}
+
+func TestServiceScoresNothingForAnEmptyDigest(t *testing.T) {
+	store := &memoryStore{articles: scoreArticles(), artifacts: map[string]Artifact{}}
+	sink := &fakeScoreSink{}
+	artifact, _, err := NewService(store, pickingFrontier{}, "https://agregado.example", 3, 10, WithScoreSink(sink)).
+		ForDate(context.Background(), time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil || artifact.EmptyReason == "" {
+		t.Fatalf("artifact = %+v, err = %v, want an empty Digest", artifact, err)
+	}
+	if len(sink.events) != 0 {
+		t.Fatalf("events = %+v, want none for an empty Digest", sink.events)
+	}
+}
+
+func TestServiceSavesTheDigestWhenTheScoreSinkFails(t *testing.T) {
+	day := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	plain := &memoryStore{articles: scoreArticles(), artifacts: map[string]Artifact{}}
+	want, _, err := NewService(plain, pickingFrontier{pick: []string{"a"}}, "https://agregado.example", 3, 10).ForDate(context.Background(), day)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store := &memoryStore{articles: scoreArticles(), artifacts: map[string]Artifact{}}
+	sink := &fakeScoreSink{err: errors.New("queue full")}
+	got, created, err := NewService(store, pickingFrontier{pick: []string{"a"}}, "https://agregado.example", 3, 10, WithScoreSink(sink)).ForDate(context.Background(), day)
+	if err != nil || !created || len(store.artifacts) != 1 {
+		t.Fatalf("created = %v, err = %v, stored = %d, want a saved Digest", created, err, len(store.artifacts))
+	}
+	if got.HTML != want.HTML || got.SelectedCount != want.SelectedCount {
+		t.Fatalf("artifact = %+v, want %+v", got, want)
+	}
+	if len(sink.events) == 0 {
+		t.Fatal("the failing sink was never called")
 	}
 }

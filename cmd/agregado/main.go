@@ -140,9 +140,10 @@ func main() {
 	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
 		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,
 		digestartifact.WithTracerProvider(tracerProvider),
+		digestartifact.WithScoreSink(scores),
 	))
 	preferenceExportHandler := preferenceexport.NewHandler(cfg.Enrichment.Secret, articleIndexRepo)
-	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo)
+	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo, scores)
 
 	ranker := digest.NewRanker(
 		articleRepo,

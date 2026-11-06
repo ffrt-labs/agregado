@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/felipeafreitas/agregado/internal/articleindex"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
@@ -68,20 +69,22 @@ func (r *ArticleIndexRepo) Fail(ctx context.Context, id, reason string) error {
 
 // Open records the first Open only. The unchanged timestamp makes repeated
 // click-throughs indistinguishable from a single weak preference signal.
-func (r *ArticleIndexRepo) Open(ctx context.Context, id string) (string, error) {
+// It also returns that first Open's time.
+func (r *ArticleIndexRepo) Open(ctx context.Context, id string) (string, time.Time, error) {
 	var canonicalURL string
+	var openedAt time.Time
 	err := r.db.pool.QueryRow(ctx, `
 		UPDATE article_index
 		SET opened_at = COALESCE(opened_at, NOW())
 		WHERE id = $1
-		RETURNING canonical_url`, id).Scan(&canonicalURL)
+		RETURNING canonical_url, opened_at`, id).Scan(&canonicalURL, &openedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return "", preferenceexport.ErrNotFound
+			return "", time.Time{}, preferenceexport.ErrNotFound
 		}
-		return "", err
+		return "", time.Time{}, err
 	}
-	return canonicalURL, nil
+	return canonicalURL, openedAt, nil
 }
 
 // Signals returns each Article at most once, with its first Open and its one

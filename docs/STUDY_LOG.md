@@ -3569,3 +3569,50 @@ Langfuse's prompt management docs on caching and the "Prompt Management Data
 Model" (langfuse.com/docs/prompt-management), then `TemplateParser` in
 `langfuse-python`'s `model.py` to see the reference compile semantics this
 client deliberately tightens.
+
+## Langfuse 7 — A Python experiment harness for prompt labels (issue #206, spec #198)
+
+- **`dataset.run_experiment` has no item cap, so use `langfuse.run_experiment(data=dataset.items[:n])`.**
+  The dataset method runs every item. The client method takes any list, and a
+  slice of `DatasetItem`s keeps each item's `dataset_id`, so the run is still a
+  dataset run in the comparison view. The runner takes the experiment's
+  dataset from the first item that has one. Archived items still come back
+  from `get_dataset`, so filter `status != "ARCHIVED"` before slicing, or the
+  cap counts items that never run.
+- **A task exception drops the item.** `run_experiment` gathers items with
+  `return_exceptions=True`, logs any failure, and leaves that item out of
+  `item_results`, so it gets no scores and run evaluators never see it. A
+  truncated answer (`finish_reason: length`) is a failed call in production,
+  but here it is a *prompt-quality* signal. So the task returns
+  `{"text", "finish_reason"}` instead of raising, and `score_parses` counts a
+  truncated answer as 0. Only transport errors raise.
+- **Run-level scores attach to the run, not to a trace.** `run_evaluators`
+  receive every `ExperimentItemResult` (with its `.evaluations`), and the
+  runner posts what they return with `dataset_run_id=experiment_id`. An
+  evaluator may return `[]` to mean "no score for this item", which is how
+  unannotated items stay out of `score_agrees_rate` without dragging it down.
+- **Check the prompt against Go's contract before spending neurons.** The SDK's
+  `TemplateParser` leaves unknown `{{vars}}` in the text and treats anything
+  between braces as a name. Go only takes `{{ identifier }}`, and it rejects
+  unknown or unused variables and any shape other than `[system, user]`. The
+  harness reuses Go's regex and refuses the run. Otherwise a version that
+  Agregado would quietly replace with its default could "win" an experiment.
+- **Production parity on the OpenAI-compatible path.** On
+  `/ai/v1/chat/completions` the reasoning switch goes in
+  `extra_body={"chat_template_kwargs": {"enable_thinking": False}}`. That is
+  the same field Go sends on `/ai/run`. The cap is `max_completion_tokens`
+  (32 for `preference_score`). `max_retries=0` on the OpenAI client matters:
+  its default retries a 429 or 5xx, and every retry spends neurons again.
+- **Nesting the call as a generation.** The task runs inside the runner's
+  `experiment-item-task` span, so
+  `langfuse.start_as_current_observation(as_type="generation", prompt=prompt, ...)`
+  nests under it and links the prompt version. `usage_details={"input", "output"}`
+  lets the Gemma model definition compute neurons, the same as Agregado's OTel
+  generations. Setting the generation's `input` to the variables, as Go does,
+  keeps experiment traces and production traces the same shape.
+
+### Recommended reading (15–30 min)
+
+`run_experiment` and `_process_experiment_item` in `langfuse-python`'s
+`_client/client.py`, and the experiment docs at
+langfuse.com/docs/evaluation/experiments/experiments-via-sdk.

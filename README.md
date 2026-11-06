@@ -222,6 +222,7 @@ agregado/
 │   │   └── rss/           # Feed parser, poller
 │   ├── logging/           # slog setup — the single logging seam
 │   └── storage/           # PostgreSQL repositories
+├── evals/                 # Python Langfuse experiment harness (see evals/README.md)
 ├── migrations/            # Database migrations (golang-migrate)
 ├── templates/             # HTMX + Go HTML templates
 ├── docker/                # Dockerfile
@@ -236,6 +237,7 @@ agregado/
 - [Issues](https://github.com/ffrt-labs/agregado/issues) — Live roadmap; what's actually being worked on
 - [ADRs](docs/adr/) — Architectural decisions, including deliberate non-goals
 - [Roadmap Archive](docs/ROADMAP-ARCHIVE.md) — Frozen history of Phases 1–18
+- [Prompt experiments](evals/README.md) — `make experiment`: run a Langfuse prompt label against a dataset before promoting it
 
 ## Learning Goals
 

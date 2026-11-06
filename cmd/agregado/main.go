@@ -134,6 +134,7 @@ func main() {
 	))
 	digestArtifactHandler := digestartifact.NewHandler(cfg.Enrichment.Secret, digestartifact.NewService(
 		storage.NewDigestArtifactRepo(db), provider, cfg.Digest.BaseURL, cfg.Digest.MinRelevanceScore, 10,
+		digestartifact.WithTracerProvider(tracerProvider),
 	))
 	preferenceExportHandler := preferenceexport.NewHandler(cfg.Enrichment.Secret, articleIndexRepo)
 	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo)

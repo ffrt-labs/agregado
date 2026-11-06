@@ -100,11 +100,16 @@ services:
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
       AI_MODEL: ${AI_MODEL}
+
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
     ports:
       - "127.0.0.1:8080:8080"
     networks:
       - default
       - edge
+      - langfuse-ingest
 
     restart: unless-stopped
 volumes:
@@ -117,4 +122,9 @@ networks:
   # runs, or `docker compose up` fails with "network edge declared as
   # external, but could not be found".
   edge:
+    external: true
+  # Private network to Langfuse's web container (http://langfuse-web:3000),
+  # so trace ingestion never goes through the edge proxy. Created by
+  # homelab-apps' Langfuse deploy, which must therefore run first.
+  langfuse-ingest:
     external: true

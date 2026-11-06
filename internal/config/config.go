@@ -126,7 +126,16 @@ type Fetch struct {
 	DistillMaxChars int `env:"DISTILL_MAX_CHARS" envDefault:"2000"`
 }
 
+// Langfuse is optional: tracing to Langfuse is on only when all three are
+// set. Use cfg.Langfuse.BaseURL, not cfg.BaseURL (Digest has one too).
+type Langfuse struct {
+	BaseURL   string `env:"LANGFUSE_BASE_URL"`
+	PublicKey string `env:"LANGFUSE_PUBLIC_KEY"`
+	SecretKey string `env:"LANGFUSE_SECRET_KEY"`
+}
+
 type Config struct {
+	Langfuse
 	Database
 	Queue
 	Http

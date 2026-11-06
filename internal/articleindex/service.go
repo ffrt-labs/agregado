@@ -5,13 +5,19 @@ package articleindex
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
 	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 )
 
 type Status string
@@ -98,10 +104,29 @@ type Service struct {
 	fetcher     Fetcher
 	model       Model
 	preferences Preferences
+	tracer      trace.Tracer
 }
 
-func NewService(store Store, fetcher Fetcher, model Model, preferences Preferences) *Service {
-	return &Service{store: store, fetcher: fetcher, model: model, preferences: preferences}
+// Option configures an optional Service seam.
+type Option func(*Service)
+
+// WithTracerProvider records each new Article's enrichment as one Langfuse
+// trace. Without it (or with nil) the Service's tracer is a no-op.
+func WithTracerProvider(tp trace.TracerProvider) Option {
+	return func(s *Service) {
+		if tp != nil {
+			s.tracer = tp.Tracer(telemetry.TracerName)
+		}
+	}
+}
+
+func NewService(store Store, fetcher Fetcher, model Model, preferences Preferences, opts ...Option) *Service {
+	s := &Service{store: store, fetcher: fetcher, model: model, preferences: preferences,
+		tracer: noop.NewTracerProvider().Tracer(telemetry.TracerName)}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *Service) Process(ctx context.Context, request Request) (Record, bool, error) {
@@ -116,9 +141,47 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 		return record, created, err
 	}
 
-	content, partial := strings.TrimSpace(request.BridgeContent), false
+	// The trace opens only past the idempotency boundary, so a duplicate
+	// request, which makes no model calls, leaves no trace either.
+	ctx, span := s.startTrace(ctx, record, request)
+	defer span.End()
+	record, err = s.enrich(ctx, record, request)
+	if err != nil {
+		reason := record.FailureReason
+		if reason == "" { // the record completed but could not be saved
+			reason = err.Error()
+		}
+		telemetry.Fail(span, reason)
+	} else {
+		output, _ := json.Marshal(map[string]any{"summary": record.Summary, "tags": record.Tags, "score": record.Score})
+		span.SetAttributes(attribute.String(telemetry.AttrObsOutput, string(output)))
+	}
+	return record, true, err
+}
+
+func (s *Service) startTrace(ctx context.Context, record Record, request Request) (context.Context, trace.Span) {
+	input, _ := json.Marshal(map[string]any{"entry_id": request.MinifluxEntryID, "canonical_url": request.CanonicalURL, "title": request.Title})
+	attrs := []attribute.KeyValue{
+		telemetry.TraceMetadata("record_id").String(record.ID),
+		attribute.String(telemetry.AttrObsInput, string(input)),
+	}
+	if request.SourceID != "" {
+		attrs = append(attrs, attribute.StringSlice(telemetry.AttrTraceTags, []string{request.SourceID}))
+	}
+	return telemetry.StartTrace(ctx, s.tracer, "article-enrichment", telemetry.ArticleIndexKey(record.ID), attrs...)
+}
+
+// content resolves the Article body, preferring Bridge content, then a fetch,
+// then the feed's own (partial) content, and records which in a fetch span.
+func (s *Service) content(ctx context.Context, request Request) (content string, partial bool, err error) {
+	ctx, span := s.tracer.Start(ctx, "fetch", trace.WithAttributes(attribute.String(telemetry.AttrObsType, "span")))
+	defer span.End()
+
+	source := "bridge"
+	content = strings.TrimSpace(request.BridgeContent)
 	var fetchErr error
 	if content == "" {
+		source = "fetch"
 		var result fetch.Result
 		if result, fetchErr = s.fetcher.Fetch(ctx, request.CanonicalURL); fetchErr == nil {
 			content = strings.TrimSpace(result.Markdown)
@@ -126,13 +189,28 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 	}
 	if content == "" {
 		if content = strings.TrimSpace(request.FeedContent); content != "" {
-			partial = true
+			source, partial = "feed", true
 			slog.Warn("fetch failed or empty, using feed content", "component", "articleindex", "url", request.CanonicalURL, "err", fetchErr)
 		} else if fetchErr != nil {
-			return s.fail(ctx, record, fetchErr)
+			err = fetchErr
 		} else {
-			return s.fail(ctx, record, fmt.Errorf("no readable article content"))
+			err = fmt.Errorf("no readable article content")
 		}
+	}
+	span.SetAttributes(
+		telemetry.ObservationMetadata("content_source").String(source),
+		telemetry.ObservationMetadata("partial").Bool(partial),
+	)
+	if err != nil {
+		telemetry.Fail(span, err.Error())
+	}
+	return content, partial, err
+}
+
+func (s *Service) enrich(ctx context.Context, record Record, request Request) (Record, error) {
+	content, partial, err := s.content(ctx, request)
+	if err != nil {
+		return s.fail(ctx, record, err)
 	}
 
 	preferences, err := s.preferences.Read(ctx)
@@ -153,10 +231,7 @@ func (s *Service) Process(ctx context.Context, request Request) (Record, bool, e
 	}
 
 	record.Summary, record.Tags, record.Score, record.Status = summary, []string{tag}, score, Complete
-	if err := s.store.Complete(ctx, record); err != nil {
-		return record, true, err
-	}
-	return record, true, nil
+	return record, s.store.Complete(ctx, record)
 }
 
 // summarize never fails the Article: a model error or unusable JSON degrades to
@@ -180,10 +255,10 @@ func (s *Service) summarize(ctx context.Context, title, content string, partial 
 	return leadExtract(title, content, partial)
 }
 
-func (s *Service) fail(ctx context.Context, record Record, cause error) (Record, bool, error) {
+func (s *Service) fail(ctx context.Context, record Record, cause error) (Record, error) {
 	record.Status, record.FailureReason = Failed, cause.Error()
 	if err := s.store.Fail(ctx, record.ID, record.FailureReason); err != nil {
-		return record, true, err
+		return record, err
 	}
-	return record, true, cause
+	return record, cause
 }

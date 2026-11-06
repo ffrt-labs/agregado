@@ -14,8 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/domain"
+	"github.com/felipeafreitas/agregado/internal/telemetry"
 	"github.com/felipeafreitas/agregado/internal/textutil"
 )
 
@@ -58,6 +62,7 @@ func extractJSON(s string) string {
 const defaultRequestTimeout = 90 * time.Second
 
 type CloudflareProvider struct {
+	baseURL         string
 	accountID       string
 	apiToken        string
 	model           string
@@ -68,6 +73,7 @@ type CloudflareProvider struct {
 	prompts PromptStore // editable system prompts; nil → in-code defaults
 	tags    TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
 	logs    AILogSink   // request/response logging; nil → no logging
+	tracer  trace.Tracer
 }
 
 type Messages struct {
@@ -75,14 +81,15 @@ type Messages struct {
 	Content string `json:"content"`
 }
 
-func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, maxContentChars int, prompts PromptStore, tags TagLister, logs AILogSink) *CloudflareProvider {
+func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, maxContentChars int, prompts PromptStore, tags TagLister, logs AILogSink, opts ...CloudflareOption) *CloudflareProvider {
 	if requestTimeout <= 0 {
 		requestTimeout = defaultRequestTimeout
 	}
 	if maxContentChars <= 0 {
 		maxContentChars = defaultMaxContentChars
 	}
-	return &CloudflareProvider{
+	p := &CloudflareProvider{
+		baseURL:         DefaultBaseURL,
 		accountID:       accountID,
 		apiToken:        apiToken,
 		model:           model,
@@ -92,7 +99,12 @@ func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout tim
 		prompts:         prompts,
 		tags:            tags,
 		logs:            logs,
+		tracer:          noop.NewTracerProvider().Tracer(telemetry.TracerName),
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // systemPrompt returns the editable prompt for an operation, falling back to the
@@ -160,8 +172,14 @@ func (p *CloudflareProvider) completeWith(ctx context.Context, operation, system
 	callCtx, cancel := context.WithTimeout(ctx, p.requestTimeout)
 	defer cancel()
 
+	// The generation span hangs off ctx's span (the enrichment or Digest
+	// trace) and ends before this returns, so it never outlives the call.
+	_, span := p.tracer.Start(ctx, operation, trace.WithAttributes(generationAttrs(operation, p.model, systemPrompt, userPrompt, opts)...))
+	defer span.End()
+
 	start := time.Now()
 	response, used, err := p.doComplete(callCtx, systemPrompt, userPrompt, opts)
+	recordGeneration(span, response, used, err)
 	if used.Prompt+used.Completion > 0 {
 		attrs := []any{"component", "ai", "operation", operation, "model", p.model,
 			"prompt_tokens", used.Prompt, "completion_tokens", used.Completion}
@@ -201,7 +219,7 @@ func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt
 }
 
 func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string, opts callOptions) (string, usage, error) {
-	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", p.accountID, p.model)
+	url := fmt.Sprintf("%s/accounts/%s/ai/run/%s", p.baseURL, p.accountID, p.model)
 	data, err := completionRequest(systemPrompt, userPrompt, opts)
 	if err != nil {
 		return "", usage{}, err

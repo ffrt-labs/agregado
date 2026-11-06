@@ -72,14 +72,14 @@ type tracedRun struct {
 	scores  *fakeScoreSink
 }
 
-func newTracedRun(t *testing.T, stub *workersAIStub, fetcher Fetcher) tracedRun {
+func newTracedRun(t *testing.T, stub *workersAIStub, fetcher Fetcher, opts ...ai.CloudflareOption) tracedRun {
 	t.Helper()
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
 	spans := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans))
-	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil,
-		ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp))
+	opts = append([]ai.CloudflareOption{ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp)}, opts...)
+	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil, opts...)
 	store := &fakeStore{records: map[string]Record{}}
 	scores := &fakeScoreSink{}
 	service := NewService(store, fetcher, NewCloudflareModel(provider), fakePreferences{text: "likes Go"},
@@ -170,19 +170,13 @@ func TestEnrichmentProducesOneTraceKeyedByRecordID(t *testing.T) {
 		wantAttr(t, gen, "gen_ai.request.model", traceModel)
 		wantAttr(t, gen, "gen_ai.usage.input_tokens", "120")
 		wantAttr(t, gen, "gen_ai.usage.output_tokens", "7")
+		// Every enrichment call is a template operation and records its
+		// variables (#201, #203).
 		input, _ := attr(gen, "langfuse.observation.input")
-		if op == ai.OpPreferenceScore {
-			// A template operation records its variables (#201).
-			var vars map[string]string
-			if err := json.Unmarshal([]byte(input.AsString()), &vars); err != nil || vars["title"] != "A title" {
-				t.Fatalf("%s input = %q, want the prompt variables", op, input.AsString())
-			}
-			continue
-		}
-		var messages []struct{ Role, Content string }
-		if err := json.Unmarshal([]byte(input.AsString()), &messages); err != nil || len(messages) != 2 ||
-			messages[0].Role != "system" || !strings.Contains(messages[1].Content, "A title") {
-			t.Fatalf("%s input = %q, want the system and user messages sent", op, input.AsString())
+		var vars map[string]string
+		if err := json.Unmarshal([]byte(input.AsString()), &vars); err != nil ||
+			vars["title"] != "A title" || vars["content"] != "fetched body" {
+			t.Fatalf("%s input = %q, want the prompt variables", op, input.AsString())
 		}
 	}
 	wantAttr(t, spanNamed(t, spans, ai.OpCategorize), "langfuse.observation.output", "tech")
@@ -280,5 +274,38 @@ func TestFailedCategorizeEmitsNoSlugScore(t *testing.T) {
 		if e.Name == "slug_allowed" {
 			t.Fatalf("no answer, nothing to check: %+v", e)
 		}
+	}
+}
+
+// seededTemplates serves each operation's in-code default as Langfuse v1,
+// which is what the seeding command creates.
+type seededTemplates struct{}
+
+func (seededTemplates) Template(ctx context.Context, name string) (ai.Prompt, error) {
+	op, _ := strings.CutPrefix(name, "agregado/")
+	p, ok := ai.DefaultTemplate(ctx, nil, op)
+	if !ok {
+		return ai.Prompt{}, fmt.Errorf("no prompt %s", name)
+	}
+	p.Version = 1
+	return p, nil
+}
+
+func TestSeededPromptsLinkEveryEnrichmentGenerationToVersionOne(t *testing.T) {
+	run := newTracedRun(t, &workersAIStub{}, &fakeFetcher{text: "fetched body"}, ai.WithTemplates(seededTemplates{}))
+	record, _, err := run.service.Process(context.Background(), tracedRequest())
+	if err != nil || record.Score != 4 || record.Tags[0] != "tech" {
+		t.Fatalf("Process() = %#v, %v; want the same enrichment as without Langfuse", record, err)
+	}
+	spans := run.spans.GetSpans()
+	for _, op := range []string{ai.OpArticleSummary, ai.OpCategorize, ai.OpPreferenceScore} {
+		gen := spanNamed(t, spans, op)
+		wantAttr(t, gen, "langfuse.observation.prompt.name", "agregado/"+op)
+		wantAttr(t, gen, "langfuse.observation.prompt.version", "1")
+	}
+	input, _ := attr(spanNamed(t, spans, ai.OpCategorize), "langfuse.observation.input")
+	var vars map[string]string
+	if err := json.Unmarshal([]byte(input.AsString()), &vars); err != nil || vars["allowed_slugs"] == "" {
+		t.Fatalf("categorize input = %q, want allowed_slugs among the variables", input.AsString())
 	}
 }

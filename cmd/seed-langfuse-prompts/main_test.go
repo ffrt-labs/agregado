@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
@@ -19,18 +20,34 @@ func (s *recordingSeeder) Seed(_ context.Context, p ai.Prompt) (bool, error) {
 	return true, nil
 }
 
-func TestSeedUsesTheLiveAIPromptsRow(t *testing.T) {
+func TestSeedCreatesEveryTemplateOperationFromTheLiveAIPromptsRow(t *testing.T) {
 	lf := &recordingSeeder{}
-	if err := seed(context.Background(), rows{ai.OpPreferenceScore: "Edited in admin."}, lf, io.Discard); err != nil {
+	live := rows{
+		ai.OpArticleSummary:  "Summary edited in admin.",
+		ai.OpCategorize:      "Categorize edited in admin.",
+		ai.OpDigestSelect:    "Select edited in admin.",
+		ai.OpPreferenceScore: "Score edited in admin.",
+	}
+	if err := seed(context.Background(), live, lf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(lf.seeded) != 1 {
-		t.Fatalf("seeded %d prompts, want 1", len(lf.seeded))
+	want := map[string]ai.Prompt{
+		"agregado/article_summary": {System: "Summary edited in admin.", User: "Title: {{title}}\n\nContent: {{content}}"},
+		"agregado/categorize": {
+			System: "Categorize edited in admin. Allowed slugs: {{allowed_slugs}}.",
+			User:   "Title: {{title}}\n\nContent: {{content}}",
+		},
+		"agregado/digest_select":    {System: "Select edited in admin.", User: "Candidates:\n{{candidates}}"},
+		"agregado/preference_score": {System: "Score edited in admin.", User: "PREFERENCES.md:\n{{preferences}}\n\nTitle: {{title}}\n\nContent: {{content}}"},
 	}
-	got := lf.seeded[0]
-	if got.Name != "agregado/preference_score" || got.System != "Edited in admin." ||
-		got.User != "PREFERENCES.md:\n{{preferences}}\n\nTitle: {{title}}\n\nContent: {{content}}" {
-		t.Fatalf("seeded %+v, want the ai_prompts row and the default user template", got)
+	if len(lf.seeded) != len(want) {
+		t.Fatalf("seeded %d prompts, want %d", len(lf.seeded), len(want))
+	}
+	for _, got := range lf.seeded {
+		w, ok := want[got.Name]
+		if !ok || got.System != w.System || got.User != w.User {
+			t.Fatalf("seeded %+v, want the ai_prompts row and the default user template %+v", got, w)
+		}
 	}
 }
 
@@ -39,7 +56,23 @@ func TestSeedFallsBackToTheInCodeDefault(t *testing.T) {
 	if err := seed(context.Background(), rows{}, lf, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if got := lf.seeded[0].System; got != ai.DefaultPrompts[ai.OpPreferenceScore] {
-		t.Fatalf("seeded system = %q, want the in-code default", got)
+	for _, got := range lf.seeded {
+		if !strings.HasPrefix(got.System, ai.DefaultPrompts[strings.TrimPrefix(got.Name, "agregado/")]) {
+			t.Fatalf("seeded %s system = %q, want the in-code default", got.Name, got.System)
+		}
+	}
+}
+
+func TestSeedLeavesLegacyOperationsAlone(t *testing.T) {
+	lf := &recordingSeeder{}
+	if err := seed(context.Background(), rows{}, lf, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range lf.seeded {
+		for _, legacy := range []string{ai.OpScore, ai.OpSummarize, ai.OpDigest, ai.OpReason} {
+			if got.Name == ai.PromptName(legacy) {
+				t.Fatalf("seeded legacy operation %s", got.Name)
+			}
+		}
 	}
 }

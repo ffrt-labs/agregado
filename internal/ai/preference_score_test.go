@@ -22,6 +22,7 @@ import (
 type scoreStub struct {
 	mu           sync.Mutex
 	system, user string
+	answer       string // "" answers "4"
 }
 
 func (s *scoreStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -31,8 +32,13 @@ func (s *scoreStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	s.mu.Lock()
 	s.system, s.user = body.Messages[0].Content, body.Messages[1].Content
+	answer := s.answer
 	s.mu.Unlock()
-	fmt.Fprint(w, `{"success":true,"result":{"choices":[{"message":{"content":"4"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":1}}}`)
+	if answer == "" {
+		answer = "4"
+	}
+	out, _ := json.Marshal(answer)
+	fmt.Fprintf(w, `{"success":true,"result":{"choices":[{"message":{"content":%s},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":1}}}`, out)
 }
 
 func (s *scoreStub) messages() (string, string) {
@@ -66,6 +72,11 @@ type scoreRun struct {
 
 func newScoreRun(t *testing.T, prompts PromptStore, opts ...CloudflareOption) scoreRun {
 	t.Helper()
+	return newRun(t, prompts, nil, opts...)
+}
+
+func newRun(t *testing.T, prompts PromptStore, tags TagLister, opts ...CloudflareOption) scoreRun {
+	t.Helper()
 	stub := &scoreStub{}
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
@@ -73,7 +84,7 @@ func newScoreRun(t *testing.T, prompts PromptStore, opts ...CloudflareOption) sc
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans))
 	opts = append([]CloudflareOption{WithBaseURL(server.URL), WithTracerProvider(tp)}, opts...)
 	return scoreRun{
-		provider: NewCloudflareProvider("acct", "token", "@cf/model", 0, 0, prompts, nil, nil, opts...),
+		provider: NewCloudflareProvider("acct", "token", "@cf/model", 0, 0, prompts, tags, nil, opts...),
 		stub:     stub,
 		spans:    spans,
 	}
@@ -92,9 +103,14 @@ func (r scoreRun) score(t *testing.T) {
 
 func (r scoreRun) generation(t *testing.T) map[string]string {
 	t.Helper()
+	return r.generationOf(t, OpPreferenceScore)
+}
+
+func (r scoreRun) generationOf(t *testing.T, op string) map[string]string {
+	t.Helper()
 	spans := r.spans.GetSpans()
-	if len(spans) != 1 || spans[0].Name != OpPreferenceScore {
-		t.Fatalf("spans = %v, want one %s generation", spans, OpPreferenceScore)
+	if len(spans) != 1 || spans[0].Name != op {
+		t.Fatalf("spans = %v, want one %s generation", spans, op)
 	}
 	attrs := map[string]string{}
 	for _, kv := range spans[0].Attributes {

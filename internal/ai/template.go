@@ -34,7 +34,18 @@ type TemplateStore interface {
 // (the ai_prompts row, else DefaultPrompts), so with Langfuse unconfigured
 // the model sees exactly what it did before templates existed.
 var defaultUserTemplates = map[string]string{
+	OpArticleSummary:  "Title: {{title}}\n\nContent: {{content}}",
+	OpCategorize:      "Title: {{title}}\n\nContent: {{content}}",
+	OpDigestSelect:    "Candidates:\n{{candidates}}",
 	OpPreferenceScore: "PREFERENCES.md:\n{{preferences}}\n\nTitle: {{title}}\n\nContent: {{content}}",
+}
+
+// defaultSystemSuffixes are appended to the editable system prompt of an
+// operation whose system message takes variables. The ai_prompts row for
+// categorize holds no slug list (Go appended the live slugs before templates
+// existed), so the default template appends them as {{allowed_slugs}}.
+var defaultSystemSuffixes = map[string]string{
+	OpCategorize: " Allowed slugs: {{allowed_slugs}}.",
 }
 
 // TemplateOperations lists the operations served as prompt templates, in a
@@ -62,7 +73,7 @@ func DefaultTemplate(ctx context.Context, store PromptStore, operation string) (
 			system = s
 		}
 	}
-	return Prompt{Name: PromptName(operation), System: system, User: user}, true
+	return Prompt{Name: PromptName(operation), System: system + defaultSystemSuffixes[operation], User: user}, true
 }
 
 // variableRe matches {{name}}, allowing whitespace inside the braces, as the

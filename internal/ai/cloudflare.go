@@ -72,9 +72,9 @@ type CloudflareProvider struct {
 
 	prompts   PromptStore   // editable system prompts; nil → in-code defaults
 	templates TemplateStore // Langfuse-managed prompts; nil → in-code defaults
-	tags    TagLister   // live category slugs for categorize; nil → defaultCategorySlugs
-	logs    AILogSink   // request/response logging; nil → no logging
-	tracer  trace.Tracer
+	tags      TagLister     // live category slugs for categorize; nil → defaultCategorySlugs
+	logs      AILogSink     // request/response logging; nil → no logging
+	tracer    trace.Tracer
 }
 
 type Messages struct {
@@ -431,13 +431,8 @@ func flattenSummary(summary string) string {
 }
 
 func (p *CloudflareProvider) Categorize(ctx context.Context, title, content string) (string, error) {
-	// The live tag slugs are a variable so the classifier can only pick from
-	// current tags, however a prompt version phrases the list.
-	return p.completeTemplate(ctx, OpCategorize, map[string]string{
-		"allowed_slugs": strings.Join(p.categorySlugs(ctx), ", "),
-		"title":         title,
-		"content":       textutil.Clean(content, p.maxContentChars),
-	}, shortAnswerOptions)
+	slug, _, err := p.categorize(ctx, title, content)
+	return slug, err
 }
 
 func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {

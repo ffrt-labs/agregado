@@ -3,7 +3,6 @@ package preferenceexport
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -32,9 +31,6 @@ type OpenHandler struct {
 // NewOpenHandler records Opens in store and sends each as an `opened` score
 // to scores (nil discards them).
 func NewOpenHandler(store OpenStore, scores telemetry.ScoreSink) *OpenHandler {
-	if scores == nil {
-		scores = telemetry.NopScoreSink{}
-	}
 	return &OpenHandler{store: store, scores: scores}
 }
 
@@ -63,9 +59,7 @@ func (h *OpenHandler) HandleOr(fallback http.HandlerFunc) http.HandlerFunc {
 		// The first Open's time keeps the score's timestamp stable, so a
 		// repeated Open overwrites the same `opened` score instead of adding one.
 		score := telemetry.BooleanScore(telemetry.ArticleIndexKey(id), OpenedScore, true, firstOpenedAt)
-		if err := h.scores.Emit(r.Context(), score); err != nil {
-			slog.Warn("langfuse: opened score not sent", "component", "langfuse", "article_index_id", id, "err", err)
-		}
+		telemetry.EmitScore(r.Context(), h.scores, score)
 		http.Redirect(w, r, canonicalURL, http.StatusFound)
 	}
 }

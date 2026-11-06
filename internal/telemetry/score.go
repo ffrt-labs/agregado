@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -45,10 +46,24 @@ type ScoreSink interface {
 }
 
 // NopScoreSink discards every event. It is the sink when Langfuse is
-// unconfigured.
+// unconfigured, and what EmitScore uses for a nil sink.
 type NopScoreSink struct{}
 
 func (NopScoreSink) Emit(context.Context, ScoreEvent) error { return nil }
+
+// EmitScore sends event to sink, treating a nil sink as NopScoreSink, so
+// holders of an optional sink need no default of their own. A failure is
+// only logged, at warn with component=langfuse: a score never changes the
+// caller's result.
+func EmitScore(ctx context.Context, sink ScoreSink, event ScoreEvent) {
+	if sink == nil {
+		sink = NopScoreSink{}
+	}
+	if err := sink.Emit(ctx, event); err != nil {
+		slog.Warn("langfuse: score not sent", "component", "langfuse",
+			"score", event.Name, "trace_key", event.TraceKey, "err", err)
+	}
+}
 
 // CategoricalScore is a Categorical ScoreEvent.
 func CategoricalScore(traceKey, name, value string, at time.Time) ScoreEvent {

@@ -24,19 +24,21 @@ const DefaultPromptCacheTTL = 60 * time.Second
 // promotes or rolls back a prompt version.
 const ProductionLabel = "production"
 
-// promptFetchTimeout bounds one prompt request. A cold fetch sits on the
-// request path, so a hung Langfuse must not hold a model call for long.
+// promptFetchTimeout bounds one prompt request. Fetches always run in the
+// background, so this only bounds how long a hung Langfuse holds a goroutine.
 const promptFetchTimeout = 5 * time.Second
 
 var errUnconfigured = errors.New("langfuse: not configured")
 
 // Prompts serves Langfuse-managed chat prompts at the production label to
-// ai.CloudflareProvider (it implements ai.TemplateStore). Each prompt is
-// cached for the TTL; after it a call gets the cached copy while one
-// background request refreshes it, and a failed refresh keeps the last good
-// copy. With nothing ever fetched a call fetches synchronously, and a
-// failure is returned (the caller uses its in-code default) and not retried
-// until the TTL has passed again.
+// ai.CloudflareProvider (it implements ai.TemplateStore). A model call never
+// waits on Langfuse: every fetch runs in the background, one per prompt at a
+// time. Each prompt is cached for the TTL; after it a call gets the cached
+// copy while a refresh runs, and a failed refresh keeps the last good copy.
+// With nothing fetched yet a call errors at once (the caller uses its
+// in-code default) and starts the fetch; a failed fetch is not retried until
+// the TTL has passed again. Warm fills the cache at startup so the defaults
+// are served only briefly.
 type Prompts struct {
 	cfg    Config
 	ttl    time.Duration
@@ -82,37 +84,57 @@ func NewPrompts(cfg Config, ttl time.Duration, opts ...PromptsOption) *Prompts {
 	return p
 }
 
-// Template returns the production version of the named chat prompt.
-func (p *Prompts) Template(ctx context.Context, name string) (ai.Prompt, error) {
+// Template returns the cached production version of the named chat prompt,
+// starting a background fetch when the cache is empty or past the TTL.
+func (p *Prompts) Template(_ context.Context, name string) (ai.Prompt, error) {
 	if !p.cfg.Enabled() {
 		return ai.Prompt{}, errUnconfigured
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry := p.entry(name)
+	if p.now().Sub(entry.checked) >= p.ttl {
+		p.refreshLocked(name, entry)
+	}
+	if !entry.ok {
+		return ai.Prompt{}, fmt.Errorf("langfuse: prompt %s not fetched", name)
+	}
+	return entry.prompt, nil
+}
+
+// Warm starts a background fetch of each named prompt that has no cached
+// copy, so the first calls after startup are served from Langfuse.
+func (p *Prompts) Warm(names ...string) {
+	if !p.cfg.Enabled() {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, name := range names {
+		if entry := p.entry(name); !entry.ok {
+			p.refreshLocked(name, entry)
+		}
+	}
+}
+
+// entry returns name's cache entry, creating it. p.mu must be held.
+func (p *Prompts) entry(name string) *cachedPrompt {
 	entry := p.cache[name]
 	if entry == nil {
 		entry = &cachedPrompt{}
 		p.cache[name] = entry
 	}
-	stale := p.now().Sub(entry.checked) >= p.ttl
-	switch {
-	case entry.ok:
-		if stale && !entry.refreshing {
-			entry.refreshing = true
-			go p.refresh(name)
-		}
-		prompt := entry.prompt
-		p.mu.Unlock()
-		return prompt, nil
-	case !stale || entry.refreshing:
-		p.mu.Unlock()
-		return ai.Prompt{}, fmt.Errorf("langfuse: prompt %s unavailable", name)
+	return entry
+}
+
+// refreshLocked starts a background fetch of name unless one is running.
+// p.mu must be held.
+func (p *Prompts) refreshLocked(name string, entry *cachedPrompt) {
+	if entry.refreshing {
+		return
 	}
 	entry.refreshing = true
-	p.mu.Unlock()
-
-	prompt, err := p.fetch(ctx, name)
-	p.store(name, prompt, err)
-	return prompt, err
+	go p.refresh(name)
 }
 
 func (p *Prompts) refresh(name string) {

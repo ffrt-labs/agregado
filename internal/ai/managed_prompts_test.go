@@ -36,6 +36,12 @@ func jsonString(s string) string {
 	return string(b)
 }
 
+// compiledMessages is the generation's messages metadata for a call that
+// sent system and user.
+func compiledMessages(system, user string) string {
+	return `[{"role":"system","content":` + jsonString(system) + `},{"role":"user","content":` + jsonString(user) + `}]`
+}
+
 var templateCalls = []templateCall{
 	{
 		op: OpArticleSummary,
@@ -103,6 +109,9 @@ func TestTemplateOperationsWithoutLangfuseSendTheSameMessagesAsBefore(t *testing
 			if got := attrs["langfuse.observation.input"]; got != tc.wantInput {
 				t.Fatalf("generation input = %s, want the variables %s", got, tc.wantInput)
 			}
+			if got, want := attrs["langfuse.observation.metadata.messages"], compiledMessages(tc.wantSystem, tc.wantUser); got != want {
+				t.Fatalf("generation messages = %s, want %s", got, want)
+			}
 		})
 	}
 }
@@ -126,6 +135,9 @@ func TestTemplateOperationsUseTheLangfusePromptAndLinkTheGeneration(t *testing.T
 			if attrs["langfuse.observation.prompt.name"] != tc.managed.Name || attrs["langfuse.observation.prompt.version"] != "2" {
 				t.Fatalf("generation prompt = %q v%q, want %s v2",
 					attrs["langfuse.observation.prompt.name"], attrs["langfuse.observation.prompt.version"], tc.managed.Name)
+			}
+			if got, want := attrs["langfuse.observation.metadata.messages"], compiledMessages(tc.managedSystem, tc.managedUser); got != want {
+				t.Fatalf("generation messages = %s, want the compiled messages %s", got, want)
 			}
 		})
 	}
@@ -154,5 +166,27 @@ func TestCategorizeCheckedStillChecksTheAnswerAgainstTheLiveSlugs(t *testing.T) 
 	slug, allowed, err := run.provider.CategorizeChecked(context.Background(), "Go 1.26", "Released today.")
 	if err != nil || slug != "Science" || !allowed {
 		t.Fatalf("CategorizeChecked() = %q, %v, %v; want Science, allowed", slug, allowed, err)
+	}
+}
+
+// shiftingTags answers each CategorySlugs call with the next list, as if a
+// tag were edited between two reads.
+type shiftingTags struct{ lists [][]string }
+
+func (s *shiftingTags) CategorySlugs(context.Context) ([]string, error) {
+	next := s.lists[0]
+	if len(s.lists) > 1 {
+		s.lists = s.lists[1:]
+	}
+	return next, nil
+}
+
+func TestCategorizeCheckedJudgesTheAnswerAgainstTheSlugsThePromptOffered(t *testing.T) {
+	tags := &shiftingTags{lists: [][]string{{"tech", "science"}, {"tech"}}}
+	run := newRun(t, nil, tags)
+	run.stub.answer = "science"
+	slug, allowed, err := run.provider.CategorizeChecked(context.Background(), "Go 1.26", "Released today.")
+	if err != nil || slug != "science" || !allowed {
+		t.Fatalf("CategorizeChecked() = %q, %v, %v; want science, allowed (the prompt offered it)", slug, allowed, err)
 	}
 }

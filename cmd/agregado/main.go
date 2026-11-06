@@ -112,14 +112,18 @@ func main() {
 
 	// Langfuse tracing is optional: unconfigured, the tracer provider is a
 	// no-op and nothing is exported (spec #198).
-	tracing, err := langfuse.NewTracing(ctx, langfuse.Config{
+	langfuseCfg := langfuse.Config{
 		BaseURL: cfg.Langfuse.BaseURL, PublicKey: cfg.Langfuse.PublicKey, SecretKey: cfg.Langfuse.SecretKey,
-	})
+	}
+	tracing, err := langfuse.NewTracing(ctx, langfuseCfg)
 	if err != nil {
 		fatal("failed to set up Langfuse tracing", err)
 	}
 	slog.Info("langfuse tracing", "component", "main", "enabled", tracing.Enabled())
 	tracerProvider := tracing.TracerProvider()
+	// Langfuse scores (user_vote, ...) go through a bounded async queue; a
+	// no-op when Langfuse is unconfigured.
+	scores := langfuse.NewScores(langfuseCfg)
 
 	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger,
 		ai.WithTracerProvider(tracerProvider))
@@ -164,7 +168,7 @@ func main() {
 	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 	dlqHandler := broker.NewDeadLetterHandler()
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
@@ -197,6 +201,10 @@ func main() {
 	// After the server, so spans of requests that just finished are flushed too.
 	if err := tracing.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("langfuse: flushing spans at shutdown failed", "component", "langfuse", "err", err)
+	}
+	// After the spans, so a score never arrives for a trace not yet sent.
+	if err := scores.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("langfuse: sending queued scores at shutdown failed", "component", "langfuse", "err", err)
 	}
 	publisher.Close()
 	consumer.Close()

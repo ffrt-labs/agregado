@@ -3407,3 +3407,49 @@ The Go blog / `go help test` section on **external test packages** (`_test`
 suffix) and the `export_test.go` idiom (used throughout the standard library,
 e.g. `net/http/export_test.go`). It is the standard way to test across an
 import cycle without exporting test-only API in production code.
+
+## Langfuse 3 — Digest votes as `user_vote` Langfuse scores (issue #202, spec #198)
+
+A 👍 or 👎 in a Digest now also lands as a categorical `user_vote` Langfuse
+score on that Article's `article-enrichment` trace. (A Langfuse score is any
+judgement on a trace; an Article's Score, capital S, is its relevance. They
+are different things.)
+
+- **The overwrite needs the same ID and the same timestamp.** Langfuse stores
+  scores in ClickHouse as `ReplacingMergeTree ORDER BY (project_id,
+  toDate(timestamp), name, id)`. A deterministic ID alone
+  (`sha256(traceKey + "/" + name)[:32]`) is not enough: re-sending it with the
+  default timestamp (receive time) on another day adds a second row. So
+  `SetCurrent` now returns `article_index_feedback.created_at`, the first
+  vote's time, which a changed vote keeps. Every re-send of `user_vote` uses
+  that as its timestamp.
+- **`RETURNING` on an upsert with a `WHERE` can return nothing.** The old upsert
+  skipped the update for a repeated direction (`WHERE vote IS DISTINCT FROM
+  ...`), and then no row comes back. The update now always runs and uses a
+  `CASE` to leave `updated_at` alone when the vote didn't change, so the
+  behaviour stays the same and `RETURNING created_at` always gets a row.
+- **The interface sits in a leaf package, the adapter in the client package.**
+  `telemetry.ScoreSink` (`Emit(ctx, ScoreEvent) error`) lives next to the
+  trace-ID helper so `api`, `preferenceexport` and `digestartifact` can emit
+  without importing `ai` or `langfuse`. `ai.ScoreSink` is a type alias, so the
+  spec's name still works. `langfuse.Scores` is the only adapter, and the
+  feedback test uses a hand-written fake.
+- **"Non-blocking" is a `select` with a `default`.** `Emit` sends into a
+  buffered channel and drops the event on `default`. One worker posts
+  single-object requests. A `sync.RWMutex` guards a `closed` flag, so `Emit`
+  never sends on the channel after `Shutdown` has closed it. Many `Emit`s can
+  hold the read lock at once, and `Shutdown` takes the write lock.
+- **Testing "full" deterministically:** the fake API signals on a channel when
+  a request arrives, then blocks. Emit #1, wait for the arrival (now in
+  flight), Emit #2 (queued in a size-1 queue), and every later Emit must fail
+  at once. Without the arrival wait, the test races the worker's dequeue.
+- **The error return is for logging only.** The handler logs a failed `Emit` and
+  returns the same 200 body either way. The test checks the response bytes
+  exactly with a sink that returns an error.
+
+### Recommended reading (15–30 min)
+
+Langfuse's "Scores via API/SDK" docs page (the "update an existing score"
+note), then `worker/src/services/IngestionService/index.ts` in the Langfuse
+repo, where scores are merged, to see why the timestamp is part of a score's
+identity.

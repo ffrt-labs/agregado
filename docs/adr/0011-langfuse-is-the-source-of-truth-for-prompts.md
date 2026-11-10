@@ -73,3 +73,16 @@ still read, while a `TemplateStore` returns a versioned system-and-user
 `ai.Prompt`. Widening one interface would have made the Postgres repo
 implement Langfuse's shape, or Langfuse the row lookup. `PromptStore` stays
 for the legacy operations until #207 removes it.
+
+## Update: retirement (#207)
+
+After two clean weeks of tracing, migration 000024 dropped `ai_logs` and
+`ai_prompts` and deleted the `ai_logging_enabled` setting. The admin log view,
+the admin prompt editor, the prompt repository and `ai.PromptStore` /
+`ai.AILogSink` are gone, with their routes. Every operation now takes its prompt
+from Langfuse, or from `ai.DefaultPrompts` / `ai.DefaultTemplate`; legacy
+operations use the in-code defaults only, and `cmd/seed-langfuse-prompts` seeds
+from them. Mentions above of the `ai_prompts` row and the editor describe the
+state before this change. The `ai: usage` log line stays, so
+homelab-observability can alert on the neuron budget when Langfuse is down. The
+down migration recreates both tables empty.

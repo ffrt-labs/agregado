@@ -30,9 +30,8 @@ type TemplateStore interface {
 }
 
 // defaultUserTemplates are the in-code user messages of the operations
-// served as templates. Their system message is the editable prompt in force
-// (the ai_prompts row, else DefaultPrompts), so with Langfuse unconfigured
-// the model sees exactly what it did before templates existed.
+// served as templates. Their system message is DefaultPrompts, so with
+// Langfuse unconfigured the model sees the in-code prompt.
 var defaultUserTemplates = map[string]string{
 	OpArticleSummary:  "Title: {{title}}\n\nContent: {{content}}",
 	OpCategorize:      "Title: {{title}}\n\nContent: {{content}}",
@@ -40,10 +39,9 @@ var defaultUserTemplates = map[string]string{
 	OpPreferenceScore: "PREFERENCES.md:\n{{preferences}}\n\nTitle: {{title}}\n\nContent: {{content}}",
 }
 
-// defaultSystemSuffixes are appended to the editable system prompt of an
-// operation whose system message takes variables. The ai_prompts row for
-// categorize holds no slug list (Go appended the live slugs before templates
-// existed), so the default template appends them as {{allowed_slugs}}.
+// defaultSystemSuffixes are appended to the default system prompt of an
+// operation whose system message takes variables. The default categorize
+// prompt holds no slug list, so its template appends them as {{allowed_slugs}}.
 var defaultSystemSuffixes = map[string]string{
 	OpCategorize: " Allowed slugs: {{allowed_slugs}}.",
 }
@@ -59,21 +57,14 @@ func TemplateOperations() []string {
 	return ops
 }
 
-// DefaultTemplate is an operation's in-code default prompt, with the system
-// message taken from store when it has a non-empty row. ok is false for an
-// operation that is not served as a template.
-func DefaultTemplate(ctx context.Context, store PromptStore, operation string) (Prompt, bool) {
+// DefaultTemplate is an operation's in-code default prompt. ok is false for
+// an operation that is not served as a template.
+func DefaultTemplate(operation string) (Prompt, bool) {
 	user, ok := defaultUserTemplates[operation]
 	if !ok {
 		return Prompt{}, false
 	}
-	system := DefaultPrompts[operation]
-	if store != nil {
-		if s, err := store.SystemPrompt(ctx, operation); err == nil && s != "" {
-			system = s
-		}
-	}
-	return Prompt{Name: PromptName(operation), System: system + defaultSystemSuffixes[operation], User: user}, true
+	return Prompt{Name: PromptName(operation), System: DefaultPrompts[operation] + defaultSystemSuffixes[operation], User: user}, true
 }
 
 // variableRe matches {{name}}, allowing whitespace inside the braces, as the
@@ -148,7 +139,7 @@ func (p *CloudflareProvider) completeTemplate(ctx context.Context, operation str
 				"component", "ai", "operation", operation, "prompt", prompt.Name, "version", prompt.Version, "err", err)
 		}
 	}
-	prompt, ok := DefaultTemplate(ctx, p.prompts, operation)
+	prompt, ok := DefaultTemplate(operation)
 	if !ok {
 		return "", fmt.Errorf("ai: %s has no prompt template", operation)
 	}

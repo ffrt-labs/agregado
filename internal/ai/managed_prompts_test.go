@@ -94,7 +94,7 @@ var templateCalls = []templateCall{
 func TestTemplateOperationsWithoutLangfuseSendTheSameMessagesAsBefore(t *testing.T) {
 	for _, tc := range templateCalls {
 		t.Run(tc.op, func(t *testing.T) {
-			run := newRun(t, nil, fakeTags{"tech", "science"})
+			run := newRun(t, fakeTags{"tech", "science"})
 			run.stub.answer = tc.answer
 			tc.run(t, run.provider)
 
@@ -120,7 +120,7 @@ func TestTemplateOperationsUseTheLangfusePromptAndLinkTheGeneration(t *testing.T
 	for _, tc := range templateCalls {
 		t.Run(tc.op, func(t *testing.T) {
 			templates := &fakeTemplates{prompt: tc.managed}
-			run := newRun(t, nil, fakeTags{"tech", "science"}, WithTemplates(templates))
+			run := newRun(t, fakeTags{"tech", "science"}, WithTemplates(templates))
 			run.stub.answer = tc.answer
 			tc.run(t, run.provider)
 
@@ -148,7 +148,7 @@ func TestTemplateOperationsFallBackToTheDefaultWhenTheLangfusePromptIsInvalid(t 
 		t.Run(tc.op, func(t *testing.T) {
 			invalid := tc.managed
 			invalid.User += " {{author}}"
-			run := newRun(t, nil, fakeTags{"tech", "science"}, WithTemplates(&fakeTemplates{prompt: invalid}))
+			run := newRun(t, fakeTags{"tech", "science"}, WithTemplates(&fakeTemplates{prompt: invalid}))
 			run.stub.answer = tc.answer
 			tc.run(t, run.provider)
 
@@ -161,7 +161,7 @@ func TestTemplateOperationsFallBackToTheDefaultWhenTheLangfusePromptIsInvalid(t 
 }
 
 func TestCategorizeCheckedStillChecksTheAnswerAgainstTheLiveSlugs(t *testing.T) {
-	run := newRun(t, nil, fakeTags{"tech", "science"}, WithTemplates(&fakeTemplates{prompt: templateCalls[1].managed}))
+	run := newRun(t, fakeTags{"tech", "science"}, WithTemplates(&fakeTemplates{prompt: templateCalls[1].managed}))
 	run.stub.answer = "Science"
 	slug, allowed, err := run.provider.CategorizeChecked(context.Background(), "Go 1.26", "Released today.")
 	if err != nil || slug != "Science" || !allowed {
@@ -183,7 +183,7 @@ func (s *shiftingTags) CategorySlugs(context.Context) ([]string, error) {
 
 func TestCategorizeCheckedJudgesTheAnswerAgainstTheSlugsThePromptOffered(t *testing.T) {
 	tags := &shiftingTags{lists: [][]string{{"tech", "science"}, {"tech"}}}
-	run := newRun(t, nil, tags)
+	run := newRun(t, tags)
 	run.stub.answer = "science"
 	slug, allowed, err := run.provider.CategorizeChecked(context.Background(), "Go 1.26", "Released today.")
 	if err != nil || slug != "science" || !allowed {

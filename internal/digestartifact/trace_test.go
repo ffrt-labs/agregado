@@ -71,7 +71,7 @@ func newTracedDigest(t *testing.T, stub *selectStub, articles []digestartifact.A
 	spans := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans))
 	opts = append([]ai.CloudflareOption{ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp)}, opts...)
-	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil, opts...)
+	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, opts...)
 	store := digestartifact.NewMemoryStore(articles, traceSince, traceUntil)
 	service := digestartifact.NewService(store, provider, "https://agregado.example", 3, 10,
 		digestartifact.WithTracerProvider(tp))
@@ -239,7 +239,7 @@ func TestEmptyDigestTraceRecordsItsEmptyReason(t *testing.T) {
 type seededSelect struct{}
 
 func (seededSelect) Template(ctx context.Context, name string) (ai.Prompt, error) {
-	p, _ := ai.DefaultTemplate(ctx, nil, ai.OpDigestSelect)
+	p, _ := ai.DefaultTemplate(ai.OpDigestSelect)
 	if name != p.Name {
 		return ai.Prompt{}, fmt.Errorf("no prompt %s", name)
 	}

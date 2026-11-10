@@ -79,7 +79,7 @@ func newTracedRun(t *testing.T, stub *workersAIStub, fetcher Fetcher, opts ...ai
 	spans := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans))
 	opts = append([]ai.CloudflareOption{ai.WithBaseURL(server.URL), ai.WithTracerProvider(tp)}, opts...)
-	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, nil, nil, opts...)
+	provider := ai.NewCloudflareProvider("acct", "token", traceModel, 0, 0, nil, opts...)
 	store := &fakeStore{records: map[string]Record{}}
 	scores := &fakeScoreSink{}
 	service := NewService(store, fetcher, NewCloudflareModel(provider), fakePreferences{text: "likes Go"},
@@ -283,7 +283,7 @@ type seededTemplates struct{}
 
 func (seededTemplates) Template(ctx context.Context, name string) (ai.Prompt, error) {
 	op, _ := strings.CutPrefix(name, "agregado/")
-	p, ok := ai.DefaultTemplate(ctx, nil, op)
+	p, ok := ai.DefaultTemplate(op)
 	if !ok {
 		return ai.Prompt{}, fmt.Errorf("no prompt %s", name)
 	}

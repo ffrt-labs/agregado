@@ -104,12 +104,6 @@ func main() {
 	weightsRepo := storage.NewTopicWeightsRepo(db)
 	tagRepo := storage.NewTagRepo(db)
 
-	// AI provider dependencies: DB-backed prompts, live tag list, request logging.
-	promptRepo := storage.NewPromptRepo(db)
-	settingsRepo := storage.NewSettingsRepo(db)
-	aiLogRepo := storage.NewAILogRepo(db)
-	aiLogger := storage.NewAILogger(settingsRepo, aiLogRepo)
-
 	// Langfuse tracing is optional: unconfigured, the tracer provider is a
 	// no-op and nothing is exported (spec #198).
 	langfuseCfg := langfuse.ConfigFrom(cfg.Langfuse)
@@ -124,14 +118,14 @@ func main() {
 	scores := langfuse.NewScores(langfuseCfg)
 
 	// Langfuse-managed prompts (#201): unconfigured, every template call
-	// uses its in-code default and the ai_prompts row, as before. The cache is
+	// uses its in-code default. The cache is
 	// filled in the background, so the defaults serve only the first calls.
 	langfusePrompts := langfuse.NewPrompts(langfuseCfg, cfg.Langfuse.PromptCacheTTL)
 	for _, op := range ai.TemplateOperations() {
 		langfusePrompts.Warm(ai.PromptName(op))
 	}
 
-	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, promptRepo, tagRepo, aiLogger,
+	provider := ai.NewCloudflareProvider(cfg.CloudflareAccountID, cfg.CloudflareAPIToken, cfg.Model, cfg.AI.RequestTimeout, cfg.AI.MaxContentChars, tagRepo,
 		ai.WithTracerProvider(tracerProvider), ai.WithTemplates(langfusePrompts))
 	preferenceService := preferences.NewService(storage.NewPreferenceProfileRepo(db), articleIndexRepo, provider)
 	preferencesHandler := preferences.NewHandler(cfg.Enrichment.Secret, preferenceService)

@@ -537,6 +537,11 @@ log raw classifier output; feed richer content; support multiple tags.
 and what it returns, tweak those prompts without redeploying, and manage the tag
 taxonomy — all from an `/admin` area.
 
+> **Retired (#207, migration 000024):** the AI log view (`/admin/logs`), the prompt
+> editor (`/admin/prompts`) and the `ai_logs` / `ai_prompts` tables are gone;
+> Langfuse owns prompts and model-call history (ADR 0011). Only the tag settings
+> remain. The text below is the original design.
+
 **Motivation:** AI behavior (e.g. the F7 "wrong tag" case) is currently
 un-debuggable — prompts are hardcoded in `internal/ai/cloudflare.go` and nothing
 records requests/responses. This adds observability + a control surface.
@@ -1388,12 +1393,6 @@ GET    /health                   - Service health check
 GET    /health/rabbit            - RabbitMQ connection status
 
 # Admin Console (F9) — unauthenticated in v1
-GET    /admin/logs               - AI logs page (paginated, filter by operation)
-POST   /api/admin/logs/toggle    - Enable/disable AI logging (admin_settings flag)
-DELETE /api/admin/logs           - Clear all AI logs
-GET    /admin/prompts            - Prompt settings page
-PUT    /api/admin/prompts/{op}   - Update a system prompt
-POST   /api/admin/prompts/{op}/reset - Reset a prompt to its in-code default
 GET    /admin/tags               - Tag settings page
 POST   /api/admin/tags           - Create tag
 PUT    /api/admin/tags/{id}      - Update tag

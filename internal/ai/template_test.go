@@ -1,7 +1,6 @@
 package ai
 
 import (
-	"context"
 	"testing"
 )
 
@@ -117,7 +116,7 @@ func TestDefaultTemplatesCompileToThePreTemplateMessages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.op, func(t *testing.T) {
-			prompt, ok := DefaultTemplate(context.Background(), nil, tt.op)
+			prompt, ok := DefaultTemplate(tt.op)
 			if !ok {
 				t.Fatalf("%s has no default template", tt.op)
 			}
@@ -132,12 +131,5 @@ func TestDefaultTemplatesCompileToThePreTemplateMessages(t *testing.T) {
 				t.Fatalf("Compile() = %q, %q, want %q, %q", system, user, tt.wantSystem, tt.wantUser)
 			}
 		})
-	}
-}
-
-func TestCategorizeDefaultAppendsTheSlugsToTheAIPromptsRow(t *testing.T) {
-	prompt, _ := DefaultTemplate(context.Background(), fakePromptStore{OpCategorize: "Edited in admin."}, OpCategorize)
-	if want := "Edited in admin. Allowed slugs: {{allowed_slugs}}."; prompt.System != want {
-		t.Fatalf("system = %q, want %q", prompt.System, want)
 	}
 }

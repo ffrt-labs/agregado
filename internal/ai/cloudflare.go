@@ -70,10 +70,8 @@ type CloudflareProvider struct {
 	requestTimeout  time.Duration
 	maxContentChars int
 
-	prompts   PromptStore   // editable system prompts; nil → in-code defaults
 	templates TemplateStore // Langfuse-managed prompts; nil → in-code defaults
 	tags      TagLister     // live category slugs for categorize; nil → defaultCategorySlugs
-	logs      AILogSink     // request/response logging; nil → no logging
 	tracer    trace.Tracer
 }
 
@@ -82,7 +80,7 @@ type Messages struct {
 	Content string `json:"content"`
 }
 
-func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, maxContentChars int, prompts PromptStore, tags TagLister, logs AILogSink, opts ...CloudflareOption) *CloudflareProvider {
+func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout time.Duration, maxContentChars int, tags TagLister, opts ...CloudflareOption) *CloudflareProvider {
 	if requestTimeout <= 0 {
 		requestTimeout = defaultRequestTimeout
 	}
@@ -97,9 +95,7 @@ func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout tim
 		client:          &http.Client{Timeout: requestTimeout},
 		requestTimeout:  requestTimeout,
 		maxContentChars: maxContentChars,
-		prompts:         prompts,
 		tags:            tags,
-		logs:            logs,
 		tracer:          noop.NewTracerProvider().Tracer(telemetry.TracerName),
 	}
 	for _, opt := range opts {
@@ -108,14 +104,8 @@ func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout tim
 	return p
 }
 
-// systemPrompt returns the editable prompt for an operation, falling back to the
-// in-code default when the store is absent, errors, or returns empty.
-func (p *CloudflareProvider) systemPrompt(ctx context.Context, operation string) string {
-	if p.prompts != nil {
-		if s, err := p.prompts.SystemPrompt(ctx, operation); err == nil && s != "" {
-			return s
-		}
-	}
+// systemPrompt returns the in-code default system prompt for an operation.
+func (p *CloudflareProvider) systemPrompt(operation string) string {
 	return DefaultPrompts[operation]
 }
 
@@ -184,7 +174,6 @@ func (p *CloudflareProvider) call(ctx context.Context, operation, systemPrompt, 
 	_, span := p.tracer.Start(ctx, operation, trace.WithAttributes(generationAttrs(operation, p.model, systemPrompt, userPrompt, opts, from)...))
 	defer span.End()
 
-	start := time.Now()
 	response, used, err := p.doComplete(callCtx, systemPrompt, userPrompt, opts)
 	recordGeneration(span, response, used, err)
 	if used.Prompt+used.Completion > 0 {
@@ -195,34 +184,7 @@ func (p *CloudflareProvider) call(ctx context.Context, operation, systemPrompt, 
 		}
 		slog.Info("ai: usage", attrs...)
 	}
-	p.record(ctx, operation, systemPrompt, userPrompt, response, err, time.Since(start))
 	return response, err
-}
-
-// record persists a log entry using a context detached from the call's own
-// deadline/cancellation. Using the call's context here would mean a call that
-// failed with context deadline exceeded also fails to log itself — the
-// failure vanishes from the AI log table instead of showing up as a failed
-// row, which is exactly the visibility we need when a call times out.
-func (p *CloudflareProvider) record(ctx context.Context, operation, systemPrompt, userPrompt, response string, callErr error, elapsed time.Duration) {
-	if p.logs == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	entry := LogEntry{
-		Operation:    operation,
-		Model:        p.model,
-		SystemPrompt: systemPrompt,
-		UserPrompt:   userPrompt,
-		Response:     response,
-		Success:      callErr == nil,
-		DurationMs:   int(elapsed.Milliseconds()),
-	}
-	if callErr != nil {
-		entry.Err = callErr.Error()
-	}
-	p.logs.Record(ctx, entry)
 }
 
 func (p *CloudflareProvider) doComplete(ctx context.Context, systemPrompt, userPrompt string, opts callOptions) (string, usage, error) {
@@ -320,7 +282,7 @@ func decodeCompletion(r io.Reader) (string, usage, error) {
 const defaultSummarizeExcerptChars = 400
 
 func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Article) (string, error) {
-	systemPrompt := p.systemPrompt(ctx, OpSummarize)
+	systemPrompt := p.systemPrompt(OpSummarize)
 
 	excerptBudget := defaultSummarizeExcerptChars
 	if n := len(articles); n > 0 {
@@ -355,7 +317,7 @@ func (p *CloudflareProvider) SummarizeArticle(ctx context.Context, title, conten
 }
 
 func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {
-	systemPrompt := p.systemPrompt(ctx, OpDigest)
+	systemPrompt := p.systemPrompt(OpDigest)
 	userPrompt := "Topic summaries:\n" + strings.Join(topicSummaries, "\n") + "\n\nIntroduction:"
 
 	return p.complete(ctx, OpDigest, systemPrompt, userPrompt)
@@ -436,7 +398,7 @@ func (p *CloudflareProvider) Categorize(ctx context.Context, title, content stri
 }
 
 func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {
-	systemPrompt := p.systemPrompt(ctx, OpReason)
+	systemPrompt := p.systemPrompt(OpReason)
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
 
 	result, err := p.complete(ctx, OpReason, systemPrompt, userPrompt)
@@ -448,7 +410,7 @@ func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) 
 }
 
 func (p *CloudflareProvider) Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error) {
-	systemPrompt := p.systemPrompt(ctx, OpScore)
+	systemPrompt := p.systemPrompt(OpScore)
 
 	var weights strings.Builder
 	for topic, w := range topicWeights {
@@ -491,7 +453,7 @@ var markdownFenceRe = regexp.MustCompile("(?s)^```(?:markdown|md)?\\s*(.*?)\\s*`
 // profile and rendered Reader evidence. The caller validates the result.
 func (p *CloudflareProvider) RegeneratePreferences(ctx context.Context, current, evidence string) (string, error) {
 	userPrompt := "Current PREFERENCES.md:\n" + current + "\n\nEvidence, strongest first:\n" + evidence
-	result, err := p.completeWith(ctx, OpPreferenceRegen, p.systemPrompt(ctx, OpPreferenceRegen), userPrompt, preferenceRegenOptions)
+	result, err := p.completeWith(ctx, OpPreferenceRegen, p.systemPrompt(OpPreferenceRegen), userPrompt, preferenceRegenOptions)
 	if err != nil {
 		return "", err
 	}

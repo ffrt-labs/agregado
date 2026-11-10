@@ -2,7 +2,7 @@ package ai
 
 import "context"
 
-// Operation names — the keys used for editable prompts and log rows.
+// Operation names — the keys of the in-code default prompts and of Langfuse prompt names.
 const (
 	OpScore           = "score"
 	OpCategorize      = "categorize"
@@ -15,9 +15,8 @@ const (
 	OpPreferenceRegen = "preference_regenerate"
 )
 
-// DefaultPrompts are the in-code fallback system prompts, used when the DB has no
-// row for an operation (or the store errors). They mirror the migration 000011
-// seeds. The categorize default deliberately omits the slug list — its template
+// DefaultPrompts are the in-code fallback system prompts, used when Langfuse has no
+// usable prompt for an operation, and the only prompts of the legacy operations. The categorize default deliberately omits the slug list — its template
 // appends the live tags as {{allowed_slugs}} (see defaultSystemSuffixes).
 var DefaultPrompts = map[string]string{
 	OpScore:      "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer.",
@@ -36,32 +35,7 @@ Evidence strength: "voted up" and "voted down" are strong and deliberate; "opene
 The current profile was largely written by the reader. Keep its bullets unless strong evidence contradicts them. Add or sharpen bullets only when several signals agree; one weak signal is not enough. Prefer specific topics over broad ones. Bullets starting with "(example:" are placeholders: drop one only when you write a real bullet in the same section.`,
 }
 
-// PromptStore supplies editable system prompts by operation. Implemented by the
-// storage prompt repo; kept as an interface here so internal/ai never imports
-// internal/storage.
-type PromptStore interface {
-	SystemPrompt(ctx context.Context, operation string) (string, error)
-}
-
 // TagLister supplies the live category slugs injected into the categorize prompt.
 type TagLister interface {
 	CategorySlugs(ctx context.Context) ([]string, error)
-}
-
-// LogEntry captures one completed AI call for the logs table.
-type LogEntry struct {
-	Operation    string
-	Model        string
-	SystemPrompt string
-	UserPrompt   string
-	Response     string
-	Success      bool
-	Err          string
-	DurationMs   int
-}
-
-// AILogSink records a completed AI call. Implementations decide whether logging
-// is currently enabled and no-op when it is off.
-type AILogSink interface {
-	Record(ctx context.Context, entry LogEntry)
 }

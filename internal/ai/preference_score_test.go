@@ -47,12 +47,6 @@ func (s *scoreStub) messages() (string, string) {
 	return s.system, s.user
 }
 
-type fakePromptStore map[string]string
-
-func (f fakePromptStore) SystemPrompt(_ context.Context, op string) (string, error) {
-	return f[op], nil
-}
-
 type fakeTemplates struct {
 	prompt Prompt
 	err    error
@@ -70,12 +64,12 @@ type scoreRun struct {
 	spans    *tracetest.InMemoryExporter
 }
 
-func newScoreRun(t *testing.T, prompts PromptStore, opts ...CloudflareOption) scoreRun {
+func newScoreRun(t *testing.T, opts ...CloudflareOption) scoreRun {
 	t.Helper()
-	return newRun(t, prompts, nil, opts...)
+	return newRun(t, nil, opts...)
 }
 
-func newRun(t *testing.T, prompts PromptStore, tags TagLister, opts ...CloudflareOption) scoreRun {
+func newRun(t *testing.T, tags TagLister, opts ...CloudflareOption) scoreRun {
 	t.Helper()
 	stub := &scoreStub{}
 	server := httptest.NewServer(stub)
@@ -84,7 +78,7 @@ func newRun(t *testing.T, prompts PromptStore, tags TagLister, opts ...Cloudflar
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(spans))
 	opts = append([]CloudflareOption{WithBaseURL(server.URL), WithTracerProvider(tp)}, opts...)
 	return scoreRun{
-		provider: NewCloudflareProvider("acct", "token", "@cf/model", 0, 0, prompts, tags, nil, opts...),
+		provider: NewCloudflareProvider("acct", "token", "@cf/model", 0, 0, tags, opts...),
 		stub:     stub,
 		spans:    spans,
 	}
@@ -128,15 +122,31 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
+func TestEveryCallStillEmitsTheUsageLogLine(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	newScoreRun(t).score(t)
+
+	log := buf.String()
+	for _, want := range []string{"ai: usage", "operation=preference_score", "prompt_tokens=100", "completion_tokens=1"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("log = %q, want it to contain %q", log, want)
+		}
+	}
+}
+
 const wantDefaultUser = "PREFERENCES.md:\nlikes Go\n\nTitle: Go 1.26\n\nContent: Released today."
 
 func TestScoreWithoutLangfuseSendsTheSameMessagesAsBefore(t *testing.T) {
-	run := newScoreRun(t, fakePromptStore{OpPreferenceScore: "Edited in admin."})
+	run := newScoreRun(t)
 	run.score(t)
 
 	system, user := run.stub.messages()
-	if system != "Edited in admin." || user != wantDefaultUser {
-		t.Fatalf("messages = %q, %q, want the ai_prompts row and %q", system, user, wantDefaultUser)
+	if system != DefaultPrompts[OpPreferenceScore] || user != wantDefaultUser {
+		t.Fatalf("messages = %q, %q, want the in-code default and %q", system, user, wantDefaultUser)
 	}
 	attrs := run.generation(t)
 	if _, ok := attrs["langfuse.observation.prompt.name"]; ok {
@@ -153,7 +163,7 @@ func TestScoreUsesTheLangfusePromptAndLinksTheGeneration(t *testing.T) {
 		System: "v2 system",
 		User:   "Profile: {{preferences}} | {{title}} | {{content}}",
 	}}
-	run := newScoreRun(t, nil, WithTemplates(templates))
+	run := newScoreRun(t, WithTemplates(templates))
 	run.score(t)
 
 	if len(templates.asked) != 1 || templates.asked[0] != "agregado/preference_score" {
@@ -176,7 +186,7 @@ func TestScoreFallsBackToTheDefaultWhenTheLangfusePromptIsInvalid(t *testing.T) 
 		Name: "agregado/preference_score", Version: 3,
 		System: "v3", User: "{{preferences}} {{title}} {{content}} {{author}}",
 	}}
-	run := newScoreRun(t, nil, WithTemplates(templates))
+	run := newScoreRun(t, WithTemplates(templates))
 	run.score(t)
 
 	system, user := run.stub.messages()
@@ -192,7 +202,7 @@ func TestScoreFallsBackToTheDefaultWhenTheLangfusePromptIsInvalid(t *testing.T) 
 }
 
 func TestScoreUsesTheDefaultWhenLangfuseHasNoPrompt(t *testing.T) {
-	run := newScoreRun(t, fakePromptStore{}, WithTemplates(&fakeTemplates{err: errors.New("langfuse unreachable")}))
+	run := newScoreRun(t, WithTemplates(&fakeTemplates{err: errors.New("langfuse unreachable")}))
 	run.score(t)
 
 	system, user := run.stub.messages()

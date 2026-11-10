@@ -2,7 +2,8 @@ package ai
 
 import "context"
 
-// Operation names — the keys of the in-code default prompts and of Langfuse prompt names.
+// Operation names: the keys of DefaultPrompts and the suffix of Langfuse prompt
+// names (see PromptName).
 const (
 	OpScore           = "score"
 	OpCategorize      = "categorize"
@@ -15,9 +16,11 @@ const (
 	OpPreferenceRegen = "preference_regenerate"
 )
 
-// DefaultPrompts are the in-code fallback system prompts, used when Langfuse has no
-// usable prompt for an operation, and the only prompts of the legacy operations. The categorize default deliberately omits the slug list — its template
-// appends the live tags as {{allowed_slugs}} (see defaultSystemSuffixes).
+// DefaultPrompts are the in-code system prompts. They are the fallback when
+// Langfuse has no usable prompt for an operation, and the only prompts the
+// legacy operations use. The categorize default deliberately omits the slug
+// list: its template appends the live tags as {{allowed_slugs}} (see
+// defaultSystemSuffixes).
 var DefaultPrompts = map[string]string{
 	OpScore:      "You are a content score giver. Given an article title and content, return only a number 1-5. 1=spam/trivial, 3=worth reading, 5=essential global significance. Return only the integer.",
 	OpCategorize: "You are a content classifier. Given an article title and content, return exactly one category slug from the list provided. Return only the slug — no explanation, no punctuation.",

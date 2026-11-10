@@ -223,7 +223,7 @@ func TestArticleHandler_GetPage(t *testing.T) {
 		}
 		// The reader page is served publicly through the tunnel; it must leak
 		// no admin links or nav read-counts off-network (issue #2).
-		for _, leak := range []string{"/admin/logs", "/admin/prompts", "/admin/tags", "Daily Digest", "scored today"} {
+		for _, leak := range []string{"/admin", "/admin/tags", "Daily Digest", "scored today"} {
 			if strings.Contains(body, leak) {
 				t.Errorf("reader page leaked nav element %q: %s", leak, body)
 			}

@@ -154,7 +154,6 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		http.Redirect(w, r, "/admin/tags", http.StatusFound)
 	})
 
-
 	r.Get("/admin/tags", adminHandler.TagsPage)
 	r.Post("/api/admin/tags", adminHandler.CreateTag)
 	r.Put("/api/admin/tags/{id}", adminHandler.UpdateTag)

@@ -336,16 +336,16 @@ Daily Digest
 #### F4.2: Digest Compute Resilience (per-call AI timeout + non-blocking homepage)
 **User Story:** As the operator, a slow or capacity-limited AI provider degrades gracefully instead of silently dropping `summarize`/`digest` output and blocking the homepage for minutes.
 
-**Motivation:** In production, `Categorize` → `Summarize` → `Digest` ran sequentially under one shared 3-minute deadline. A heavy model exhausted that deadline during categorization, so every later call failed instantly — and because the AI logger reused the same expired context, the failures didn't even show up as failed rows in the admin log table, making the pipeline look silently broken rather than visibly failing. The homepage also blocked on this same deadline when the daily cache was cold.
+**Motivation:** In production, `Categorize` → `Summarize` → `Digest` ran sequentially under one shared 3-minute deadline. A heavy model exhausted that deadline during categorization, so every later call failed instantly — and because the AI logger reused the same expired context, the failures didn't even show up as failed rows in the AI log table (since retired in favour of Langfuse), making the pipeline look silently broken rather than visibly failing. The homepage also blocked on this same deadline when the daily cache was cold.
 
 **Design decisions:**
 - Each AI call gets its own bounded context (`config.AI.RequestTimeout`, env `AI_REQUEST_TIMEOUT`, default 90s — raised from 30s after agregado#145's live verification timed out the frontier-select call under normal latency for the configured reasoning model) instead of inheriting whatever's left of a shared deadline; `CloudflareProvider`'s `http.Client` also carries an explicit `Timeout`.
-- AI log writes use a context detached from the call's own cancellation (`context.WithoutCancel` + a short timeout), so a call that times out is still recorded as a failed row instead of disappearing from `/admin/logs`.
+- At the time, AI log writes used a context detached from the call's own cancellation (`context.WithoutCancel` + a short timeout) so a timed-out call was still recorded as a failed row. The log table is gone (#207); failed calls now appear as error-level generations in Langfuse, and `ai: usage` is still logged.
 - `Scheduler.Today` (blocking) is reserved for callers that need real content regardless of wait time (digest send, preview). The web homepage uses `Scheduler.TodayOrTrigger`, which returns immediately on a cold cache and kicks off a background compute; concurrent callers join the same in-flight compute rather than duplicating AI calls.
 
 **Acceptance Criteria:**
 - A single slow/hung AI call cannot exhaust the budget for calls queued behind it.
-- A timed-out or failed AI call always produces a row in the AI log table.
+- A timed-out or failed AI call is always visible: it was a row in the AI log table, and is now an error-level generation in Langfuse.
 - `GET /` never blocks on a cold digest cache; it shows a "generating" state and the digest appears on a subsequent load once the background compute finishes.
 
 #### F5: Web UI - Browse Articles
@@ -532,58 +532,27 @@ log raw classifier output; feed richer content; support multiple tags.
 > `Categorize`/`Score`/`Reason` consume the compressed, Markdown-derived
 > `distilled_content` instead of the first 500 chars of raw HTML.
 
-#### F9: Admin Console — AI Logs, Editable Prompts, Tag Settings
-**User Story:** As the operator, I can see exactly what prompts are sent to the AI
-and what it returns, tweak those prompts without redeploying, and manage the tag
-taxonomy — all from an `/admin` area.
+#### F9: Admin Console — Tag Settings (AI logs and prompt editor retired)
+**User Story:** As the operator, I can manage the tag taxonomy from an `/admin`
+area; the categorize prompt's allowed slugs come from the live tags.
 
-> **Retired (#207, migration 000024):** the AI log view (`/admin/logs`), the prompt
-> editor (`/admin/prompts`) and the `ai_logs` / `ai_prompts` tables are gone;
-> Langfuse owns prompts and model-call history (ADR 0011). Only the tag settings
-> remain. The text below is the original design.
+**History:** F9 first shipped three areas: an AI request/response log
+(`/admin/logs`, table `ai_logs`, gated by an `ai_logging_enabled` flag), an
+editable system-prompt page (`/admin/prompts`, table `ai_prompts`), and tag
+settings. Langfuse replaced the first two (ADR 0011; spec #198) and migration
+`000024` dropped both tables and the flag (#207). They no longer exist.
 
-**Motivation:** AI behavior (e.g. the F7 "wrong tag" case) is currently
-un-debuggable — prompts are hardcoded in `internal/ai/cloudflare.go` and nothing
-records requests/responses. This adds observability + a control surface.
-
-**Three areas:**
-1. **AI logs** — every AI request/response persisted and browsable (operation,
-   model, system + user prompt, raw response, success/error, duration).
-2. **Prompt settings** — the 4 hardcoded **system** prompts (score, categorize,
-   summarize, digest) move to the DB and become editable; injected at call time
-   with the in-code strings kept as a fallback default.
-3. **Tag settings** — CRUD the tag list; the categorize prompt's allowed slugs are
-   generated from the live tags (edit tags → classifier updates).
-
-**Design decisions (confirmed):**
-- **System prompt only** is editable; the dynamic user prompt (title, cleaned
-  content, weights, tag list) stays assembled in code.
-- **Log all AI calls**, gated by a **live on/off toggle** in `/admin` (DB flag,
-  default ON) plus a **Clear logs** action. No automatic retention.
-- Categorize **injects live tag slugs** from the DB at call time (the stored
-  categorize prompt therefore omits any inline slug list).
-- `/admin` is **unauthenticated for v1**. ⚠️ Prod is publicly reachable (Cloudflare
-  tunnel) — Basic Auth is a deliberate, scoped follow-up (one middleware).
-
-**Architecture:** `ai.NewCloudflareProvider` is built once (`cmd/agregado/main.go`)
-and injected into ranker, generator, worker, and server — so refactoring it there
-gives every call site DB-backed prompts + logging. `internal/ai` stays free of
-`internal/storage` (avoiding an import cycle) by defining small interfaces
-(`PromptStore`, `TagLister`, `AILogSink`) that storage repos satisfy. The single
-`complete()` chokepoint gains an `operation` label, times the call, and records a
-log entry; the sink no-ops when the flag is off.
-
-**Acceptance Criteria:**
-- `ai_prompts`, `ai_logs`, `admin_settings` tables (migration `000011`), seeded
-  with the 4 current prompts and `ai_logging_enabled = true`
-- Every AI call (score/categorize/summarize/digest) writes an `ai_logs` row when
-  logging is enabled; nothing when disabled
-- `/admin/logs` — paginated, newest-first, filterable by operation; a logging
-  toggle and a Clear-all action
-- `/admin/prompts` — edit each system prompt; Reset restores the in-code default
-- `/admin/tags` — create/edit/delete tags (name, slug, color); categorize uses the
-  live list
-- Editing a prompt or tag is reflected in the *next* AI call's log (no restart)
+**Current behaviour:**
+- Prompts come from Langfuse (the `production` label) with the in-code
+  `ai.DefaultPrompts` / `ai.DefaultTemplate` as fallback. Legacy operations use
+  the in-code defaults only.
+- Model calls are traced in Langfuse; each call still emits an `ai: usage` log
+  line (tokens and neurons) so the neuron budget can be alerted on without
+  Langfuse.
+- `/admin/tags` creates, edits and deletes tags (name, slug, color); categorize
+  uses the live list.
+- `/admin` is **unauthenticated for v1**. Prod is publicly reachable (Cloudflare
+  tunnel); Basic Auth is a deliberate, scoped follow-up (one middleware).
 
 #### F10: Content Hygiene (Clean Ingest + 24h Retention)
 **User Story:** As a user, my article store stays small and my AI prompts see clean
@@ -1207,6 +1176,8 @@ CREATE TABLE preferences (
 
 -- ============================================
 -- ADMIN CONSOLE TABLES (F9, migration 000011)
+-- HISTORICAL: ai_prompts and ai_logs were dropped, and the ai_logging_enabled
+-- setting deleted, by migration 000024 (#207). admin_settings remains, empty.
 -- ============================================
 
 -- Editable system prompts (one row per AI operation)

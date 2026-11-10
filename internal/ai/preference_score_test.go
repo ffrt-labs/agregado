@@ -64,11 +64,6 @@ type scoreRun struct {
 	spans    *tracetest.InMemoryExporter
 }
 
-func newScoreRun(t *testing.T, opts ...CloudflareOption) scoreRun {
-	t.Helper()
-	return newRun(t, nil, opts...)
-}
-
 func newRun(t *testing.T, tags TagLister, opts ...CloudflareOption) scoreRun {
 	t.Helper()
 	stub := &scoreStub{}
@@ -122,26 +117,49 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
+// recordHandler keeps slog records so a test can read their attributes
+// instead of matching rendered text.
+type recordHandler struct {
+	mu      *sync.Mutex
+	records *[]slog.Record
+}
+
+func (h recordHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h recordHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	*h.records = append(*h.records, r)
+	return nil
+}
+func (h recordHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h recordHandler) WithGroup(string) slog.Handler      { return h }
+
 func TestEveryCallStillEmitsTheUsageLogLine(t *testing.T) {
-	var buf bytes.Buffer
+	var records []slog.Record
 	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.SetDefault(slog.New(recordHandler{mu: &sync.Mutex{}, records: &records}))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	newScoreRun(t).score(t)
+	newRun(t, nil).score(t)
 
-	log := buf.String()
-	for _, want := range []string{"ai: usage", "operation=preference_score", "prompt_tokens=100", "completion_tokens=1"} {
-		if !strings.Contains(log, want) {
-			t.Fatalf("log = %q, want it to contain %q", log, want)
+	for _, r := range records {
+		if r.Message != "ai: usage" {
+			continue
 		}
+		attrs := map[string]any{}
+		r.Attrs(func(a slog.Attr) bool { attrs[a.Key] = a.Value.Any(); return true })
+		if attrs["operation"] != OpPreferenceScore || attrs["prompt_tokens"] != int64(100) || attrs["completion_tokens"] != int64(1) {
+			t.Fatalf("ai: usage attrs = %v, want preference_score with 100 prompt and 1 completion tokens", attrs)
+		}
+		return
 	}
+	t.Fatalf("no ai: usage line among %d log records", len(records))
 }
 
 const wantDefaultUser = "PREFERENCES.md:\nlikes Go\n\nTitle: Go 1.26\n\nContent: Released today."
 
 func TestScoreWithoutLangfuseSendsTheSameMessagesAsBefore(t *testing.T) {
-	run := newScoreRun(t)
+	run := newRun(t, nil)
 	run.score(t)
 
 	system, user := run.stub.messages()
@@ -163,7 +181,7 @@ func TestScoreUsesTheLangfusePromptAndLinksTheGeneration(t *testing.T) {
 		System: "v2 system",
 		User:   "Profile: {{preferences}} | {{title}} | {{content}}",
 	}}
-	run := newScoreRun(t, WithTemplates(templates))
+	run := newRun(t, nil, WithTemplates(templates))
 	run.score(t)
 
 	if len(templates.asked) != 1 || templates.asked[0] != "agregado/preference_score" {
@@ -186,7 +204,7 @@ func TestScoreFallsBackToTheDefaultWhenTheLangfusePromptIsInvalid(t *testing.T) 
 		Name: "agregado/preference_score", Version: 3,
 		System: "v3", User: "{{preferences}} {{title}} {{content}} {{author}}",
 	}}
-	run := newScoreRun(t, WithTemplates(templates))
+	run := newRun(t, nil, WithTemplates(templates))
 	run.score(t)
 
 	system, user := run.stub.messages()
@@ -202,7 +220,7 @@ func TestScoreFallsBackToTheDefaultWhenTheLangfusePromptIsInvalid(t *testing.T) 
 }
 
 func TestScoreUsesTheDefaultWhenLangfuseHasNoPrompt(t *testing.T) {
-	run := newScoreRun(t, WithTemplates(&fakeTemplates{err: errors.New("langfuse unreachable")}))
+	run := newRun(t, nil, WithTemplates(&fakeTemplates{err: errors.New("langfuse unreachable")}))
 	run.score(t)
 
 	system, user := run.stub.messages()

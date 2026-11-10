@@ -104,11 +104,6 @@ func NewCloudflareProvider(accountID, apiToken, model string, requestTimeout tim
 	return p
 }
 
-// systemPrompt returns the in-code default system prompt for an operation.
-func (p *CloudflareProvider) systemPrompt(operation string) string {
-	return DefaultPrompts[operation]
-}
-
 // categorySlugs returns the live tag slugs, or the built-in fallback list.
 func (p *CloudflareProvider) categorySlugs(ctx context.Context) []string {
 	if p.tags != nil {
@@ -282,7 +277,7 @@ func decodeCompletion(r io.Reader) (string, usage, error) {
 const defaultSummarizeExcerptChars = 400
 
 func (p *CloudflareProvider) Summarize(ctx context.Context, articles []domain.Article) (string, error) {
-	systemPrompt := p.systemPrompt(OpSummarize)
+	systemPrompt := DefaultPrompts[OpSummarize]
 
 	excerptBudget := defaultSummarizeExcerptChars
 	if n := len(articles); n > 0 {
@@ -317,7 +312,7 @@ func (p *CloudflareProvider) SummarizeArticle(ctx context.Context, title, conten
 }
 
 func (p *CloudflareProvider) Digest(ctx context.Context, topicSummaries []string) (string, error) {
-	systemPrompt := p.systemPrompt(OpDigest)
+	systemPrompt := DefaultPrompts[OpDigest]
 	userPrompt := "Topic summaries:\n" + strings.Join(topicSummaries, "\n") + "\n\nIntroduction:"
 
 	return p.complete(ctx, OpDigest, systemPrompt, userPrompt)
@@ -398,7 +393,7 @@ func (p *CloudflareProvider) Categorize(ctx context.Context, title, content stri
 }
 
 func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) (string, error) {
-	systemPrompt := p.systemPrompt(OpReason)
+	systemPrompt := DefaultPrompts[OpReason]
 	userPrompt := fmt.Sprintf("Title: %s\n\nContent: %s", title, textutil.Clean(content, p.maxContentChars))
 
 	result, err := p.complete(ctx, OpReason, systemPrompt, userPrompt)
@@ -410,7 +405,7 @@ func (p *CloudflareProvider) Reason(ctx context.Context, title, content string) 
 }
 
 func (p *CloudflareProvider) Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error) {
-	systemPrompt := p.systemPrompt(OpScore)
+	systemPrompt := DefaultPrompts[OpScore]
 
 	var weights strings.Builder
 	for topic, w := range topicWeights {
@@ -453,7 +448,7 @@ var markdownFenceRe = regexp.MustCompile("(?s)^```(?:markdown|md)?\\s*(.*?)\\s*`
 // profile and rendered Reader evidence. The caller validates the result.
 func (p *CloudflareProvider) RegeneratePreferences(ctx context.Context, current, evidence string) (string, error) {
 	userPrompt := "Current PREFERENCES.md:\n" + current + "\n\nEvidence, strongest first:\n" + evidence
-	result, err := p.completeWith(ctx, OpPreferenceRegen, p.systemPrompt(OpPreferenceRegen), userPrompt, preferenceRegenOptions)
+	result, err := p.completeWith(ctx, OpPreferenceRegen, DefaultPrompts[OpPreferenceRegen], userPrompt, preferenceRegenOptions)
 	if err != nil {
 		return "", err
 	}

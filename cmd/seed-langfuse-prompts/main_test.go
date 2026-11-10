@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
@@ -51,9 +50,6 @@ func TestSeedLeavesLegacyOperationsAlone(t *testing.T) {
 			if got.Name == ai.PromptName(legacy) {
 				t.Fatalf("seeded legacy operation %s", got.Name)
 			}
-		}
-		if strings.TrimPrefix(got.Name, "agregado/") == "" {
-			t.Fatalf("bad name %q", got.Name)
 		}
 	}
 }

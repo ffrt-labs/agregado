@@ -113,13 +113,13 @@ func main() {
 	}
 	slog.Info("langfuse tracing", "component", "main", "enabled", tracing.Enabled())
 	tracerProvider := tracing.TracerProvider()
-	// Langfuse scores (user_vote, code checks, ...) go through a bounded async queue; a
-	// no-op when Langfuse is unconfigured.
+	// Langfuse scores (user_vote, code checks, ...) go through a bounded async
+	// queue; a no-op when Langfuse is unconfigured.
 	scores := langfuse.NewScores(langfuseCfg)
 
-	// Langfuse-managed prompts (#201): unconfigured, every template call
-	// uses its in-code default. The cache is
-	// filled in the background, so the defaults serve only the first calls.
+	// Langfuse-managed prompts (#201). Unconfigured, every template call uses
+	// its in-code default. The cache fills in the background, so the defaults
+	// serve only the first calls.
 	langfusePrompts := langfuse.NewPrompts(langfuseCfg, cfg.Langfuse.PromptCacheTTL)
 	for _, op := range ai.TemplateOperations() {
 		langfusePrompts.Warm(ai.PromptName(op))

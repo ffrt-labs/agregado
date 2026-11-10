@@ -152,7 +152,7 @@ backfill endpoint exists specifically so this one doesn't join them.
    Postgres — `SELECT content_source, count(*) FROM articles GROUP BY 1`. Expect a
    real `fetched` majority. Confirm `length(content) >> length(summary)` and that
    `word_count` is populated.
-4. `/admin/logs`: a `score` row should now show dense prose, no CSS, not truncated at
+4. The AI log (then `/admin/logs`, since retired for Langfuse): a `score` row should now show dense prose, no CSS, not truncated at
    500 chars. This is the observation Phase 16 couldn't make.
 5. `POST /api/digest/refresh` → the `summarize` log row shows titles + reasons +
    excerpts, not a bare title list. Compare the resulting digest against the

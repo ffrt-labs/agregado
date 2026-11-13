@@ -37,10 +37,25 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: ["prod"]
-    command: tunnel run
+    # Metrics on a fixed local address so the healthcheck can hit /ready.
+    command: tunnel --metrics 127.0.0.1:2000 run
     environment:
+      # Single source in production: the CLOUDFLARE_TUNNEL_TOKEN GitHub
+      # secret (the deploy workflow exports it, and shell variables beat
+      # .env in Compose). See docs/runbooks/tunnel-token-rotation.md.
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
     restart: unless-stopped
+    # Healthy only once cloudflared holds a registered connector with
+    # Cloudflare (/ready returns 200). A stale token never gets there, so
+    # `up --wait` in the deploy fails instead of dropping the tunnel
+    # silently (agregado#167). The image is distroless: no curl, so use the
+    # binary's own `ready` subcommand.
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     # `edge` added for ADR-0001's 2026-09-23 amendment: the new
     # /webhook/resend-<suffix> tunnel path (agregado#122) routes to n8n's
     # origin instead of this app's, and n8n lives in a different Compose

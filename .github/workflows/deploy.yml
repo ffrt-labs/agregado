@@ -92,4 +92,10 @@ jobs:
               up
 
       - name: Start service
-        run: docker compose --profile prod up -d --force-recreate agregado cloudflared
+        run: |
+          if ! docker compose --profile prod up -d --force-recreate --wait --wait-timeout 120 agregado cloudflared; then
+            echo "::error::Service did not become healthy within 120s. If cloudflared is the unhealthy one, the CLOUDFLARE_TUNNEL_TOKEN secret is the likely cause (stale or rotated tunnel token). See docs/runbooks/tunnel-token-rotation.md."
+            docker compose --profile prod ps
+            docker compose --profile prod logs --tail 50 cloudflared
+            exit 1
+          fi

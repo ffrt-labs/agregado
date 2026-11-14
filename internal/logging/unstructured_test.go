@@ -31,6 +31,7 @@ var skipDirs = map[string]bool{
 var operatorTools = map[string]bool{
 	"cmd/migrate-ownership/main.go":     true,
 	"cmd/seed-langfuse-prompts/main.go": true,
+	"cmd/digest-preview/main.go":        true, // stdout is the rendered email
 }
 
 // moduleRoot walks up from the working directory to the directory holding

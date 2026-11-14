@@ -6,7 +6,7 @@ import (
 )
 
 func renderedSummary(summary string) (string, string) {
-	return render(Artifact{Items: []Item{{
+	return Render(Artifact{Items: []Item{{
 		Candidate: Candidate{Article: Article{ID: "a", Title: "Title A", Summary: summary}},
 		ReadURL:   "https://x/r/a", UpvoteURL: "https://x/f/a/up", DownvoteURL: "https://x/f/a/down",
 	}}})
@@ -67,7 +67,7 @@ func TestRenderWithNoClaimsLeftIsTitleAndLinksOnly(t *testing.T) {
 	if strings.Contains(html, "<p>") || strings.Contains(strings.ToLower(html+text), "truncated") {
 		t.Fatalf("want no claim block: %q %q", html, text)
 	}
-	if want := "Title A\nhttps://x/r/a\n👍 https://x/f/a/up  👎 https://x/f/a/down\n\n"; text != want {
-		t.Fatalf("text = %q, want %q", text, want)
+	if want := "Title A\nRead: https://x/r/a\n▲ https://x/f/a/up\n▼ https://x/f/a/down\n"; !strings.Contains(text, want) {
+		t.Fatalf("text = %q, want the title followed directly by the links %q", text, want)
 	}
 }

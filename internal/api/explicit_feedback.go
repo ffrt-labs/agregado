@@ -2,6 +2,9 @@ package api
 
 import (
 	"context"
+	"embed"
+	"html/template"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -17,6 +20,16 @@ type ExplicitVoteRecorder interface {
 	SetCurrent(ctx context.Context, articleID, vote string) (firstVotedAt time.Time, err error)
 }
 
+// ArticleTitles names the voted Article on the confirmation page.
+type ArticleTitles interface {
+	Title(ctx context.Context, articleID string) (string, error)
+}
+
+//go:embed templates/vote_confirmation.html
+var voteConfirmationFS embed.FS
+
+var voteConfirmation = template.Must(template.ParseFS(voteConfirmationFS, "templates/vote_confirmation.html"))
+
 // UserVoteScore is the Langfuse score a Digest vote becomes.
 const UserVoteScore = "user_vote"
 
@@ -24,11 +37,12 @@ const UserVoteScore = "user_vote"
 // confirmation intentionally offers no reading surface.
 type ExplicitFeedbackHandler struct {
 	votes  ExplicitVoteRecorder
+	titles ArticleTitles
 	scores telemetry.ScoreSink
 }
 
-func NewExplicitFeedbackHandler(votes ExplicitVoteRecorder, scores telemetry.ScoreSink) *ExplicitFeedbackHandler {
-	return &ExplicitFeedbackHandler{votes: votes, scores: scores}
+func NewExplicitFeedbackHandler(votes ExplicitVoteRecorder, titles ArticleTitles, scores telemetry.ScoreSink) *ExplicitFeedbackHandler {
+	return &ExplicitFeedbackHandler{votes: votes, titles: titles, scores: scores}
 }
 
 func (h *ExplicitFeedbackHandler) Handle(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +64,17 @@ func (h *ExplicitFeedbackHandler) Handle(w http.ResponseWriter, r *http.Request)
 	score := telemetry.CategoricalScore(telemetry.ArticleIndexKey(articleID), UserVoteScore, vote, firstVotedAt)
 	telemetry.EmitScore(r.Context(), h.scores, score)
 
+	// The vote is already stored; a missing title only shortens the page.
+	title, err := h.titles.Title(r.Context(), articleID)
+	if err != nil {
+		slog.Warn("feedback: title lookup failed", "component", "api", "article_id", articleID, "err", err)
+		title = ""
+	}
+	direction := map[string]string{"up": "more", "down": "less"}[vote]
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("<!doctype html><html><head><title>Feedback recorded</title></head><body><p>Feedback recorded.</p></body></html>"))
+	if err := voteConfirmation.Execute(w, struct{ Direction, Title string }{direction, title}); err != nil {
+		slog.Error("feedback: confirmation page", "component", "api", "err", err)
+	}
 }

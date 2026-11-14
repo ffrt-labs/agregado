@@ -29,3 +29,10 @@ func (r *ExplicitFeedbackRepo) SetCurrent(ctx context.Context, articleID, vote s
 		RETURNING created_at`, articleID, vote).Scan(&createdAt)
 	return createdAt, err
 }
+
+// Title is the voted Article's title, for the vote confirmation page.
+func (r *ExplicitFeedbackRepo) Title(ctx context.Context, articleID string) (string, error) {
+	var title string
+	err := r.db.pool.QueryRow(ctx, `SELECT title FROM article_index WHERE id = $1`, articleID).Scan(&title)
+	return title, err
+}

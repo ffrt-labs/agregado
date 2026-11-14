@@ -1,7 +1,7 @@
 include .env
 export
 
-.PHONY: dev-deps dev-deps-down dev build migrate-up migrate-down migrate-ownership migrate-ownership-apply legacy-dump seed-langfuse-prompts experiment experiment-test
+.PHONY: dev-deps dev-deps-down dev build migrate-up migrate-down migrate-ownership migrate-ownership-apply legacy-dump seed-langfuse-prompts experiment experiment-test digest-preview
 
 dev-deps:
 	docker-compose up -d
@@ -48,6 +48,11 @@ experiment:
 # The harness's evaluator unit tests; no network.
 experiment-test:
 	cd evals && uv run pytest -q
+
+# Renders the Digest email from fixture data (#212); open preview.html in a
+# browser. EMPTY=1 renders the empty Digest.
+digest-preview:
+	go run ./cmd/digest-preview $(if $(EMPTY),-empty) > preview.html
 
 # Final cold dump of the old Postgres, with a restore check. Run last.
 legacy-dump:

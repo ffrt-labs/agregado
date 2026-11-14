@@ -1,0 +1,19 @@
+{{- /* Plain-text part; the view model is digestView in render.go. */ -}}
+Agregado · Daily Digest
+{{ .Date }}
+{{ .SelectedCount }} of {{ .CandidateCount }} stories cleared the bar
+{{ with .EmptyReason }}
+{{ . }}
+{{ end }}
+{{- range .Items }}
+{{ .Position }}{{ if .Exploration }} EXPLORATION{{ end }} [{{ join .TextMeta " · " }}]
+{{ .Title }}
+{{- range .Claims }}
+- {{ . }}
+{{- end }}
+Read: {{ .ReadURL }}
+▲ {{ .UpvoteURL }}
+▼ {{ .DownvoteURL }}
+{{ end }}
+Your votes retune tomorrow’s digest.
+Exploration picks sit outside your usual pattern, so the digest doesn’t narrow over time.

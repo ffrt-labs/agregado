@@ -42,6 +42,19 @@ func claims(summary string) []string {
 	return out
 }
 
+// summaryKind is the structured Summary's kind ("news", "analysis", ...), or
+// "" for a lead extract or a Summary without one.
+func summaryKind(summary string) string {
+	var parsed struct {
+		Kind string `json:"kind"`
+	}
+	body := strings.TrimSpace(strings.TrimPrefix(summary, partialMarker))
+	if json.Unmarshal([]byte(body), &parsed) != nil {
+		return ""
+	}
+	return strings.TrimSpace(parsed.Kind)
+}
+
 func isTruncationClaim(claim string) bool {
 	lower := strings.ToLower(claim)
 	for _, m := range truncationMarkers {

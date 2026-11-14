@@ -36,6 +36,9 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
+    # Always pull on `up`, so each deploy picks up the newest cloudflared
+    # release instead of reusing the locally cached `latest` image.
+    pull_policy: always
     profiles: ["prod"]
     # Metrics on a fixed local address so the healthcheck can hit /ready.
     command: tunnel --metrics 127.0.0.1:2000 run

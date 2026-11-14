@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-var tags, spaces = regexp.MustCompile(`(?s)<!--.*?-->|<style.*?</style>|<[^>]+>`), regexp.MustCompile(`\s+`)
+var markup, spaces = regexp.MustCompile(`(?s)<!--.*?-->|<style.*?</style>|<[^>]+>`), regexp.MustCompile(`\s+`)
 
 // visible is the HTML part as a reader sees it, so assertions survive markup
 // and styling changes from a design round.
 func visible(h string) string {
-	return strings.TrimSpace(spaces.ReplaceAllString(html.UnescapeString(tags.ReplaceAllString(h, " ")), " "))
+	return strings.TrimSpace(spaces.ReplaceAllString(html.UnescapeString(markup.ReplaceAllString(h, " ")), " "))
 }
 
 func renderedItem(a Article, exploration bool) (string, string) {

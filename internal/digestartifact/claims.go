@@ -19,12 +19,9 @@ var truncationMarkers = []string{"truncated", "stub"}
 // Summary: structured JSON, or the plain-text lead extract (title line, then
 // the content's first words), either with a leading [content: partial] line.
 func claims(summary string) []string {
-	body := strings.TrimSpace(strings.TrimPrefix(summary, partialMarker))
-	var parsed struct {
-		Claims []string `json:"claims"`
-	}
+	body, parsed, err := parseSummary(summary)
 	var candidates []string
-	if err := json.Unmarshal([]byte(body), &parsed); err == nil && len(parsed.Claims) > 0 {
+	if err == nil && len(parsed.Claims) > 0 {
 		candidates = parsed.Claims
 	} else if !strings.HasPrefix(body, "{") {
 		// Lead extract: drop the title line, which the item already shows.
@@ -45,14 +42,22 @@ func claims(summary string) []string {
 // summaryKind is the structured Summary's kind ("news", "analysis", ...), or
 // "" for a lead extract or a Summary without one.
 func summaryKind(summary string) string {
-	var parsed struct {
-		Kind string `json:"kind"`
-	}
-	body := strings.TrimSpace(strings.TrimPrefix(summary, partialMarker))
-	if json.Unmarshal([]byte(body), &parsed) != nil {
-		return ""
-	}
+	_, parsed, _ := parseSummary(summary)
 	return strings.TrimSpace(parsed.Kind)
+}
+
+// structuredSummary is the ADR 0009 contract, minus the unused entities.
+type structuredSummary struct {
+	Kind   string   `json:"kind"`
+	Claims []string `json:"claims"`
+}
+
+// parseSummary strips the [content: partial] marker and decodes the rest as
+// a structured Summary; err is set for a lead extract.
+func parseSummary(summary string) (body string, parsed structuredSummary, err error) {
+	body = strings.TrimSpace(strings.TrimPrefix(summary, partialMarker))
+	err = json.Unmarshal([]byte(body), &parsed)
+	return body, parsed, err
 }
 
 func isTruncationClaim(claim string) bool {

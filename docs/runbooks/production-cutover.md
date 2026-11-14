@@ -16,9 +16,11 @@ back out. Stage numbers match the wizard.
 
 ## Before you start
 
-- **Where to run it.** Run it on the homelab host, from the deploy runner's
-  checkout of `main`, so `docker compose --profile prod` sees the running
-  containers. The wizard checks this in stage 1.
+- **Where to run it.** Run it on the homelab host, from any checkout of this
+  branch. It doesn't need to be merged or deployed first. The checkout's
+  directory must be named `agregado` (or set `COMPOSE_PROJECT_NAME=agregado`),
+  so that `docker compose --profile prod` resolves to the deploy's project and
+  sees its running containers. The wizard checks this in stage 1.
 - **Where its files live.** All state (`cutover.env`, the log, the OPML, the
   dump) goes to `CUTOVER_DIR`, which defaults to `~/agregado-cutover`. It sits
   outside the checkout because the deploy's `actions/checkout` deletes
@@ -42,7 +44,7 @@ back out. Stage numbers match the wizard.
 | 4–5 | Migration prerequisites, dry run | yes |
 | 6 | Apply the ownership migration (twice: the second run proves idempotency) | **no**: writes Karakeep and the Article Index |
 | 7 | Final cold dump of the old Postgres | yes |
-| 8 | Deploy with `RSS_POLLER_ENABLED=false` and `PUBLIC_BASE_URL` = the tailnet URL | yes |
+| 8 | Deactivate the RSS Sources (saving their ids), redeploy with `PUBLIC_BASE_URL` = the tailnet URL | yes |
 | 9 | Import the n8n workflows, make sure a preference profile is stored, activate the webhook workflows | yes |
 | 10 | Import the OPML into Miniflux, point its webhook at n8n | yes |
 | 11 | Newsletter Sources onto the Bridge | yes |
@@ -54,10 +56,12 @@ The order has four constraints:
 - **The poller goes off before Miniflux subscribes (8 before 10).** The legacy
   in-process RSS poller still runs in the deployed binary until #85 removes it.
   If both run, every Article is ingested twice and enriched twice, so the model
-  cost doubles too. `RSS_POLLER_ENABLED` (default `true`) is the switch; the
-  deploy logs `legacy RSS poller disabled` when it is off. That log line also
-  proves that re-running the deploy picks up a changed variable, which is the
-  rollback path.
+  cost doubles too. The poller only reads Sources with `is_active = true`, so
+  stage 8 saves the ids of the active RSS Sources to
+  `$CUTOVER_DIR/active-rss-sources.txt` and then deactivates them all. That
+  works on the currently deployed binary, with no code change. (Once this
+  branch is deployed, `RSS_POLLER_ENABLED=false` does the same without
+  touching the old data.)
 - **n8n is ready before Miniflux sends anything (9 before 10).** The first
   fetch of every imported Source fires the webhook for its current entries.
   If the workflow isn't active yet, those entries are lost. Expect a burst of
@@ -92,7 +96,7 @@ because the migration never touches it.
 | `/r/{id}` records one Open and redirects; `/f/{id}/{up\|down}` replaces the vote | Stage 13: two GETs to `/r/` both give 302 and `opened_at` is unchanged after the second; down then up leaves one `article_index_feedback` row, `up`, with `created_at` unchanged; any other vote gives 404 |
 | Digest retry sends the same artifact without regenerating it | Stage 14: two `POST /api/private/digests/{date}` bodies hash the same (201 then 200), no second `digest_select` trace in Langfuse |
 | Nightly preference proposal | Stage 14, see below |
-| Old stack stopped but recoverable; rollback exercised | Stages 8 and 15 |
+| Old stack stopped but recoverable; rollback exercised or verified | Stages 8 and 15 |
 
 Stage 13 records a real Open and a real vote, so pick an Article you would
 open and upvote anyway.
@@ -122,24 +126,26 @@ Roll back if, within the observation window (~48 h, before #85 starts):
 ### Steps
 
 There's no separate old image to boot. The deploy rebuilds with `--no-cache`,
-so rolling back means running the same binary with the poller back on.
+so rolling back means turning the old poller back on in the running binary.
 
 1. In n8n, deactivate `article-enrichment`, `newsletter-ingest`,
    `daily-digest` and `preferences-sync`. In Miniflux, disable the webhook
    integration. Nothing new reaches Agregado now.
-2. Turn the legacy poller back on and redeploy (`deploy.yml` has no
-   `workflow_dispatch`, so re-run the latest run):
+2. Reactivate exactly the RSS Sources stage 8 deactivated. No redeploy is
+   needed: the poller picks them up within `RSS_POLL_INTERVAL` (15 m).
 
    ```sh
-   gh variable set RSS_POLLER_ENABLED --body true
-   gh run rerun <latest "Deploy to local server" run id>
+   ids=$(sed "s/.*/'&'/" ~/agregado-cutover/active-rss-sources.txt | paste -sd,)
+   docker exec -i agregado-db psql -U "$DATABASE_USER" -d "$DATABASE_DB" \
+     -c "UPDATE sources SET is_active = true WHERE id IN ($ids)"
    ```
 
    The migration only reads the old tables, so the old app resumes where it
    stopped. Anything published during the cutover is picked up on the next
    poll, because each Source keeps its `last_fetched_at`.
 3. If the rollback happens after stage 15, also restore the tunnel routes you
-   removed, and set `PUBLIC_BASE_URL` back to the old public read URL.
+   removed. Then set `PUBLIC_BASE_URL` back to the old public read URL and
+   re-run the latest deploy (`deploy.yml` has no `workflow_dispatch`).
 4. If the old tables are damaged, restore the off-box dump. Postgres runs in
    the `agregado-db` container, so go through `docker exec`:
 
@@ -160,11 +166,11 @@ The Article Index and Digest tables are additive, so leave them in place.
 
 ### What the drill covers
 
-The wizard exercises the rollback in two places:
-
-- **Stage 8** flips a variable and redeploys, which is exactly the move in
-  rollback step 2.
-- **Stage 15** restores the dump copied *back from off-box* into a scratch
+- **Reactivating the Sources** is verified rather than exercised: running it
+  would start the old poller next to Miniflux. Stage 15 checks that the saved
+  list exists and has you copy it off-box next to the dump. The step itself
+  is a single `UPDATE` of a column stage 8 just changed.
+- **Stage 15** also restores the dump copied *back from off-box* into a scratch
   database, compares every table's row count with the manifest, then drops
   the scratch database. It also confirms the Doc has a revision to go back to.
 

@@ -31,6 +31,19 @@ runs on, not the Bridge itself), Gateway (implies routing/proxying — the Bridg
 transforms and stores, it doesn't just pass through), Ingestor (too generic — every
 Source ingests; "Bridge" names specifically the email→feed conversion)
 
+**Newsletter Source**:
+A Source the Bridge serves: one newsletter, reached through one alias. It is
+**Pending** from registration until its subscription is confirmed, then **Active**.
+It can be **Paused** and resumed later. Only an Active one turns mail into Articles.
+Mail reaching a Pending or Paused one is ignored, not held for later.
+_Avoid_: Bridge feed, alias (the alias is its address, not the Source)
+
+**Delete** (a Newsletter Source):
+Remove it for good: its address, its feed, and every issue the Bridge stored for it.
+Articles it already produced elsewhere (the Article Index, Digests, Bookmarks) stay.
+Unsubscribing at the publisher remains the owner's job. Distinct from Pause, which
+keeps everything.
+
 **Article**:
 A single item that arrived through a Source. Lives in the stream and has a horizon:
 the Reader prunes old ones.

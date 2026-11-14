@@ -18,6 +18,8 @@ env:
 
   HTTP_PORT: ${{ vars.HTTP_PORT }}
 
+  # "false" after the production cutover (#84); unset keeps the legacy poller on.
+  RSS_POLLER_ENABLED: ${{ vars.RSS_POLLER_ENABLED }}
   RSS_POLL_INTERVAL: ${{ vars.RSS_POLL_INTERVAL }}
 
   WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}

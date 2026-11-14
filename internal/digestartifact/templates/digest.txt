@@ -1,12 +1,18 @@
 {{- /* Plain-text part; the view model is digestView in render.go. */ -}}
 Agregado · Daily Digest
-{{ .Date }}
+{{ .Date.Format "Monday, January 2, 2006" }}
 {{ .SelectedCount }} of {{ .CandidateCount }} stories cleared the bar
 {{ with .EmptyReason }}
 {{ . }}
 {{ end }}
 {{- range .Items }}
-{{ .Position }}{{ if .Exploration }} EXPLORATION{{ end }} [{{ join .TextMeta " · " }}]
+{{ pad2 .Position }}{{ if .Exploration }} EXPLORATION{{ end }} [
+{{- $sep := "" }}
+{{- range .Topics }}{{ $sep }}{{ . }}{{ $sep = " · " }}{{ end }}
+{{- with .Kind }}{{ $sep }}{{ . }}{{ $sep = " · " }}{{ end }}
+{{- if dots .Score }}{{ $sep }}{{ .Score }}/5{{ $sep = " · " }}{{ end }}
+{{- with .Host }}{{ $sep }}{{ . }}{{ end -}}
+]
 {{ .Title }}
 {{- range .Claims }}
 - {{ . }}

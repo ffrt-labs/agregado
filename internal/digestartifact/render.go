@@ -3,11 +3,12 @@ package digestartifact
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	htmltemplate "html/template"
 	"net/url"
-	"strconv"
 	"strings"
 	texttemplate "text/template"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -19,31 +20,36 @@ import (
 //go:embed templates/digest.html templates/digest.txt
 var templateFS embed.FS
 
-var templateFuncs = map[string]any{"join": strings.Join}
+// templateFuncs are formatting helpers; whether and where to use them is up
+// to the templates.
+var templateFuncs = map[string]any{
+	"join":       strings.Join,
+	"capitalise": capitalise,
+	"dots":       scoreDots,
+	"pad2":       func(n int) string { return fmt.Sprintf("%02d", n) },
+}
 
 var (
 	htmlTemplate = htmltemplate.Must(htmltemplate.New("digest.html").Funcs(templateFuncs).ParseFS(templateFS, "templates/digest.html"))
 	textTemplate = texttemplate.Must(texttemplate.New("digest.txt").Funcs(templateFuncs).ParseFS(templateFS, "templates/digest.txt"))
 )
 
-// digestView is everything the templates can show.
+// digestView is everything the templates can show. It carries data, not
+// presentation: wording, order, casing and glyphs are the templates' call.
 type digestView struct {
-	Date                          string
+	Date                          time.Time
 	SelectedCount, CandidateCount int
 	EmptyReason                   string
 	Items                         []itemView
 }
 
 type itemView struct {
-	Position                        string // "01"
+	Position                        int // 1-based
 	Exploration                     bool
 	Host                            string // canonical URL host without www., else the author
-	Kind                            string // the structured Summary's kind, capitalised; "" when absent
+	Kind                            string // the structured Summary's kind, e.g. "analysis"; "" when absent
 	Topics                          []string
 	Score                           int
-	ScoreDots                       string // "●●●●○"
-	ScoreWord                       string // "high"
-	TextMeta                        []string
 	Title                           string
 	Claims                          []string
 	ReadURL, UpvoteURL, DownvoteURL string
@@ -65,39 +71,19 @@ func Render(a Artifact) (string, string) {
 }
 
 func newDigestView(a Artifact) digestView {
-	view := digestView{Date: a.Date.Format("Monday, January 2, 2006"), SelectedCount: a.SelectedCount, CandidateCount: a.CandidateCount}
+	view := digestView{Date: a.Date, SelectedCount: a.SelectedCount, CandidateCount: a.CandidateCount}
 	if len(a.Items) == 0 {
 		view.EmptyReason = a.EmptyReason
 	}
-	for n, i := range a.Items {
-		kind := summaryKind(i.Summary)
-		item := itemView{
-			Position: twoDigits(n + 1), Exploration: i.Exploration,
-			Host: host(i.CanonicalURL, i.Author), Kind: capitalise(kind), Topics: i.Topics,
-			Score: i.Score, ScoreDots: scoreDots(i.Score), ScoreWord: scoreWord(i.Score),
-			Title: i.Title, Claims: claims(i.Summary),
-			ReadURL: i.ReadURL, UpvoteURL: i.UpvoteURL, DownvoteURL: i.DownvoteURL,
-		}
-		item.TextMeta = append(item.TextMeta, i.Topics...)
-		if kind != "" {
-			item.TextMeta = append(item.TextMeta, kind)
-		}
-		if item.ScoreDots != "" {
-			item.TextMeta = append(item.TextMeta, strconv.Itoa(i.Score)+"/5")
-		}
-		if item.Host != "" {
-			item.TextMeta = append(item.TextMeta, item.Host)
-		}
-		view.Items = append(view.Items, item)
+	for index, item := range a.Items {
+		view.Items = append(view.Items, itemView{
+			Position: index + 1, Exploration: item.Exploration,
+			Host: host(item.CanonicalURL, item.Author), Kind: summaryKind(item.Summary), Topics: item.Topics,
+			Score: item.Score, Title: item.Title, Claims: claims(item.Summary),
+			ReadURL: item.ReadURL, UpvoteURL: item.UpvoteURL, DownvoteURL: item.DownvoteURL,
+		})
 	}
 	return view
-}
-
-func twoDigits(n int) string {
-	if n < 10 {
-		return "0" + strconv.Itoa(n)
-	}
-	return strconv.Itoa(n)
 }
 
 // host names where an Article came from. article_index.source_id is never set
@@ -109,27 +95,14 @@ func host(canonicalURL, author string) string {
 	return author
 }
 
-// scoreDots is empty outside 1–5, so a missing score shows nothing.
+// scoreDots is empty outside 1–5, so a missing score shows nothing. Scores
+// below the floor do occur: Exploration picks are topped up from Articles
+// under it.
 func scoreDots(score int) string {
 	if score < 1 || score > 5 {
 		return ""
 	}
 	return strings.Repeat("●", score) + strings.Repeat("○", 5-score)
-}
-
-// scoreWord covers below-floor scores too: Exploration picks are topped up
-// from Articles under the floor, so a 1 or 2 can reach the Digest.
-func scoreWord(score int) string {
-	switch {
-	case score >= 5:
-		return "top"
-	case score == 4:
-		return "high"
-	case score == 3:
-		return "mid"
-	default:
-		return "low"
-	}
 }
 
 func capitalise(s string) string {

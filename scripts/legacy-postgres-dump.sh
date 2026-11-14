@@ -40,20 +40,25 @@ psql() { docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DATABASE_USER"
 # Cold is the whole point of this dump, so a stop that fails must not be
 # shrugged off: we verify the container is actually down rather than trusting
 # the exit code of `compose stop`.
-echo "==> stopping ${APP_SERVICE} so the dump is cold"
-docker compose --profile prod stop "$APP_SERVICE" 2>/dev/null || true
-
-if docker ps --filter "name=${APP_SERVICE}" --filter "status=running" --format '{{.Names}}' | grep -q .; then
-	echo "REFUSING TO DUMP — ${APP_SERVICE} is still running, so the dump would not be cold." >&2
-	echo "Stop it by hand and re-run." >&2
-	exit 1
-fi
-
+# Armed before the stop, so every exit path (a refusal included) brings the
+# app back.
 restart_app() {
 	echo "==> restarting ${APP_SERVICE}"
 	docker compose --profile prod start "$APP_SERVICE" 2>/dev/null || true
 }
 trap restart_app EXIT
+echo "==> stopping ${APP_SERVICE} so the dump is cold"
+docker compose --profile prod stop "$APP_SERVICE" 2>/dev/null || true
+
+# Ask compose for this service, not `docker ps --filter name=`: that filter is a
+# substring match, so agregado-db, agregado-rabbitmq-1 and friends all match
+# "agregado" and the check refused to dump even with the app stopped.
+if docker compose --profile prod ps --status running --quiet "$APP_SERVICE" 2>/dev/null | grep -q .; then
+	echo "REFUSING TO DUMP — ${APP_SERVICE} is still running, so the dump would not be cold." >&2
+	echo "Stop it by hand and re-run." >&2
+	exit 1
+fi
+
 
 # --- 2. Record what the source database holds ------------------------------
 # These counts are the restore check's expected values. They are written to the

@@ -34,12 +34,7 @@ type Logging struct {
 	Format string `env:"LOG_FORMAT" envDefault:"json"`
 }
 
-// Pooler is the legacy in-process RSS poller. Enabled exists for the
-// production cutover (#84): once Miniflux owns subscriptions the poller must
-// stay off, or every Article is ingested and enriched twice. It defaults to on
-// so the rollback path is the old behaviour; #85 removes the poller entirely.
 type Pooler struct {
-	Enabled  bool          `env:"RSS_POLLER_ENABLED" envDefault:"true"`
 	Interval time.Duration `env:"RSS_POLL_INTERVAL" envDefault:"15m"`
 }
 

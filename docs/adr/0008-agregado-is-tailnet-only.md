@@ -179,3 +179,35 @@ Worker never sat behind the tunnel and isn't a tunnel route. This ADR is the
 right place because it already states the public/private split this Worker
 lives inside of — the tailnet boundary covers Agregado's app surface, and
 this Worker is the named exception to it.
+
+## Amendment, 2026-11-14: Caddy, not Tailscale Serve
+
+Recorded during the production cutover
+([#84](https://github.com/ffrt-labs/agregado/issues/84)).
+
+**Agregado is served by the homelab-edge Caddy, not Tailscale Serve.** By the
+time the cutover ran, Agregado was already behind the shared Caddy proxy
+(`ffrt-labs/homelab-edge`, `Caddyfile`) at `agregado-app.felipefreitas.dev`.
+That name's public DNS record points at the server's tailnet IP, so it only
+resolves to something reachable from tailnet devices. Caddy terminates TLS with
+the domain's wildcard certificate and proxies to `agregado:8080` over the
+`edge` Docker network. The container publishes 8080 only on `127.0.0.1`.
+`PUBLIC_BASE_URL` is that hostname. Decision 1's "Tailscale Serve" and the
+first follow-up are superseded. The other apps on the server use the same
+entry point, so Agregado needs no separate mechanism.
+
+**What it changes about the boundary.** Caddy listens on every interface, and
+the Agregado route has no client-address restriction. A device on the home LAN
+that sends the right hostname reaches Agregado as well. That is accepted, as
+it is for the other homelab apps. If it ever needs closing, restrict the
+`@agregado` matcher to `remote_ip 100.64.0.0/10` in homelab-edge. The shared
+secret on private calls (decision 4) is unaffected.
+
+**The Cloudflare tunnel no longer routes to Agregado.** On 2026-11-14, every
+Agregado path on `agregado.felipefreitas.dev` returned 404. The ingest route
+to n8n stays, as decision 2 requires.
+
+**The Bridge's public hostname is not yet `bridge.felipefreitas.dev`.** The
+2026-09-30 amendment names it, but that record doesn't exist. Feeds are
+served from `email-worker.f11s.workers.dev`, and Miniflux subscribes there.
+Moving them to the custom domain later means updating every Miniflux feed URL.

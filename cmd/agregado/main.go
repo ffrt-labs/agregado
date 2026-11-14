@@ -172,12 +172,7 @@ func main() {
 
 	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
 
-	// Off after the production cutover (#84): Miniflux polls the Sources now.
-	if cfg.Pooler.Enabled {
-		go poller.Start(ctx)
-	} else {
-		slog.Info("legacy RSS poller disabled", "component", "main")
-	}
+	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
 	go func() {
 		if err := backupScheduler.Start(ctx); err != nil {

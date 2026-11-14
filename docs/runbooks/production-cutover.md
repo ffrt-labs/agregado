@@ -98,9 +98,9 @@ Ten newsletters moved: `tldr`, `hackernewsletter`, `theberliner`,
 `smartliving`, `germanpedia`, `syntax`, `dw-berlin-briefing`, `timferriss`,
 `hubermanlab` and `jamesclear`. Each one has a D1 Source row, a confirmed
 subscription to `<alias>@<receiving-domain>`, and a Miniflux subscription to
-`https://email-worker.f11s.workers.dev/feed/<alias>.atom`. The SQL is in
-`scripts/newsletter-bridge/`. Mail that reaches a Source before it is
-`active` is ignored, not held.
+`https://email-worker.f11s.workers.dev/feed/<alias>.atom`. The D1 rows were
+inserted by hand with wrangler, and the SQL was not kept in the repo. Mail
+that reaches a Source before it is `active` is ignored, not held.
 
 Adding one later follows
 [newsletter-source-onboarding.md](newsletter-source-onboarding.md). #225

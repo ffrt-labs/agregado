@@ -200,8 +200,9 @@ finish() {
 
 # Walks a human through docs/runbooks/production-cutover.md (issue #84).
 #
-# Run it on the homelab host from the deploy runner's checkout of main, so
-# `docker compose --profile prod` sees the running containers. Every file it
+# Run it on the homelab host from any checkout named `agregado`, so
+# `docker compose --profile prod` resolves to the deploy's project and sees its
+# running containers. It doesn't need to be merged or deployed first. Every file it
 # keeps (env, log, OPML, dump) lives in CUTOVER_DIR, outside the checkout: the
 # deploy's actions/checkout cleans untracked files on every run.
 
@@ -213,6 +214,9 @@ BACKUPS="$CUTOVER_DIR/backups"
 [[ "$ENV_FILE" == ".env" ]] && ENV_FILE="$CUTOVER_DIR/cutover.env"
 CUTOVER_LOG="${CUTOVER_LOG:-$CUTOVER_DIR/cutover-$(date -u +%Y%m%dT%H%M%SZ).log}"
 DB_CONTAINER="${DB_CONTAINER:-agregado-db}"
+# RSS Sources that were active before stage 8 deactivated them; rollback
+# reactivates exactly these.
+ACTIVE_RSS_SOURCES="$CUTOVER_DIR/active-rss-sources.txt"
 cd "$AGREGADO_DIR"
 (umask 077 && mkdir -p "$CUTOVER_DIR" "$BACKUPS")
 
@@ -271,7 +275,7 @@ log "START commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 # ── 1 ─────────────────────────────────────────────────────────────────────
 stage "Go / no-go"
 say "Every line must be true. Anything 'n' stops the wizard."
-gate "#78, #79, #80, #81, #82, #83 are closed, and this wizard's commit is deployed from main?"
+gate "#78, #79, #80, #81, #82, #83 are closed?"
 gate "Tailscale Serve exposes Agregado on the tailnet, and this device is on it (ADR-0008)?"
 gate "It is after today's 08:00 Berlin, and you will finish before 01:00 Berlin?"
 note "(The Digest is keyed by UTC date. Outside that window, the 08:00 schedule"
@@ -365,22 +369,37 @@ run sha256sum -c <<< "$(grep sha256 "$MANIFEST" | awk '{print $2}')  ${MANIFEST/
 pause "Copy the .dump and manifest OFF-BOX now (keep forever), then press Enter"
 
 # ── 8 ─────────────────────────────────────────────────────────────────────
-stage "Deploy: legacy RSS poller off, Digest links on the tailnet"
+stage "Legacy RSS poller off, Digest links on the tailnet"
 say "Miniflux takes over the Sources next. The in-process poller must be off first,"
 say "or every Article is ingested and enriched (and paid for) twice."
+say "The deployed poller only reads Sources with is_active = true, so deactivating"
+say "the RSS Sources stops it without a code change. Their ids are saved for rollback."
+# Never overwrite a saved list: on a re-run after this stage, every RSS Source is
+# already inactive and a fresh save would lose the rollback list.
+if [[ -s "$ACTIVE_RSS_SOURCES" ]]; then
+  say "Keeping the existing list: $ACTIVE_RSS_SOURCES ($(wc -l < "$ACTIVE_RSS_SOURCES") Sources)"
+else
+  sql "SELECT id FROM sources WHERE type = 'rss' AND is_active = true ORDER BY id" > "$ACTIVE_RSS_SOURCES"
+  [[ -s "$ACTIVE_RSS_SOURCES" ]] || { warn "No active RSS Sources found: nothing to deactivate, check the database"; exit 1; }
+  say "Saved $(wc -l < "$ACTIVE_RSS_SOURCES") active RSS Source ids to $ACTIVE_RSS_SOURCES"
+  log "ACTIVE_RSS_SOURCES $ACTIVE_RSS_SOURCES sha256=$(sha256sum "$ACTIVE_RSS_SOURCES" | cut -d' ' -f1)"
+fi
+gate "Deactivate every RSS Source in the old database now?"
+run sql "UPDATE sources SET is_active = false WHERE type = 'rss' AND is_active = true"
+STILL_ACTIVE=$(sql "SELECT COUNT(*) FROM sources WHERE type = 'rss' AND is_active = true")
+say "Active RSS Sources left: $STILL_ACTIVE"
+[[ "$STILL_ACTIVE" == "0" ]] || { warn "Some RSS Sources are still active"; exit 1; }
+note "A poll already in flight may still finish; nothing new starts after it."
 ask AGREGADO_BASE_URL "Agregado's Tailscale Serve URL (e.g. https://agregado.<tailnet>.ts.net):"
 write_env AGREGADO_BASE_URL "$AGREGADO_BASE_URL"
-set_var RSS_POLLER_ENABLED false
 say "Digest Open and vote links are tailnet-only (ADR-0008):"
 set_secret PUBLIC_BASE_URL "$AGREGADO_BASE_URL"
 step "Re-run the latest 'Deploy to local server' run: gh run rerun <id>"
-note "(deploy.yml has no workflow_dispatch; a re-run reads the current vars and secrets.)"
+note "(deploy.yml has no workflow_dispatch; a re-run reads the current secrets. Stage 14 checks the links.)"
 pause "Press Enter when the deploy run is green"
-say "The log line proves the re-run picked up the new variable, which is also the rollback path:"
-run bash -c "docker compose --profile prod logs agregado 2>&1 | grep -m1 'legacy RSS poller disabled'"
 run curl -fsS "$AGREGADO_BASE_URL/health"
 run curl -fsS "$AGREGADO_BASE_URL/health/db"
-gate "Log line present and both health checks returned ok?"
+gate "Both health checks returned ok?"
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
 stage "n8n: import workflows"
@@ -477,8 +496,12 @@ pause "Press Enter when both are active"
 stage "Rollback drill, then stop the old public routes (AC 7)"
 warn "Stop, do NOT remove containers/images/volumes. Do NOT drop old tables (#85)."
 say "Rollback path (runbook → Rollback): deactivate the n8n workflows and the Miniflux"
-say "webhook, set RSS_POLLER_ENABLED=true, re-run the deploy. Stage 8 already proved"
-say "a re-run applies a changed variable. What is left to drill is the dump:"
+say "webhook, then reactivate the saved RSS Sources; the poller picks them up within"
+say "RSS_POLL_INTERVAL (15m). The saved list must still be there:"
+[[ -s "$ACTIVE_RSS_SOURCES" ]] || { warn "$ACTIVE_RSS_SOURCES is missing or empty"; exit 1; }
+say "  $ACTIVE_RSS_SOURCES: $(wc -l < "$ACTIVE_RSS_SOURCES") Sources"
+pause "Copy it off-box next to the dump, then press Enter"
+say "What is left to drill is the dump:"
 ask OFFBOX_DUMP "Path to the dump copied BACK from off-box (not the local one):"
 DRILL=agregado_rollback_drill
 run sql "DROP DATABASE IF EXISTS $DRILL" postgres

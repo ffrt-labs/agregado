@@ -67,7 +67,7 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		weightsRepo,
 		articleRepo,
 	)
-	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, scores)
+	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, explicitFeedbackRepo, scores)
 	bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
 
 	tagRepo := storage.NewTagRepo(db)

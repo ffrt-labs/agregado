@@ -28,7 +28,7 @@ func (r *DigestArtifactRepo) Candidates(ctx context.Context, day time.Time, look
 	if err != nil {
 		return pool, err
 	}
-	rows, err := r.db.pool.Query(ctx, `SELECT id, canonical_url, title, COALESCE(summary, ''), COALESCE(source_id, ''), score, tags FROM article_index WHERE processing_status = 'complete' AND enriched_at >= $1 AND enriched_at < $2 ORDER BY score DESC, enriched_at DESC`, pool.Since, pool.Until)
+	rows, err := r.db.pool.Query(ctx, `SELECT id, canonical_url, title, COALESCE(summary, ''), COALESCE(source_id, ''), COALESCE(author, ''), score, tags FROM article_index WHERE processing_status = 'complete' AND enriched_at >= $1 AND enriched_at < $2 ORDER BY score DESC, enriched_at DESC`, pool.Since, pool.Until)
 	if err != nil {
 		return pool, err
 	}
@@ -36,7 +36,7 @@ func (r *DigestArtifactRepo) Candidates(ctx context.Context, day time.Time, look
 	for rows.Next() {
 		var a digestartifact.Article
 		var tags []byte
-		if err := rows.Scan(&a.ID, &a.CanonicalURL, &a.Title, &a.Summary, &a.Source, &a.Score, &tags); err != nil {
+		if err := rows.Scan(&a.ID, &a.CanonicalURL, &a.Title, &a.Summary, &a.Source, &a.Author, &a.Score, &tags); err != nil {
 			return pool, err
 		}
 		if err := json.Unmarshal(tags, &a.Topics); err != nil {

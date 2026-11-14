@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>Agregado · Daily Digest</title>
+<style>
+  body, table, td { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  body { margin: 0; padding: 0; width: 100% !important; background-color: #fff; }
+  a { text-decoration: none; }
+
+  @media screen and (max-width: 480px) {
+    .container { width: 100% !important; }
+    .pad { padding-left: 20px !important; padding-right: 20px !important; }
+    .item { padding-top: 24px !important; padding-bottom: 24px !important; }
+    .h1 { font-size: 26px !important; }
+    .headline { font-size: 20px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background-color:#fff;">
+{{- /*
+  The view model is digestView in render.go. Everything a design round may
+  change lives in this file; the data it can use is that struct's fields.
+  Fonts are installed system stacks only: Gmail web strips @font-face and
+  Outlook desktop has no web fonts.
+*/ -}}
+
+<div style="display:none; max-height:0; overflow:hidden; opacity:0;">{{ .SelectedCount }} of {{ .CandidateCount }} stories cleared the bar &#8203;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fff;">
+<tr>
+<td align="center" style="padding:0;">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="container" style="width:600px; max-width:600px;">
+
+  <!-- Header -->
+  <tr>
+    <td class="pad" style="padding:40px 48px 0;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:13px; line-height:1.4; color:#555;">Agregado &middot; Daily Digest</div>
+      <div class="h1" style="font-family:Georgia, 'Times New Roman', serif; font-size:30px; line-height:1.2; font-weight:700; color:#000; margin-top:10px;">{{ .Date }}</div>
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:15px; line-height:1.4; color:#555; margin-top:10px;">{{ .SelectedCount }} of {{ .CandidateCount }} stories cleared the bar</div>
+    </td>
+  </tr>
+  <tr>
+    <td class="pad" style="padding:24px 48px 0;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #000; font-size:1px; line-height:1px;">&nbsp;</td></tr></table>
+    </td>
+  </tr>
+
+  {{- with .EmptyReason }}
+  <tr>
+    <td class="pad item" style="padding:28px 48px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:17px; line-height:1.55; color:#222;">{{ . }}</div>
+    </td>
+  </tr>
+  {{- end }}
+
+  {{- range .Items }}
+  <!-- Item -->
+  <tr>
+    <td class="pad item" style="padding:28px 48px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:13px; line-height:1.4; color:#555;">
+        {{- if .Exploration }}<span style="font-weight:600; color:#000;">Exploration</span> &middot; {{ end -}}
+        {{ .Position }}
+        {{- with .Host }} &middot; {{ . }}{{ end }}
+        {{- with .Kind }} &middot; {{ . }}{{ end }}
+        {{- with .Topics }} &middot; {{ join . ", " }}{{ end }}
+        {{- if .ScoreDots }} &middot; <span title="Score {{ .Score }} of 5">{{ .ScoreDots }}</span> {{ .ScoreWord }}{{ end -}}
+      </div>
+      <div style="margin-top:10px;">
+        <a href="{{ .ReadURL }}" target="_blank" class="headline" style="font-family:Georgia, 'Times New Roman', serif; font-size:22px; line-height:1.3; font-weight:700; color:#000; text-decoration:none;">{{ .Title }}</a>
+      </div>
+      {{- range .Claims }}
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:17px; line-height:1.55; color:#222; margin-top:10px;">{{ . }}</div>
+      {{- end }}
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;">
+        <tr>
+          <td style="border:1px solid #000; border-radius:3px;">
+            <a href="{{ .UpvoteURL }}" target="_blank" aria-label="More like this" title="More like this" style="display:block; width:44px; height:44px; line-height:44px; text-align:center; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:14px; color:#000; text-decoration:none;">&#9650;</a>
+          </td>
+          <td style="width:8px; font-size:1px; line-height:1px;">&nbsp;</td>
+          <td style="border:1px solid #000; border-radius:3px;">
+            <a href="{{ .DownvoteURL }}" target="_blank" aria-label="Less like this" title="Less like this" style="display:block; width:44px; height:44px; line-height:44px; text-align:center; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:14px; color:#000; text-decoration:none;">&#9660;</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td class="pad" style="padding:0 48px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid #e5e5e5; font-size:1px; line-height:1px;">&nbsp;</td></tr></table>
+    </td>
+  </tr>
+  {{- end }}
+
+  <!--
+    No links to "/" or "/sources": the tunnel publishes only /r/{id} and
+    /f/{id}/{vote} (docs/adr/0001), so those taps would dead-end off-network.
+  -->
+
+  <!-- Footer -->
+  <tr>
+    <td class="pad" style="padding:32px 48px 48px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:14px; line-height:1.5; color:#000;">Your votes retune tomorrow&rsquo;s digest.</div>
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size:13px; line-height:1.5; color:#555; margin-top:6px;">Exploration picks sit outside your usual pattern, so the digest doesn&rsquo;t narrow over time.</div>
+    </td>
+  </tr>
+
+</table>
+</td>
+</tr>
+</table>
+
+</body>
+</html>

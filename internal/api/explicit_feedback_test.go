@@ -42,11 +42,21 @@ func (f *fakeScoreSink) Emit(_ context.Context, event telemetry.ScoreEvent) erro
 	return f.err
 }
 
-const confirmationBody = "<!doctype html><html><head><title>Feedback recorded</title></head><body><p>Feedback recorded.</p></body></html>"
+// fakeArticleTitles answers the confirmation page's title lookup.
+type fakeArticleTitles struct {
+	titles map[string]string
+	err    error
+}
+
+func (f *fakeArticleTitles) Title(_ context.Context, articleID string) (string, error) {
+	return f.titles[articleID], f.err
+}
+
+func noTitles() *fakeArticleTitles { return &fakeArticleTitles{} }
 
 func TestExplicitFeedbackHandler_RecordsDigestVoteAndConfirms(t *testing.T) {
 	recorder := &fakeExplicitVoteRecorder{}
-	handler := NewExplicitFeedbackHandler(recorder, &fakeScoreSink{})
+	handler := NewExplicitFeedbackHandler(recorder, noTitles(), &fakeScoreSink{})
 
 	for _, vote := range []string{"up", "down"} {
 		t.Run(vote, func(t *testing.T) {
@@ -62,8 +72,9 @@ func TestExplicitFeedbackHandler_RecordsDigestVoteAndConfirms(t *testing.T) {
 			if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
 				t.Fatalf("Content-Type = %q, want text/html", got)
 			}
-			if !strings.Contains(response.Body.String(), "Feedback recorded") {
-				t.Fatalf("confirmation = %q, want recorded confirmation", response.Body.String())
+			want := map[string]string{"up": "Got it, more like this tomorrow.", "down": "Got it, less like this tomorrow."}[vote]
+			if !strings.Contains(response.Body.String(), want) {
+				t.Fatalf("confirmation = %q, want %q", response.Body.String(), want)
 			}
 		})
 	}
@@ -82,7 +93,7 @@ func TestExplicitFeedbackHandler_RecordsDigestVoteAndConfirms(t *testing.T) {
 func TestExplicitFeedbackHandler_RejectsUnknownDirection(t *testing.T) {
 	recorder := &fakeExplicitVoteRecorder{}
 	scores := &fakeScoreSink{}
-	handler := NewExplicitFeedbackHandler(recorder, scores)
+	handler := NewExplicitFeedbackHandler(recorder, noTitles(), scores)
 
 	response := httptest.NewRecorder()
 	handler.Handle(response, feedbackRequestWithID("article-1", "sideways"))
@@ -105,7 +116,7 @@ func TestExplicitFeedbackHandler_EmitsUserVoteScoreOnArticleTrace(t *testing.T) 
 	firstVote := time.Date(2026, 10, 30, 7, 15, 0, 0, time.UTC)
 	recorder := &fakeExplicitVoteRecorder{firstVote: firstVote}
 	scores := &fakeScoreSink{}
-	handler := NewExplicitFeedbackHandler(recorder, scores)
+	handler := NewExplicitFeedbackHandler(recorder, noTitles(), scores)
 
 	for _, vote := range []string{"up", "down"} {
 		handler.Handle(httptest.NewRecorder(), feedbackRequestWithID("index-1", vote))
@@ -126,7 +137,7 @@ func TestExplicitFeedbackHandler_EmitsUserVoteScoreOnArticleTrace(t *testing.T) 
 }
 
 func TestExplicitFeedbackHandler_SinkFailureDoesNotChangeConfirmation(t *testing.T) {
-	handler := NewExplicitFeedbackHandler(&fakeExplicitVoteRecorder{}, &fakeScoreSink{err: errors.New("queue full")})
+	handler := NewExplicitFeedbackHandler(&fakeExplicitVoteRecorder{}, noTitles(), &fakeScoreSink{err: errors.New("queue full")})
 
 	response := httptest.NewRecorder()
 	handler.Handle(response, feedbackRequestWithID("index-1", "up"))
@@ -134,14 +145,14 @@ func TestExplicitFeedbackHandler_SinkFailureDoesNotChangeConfirmation(t *testing
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
-	if got := response.Body.String(); got != confirmationBody {
-		t.Fatalf("body = %q, want %q", got, confirmationBody)
+	if !strings.Contains(response.Body.String(), "Got it, more like this tomorrow.") {
+		t.Fatalf("body = %q, want the usual confirmation", response.Body.String())
 	}
 }
 
 func TestExplicitFeedbackHandler_NoScoreWhenVoteNotStored(t *testing.T) {
 	scores := &fakeScoreSink{}
-	handler := NewExplicitFeedbackHandler(&fakeExplicitVoteRecorder{err: errors.New("db down")}, scores)
+	handler := NewExplicitFeedbackHandler(&fakeExplicitVoteRecorder{err: errors.New("db down")}, noTitles(), scores)
 
 	response := httptest.NewRecorder()
 	handler.Handle(response, feedbackRequestWithID("index-1", "up"))
@@ -151,6 +162,45 @@ func TestExplicitFeedbackHandler_NoScoreWhenVoteNotStored(t *testing.T) {
 	}
 	if len(scores.events) != 0 {
 		t.Fatalf("score events = %v, want none", scores.events)
+	}
+}
+
+func TestExplicitFeedbackHandler_ConfirmationNamesTheArticleEscaped(t *testing.T) {
+	titles := &fakeArticleTitles{titles: map[string]string{"index-1": "Rates & <b>banks</b>"}}
+	handler := NewExplicitFeedbackHandler(&fakeExplicitVoteRecorder{}, titles, &fakeScoreSink{})
+
+	response := httptest.NewRecorder()
+	handler.Handle(response, feedbackRequestWithID("index-1", "down"))
+
+	body := response.Body.String()
+	if !strings.Contains(body, "Rates &amp; &lt;b&gt;banks&lt;/b&gt;") {
+		t.Fatalf("body = %q, want the escaped title", body)
+	}
+	for _, want := range []string{"Got it, less like this tomorrow.", "You can close this tab.", "window.close()"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %q", want)
+		}
+	}
+	// The page confirms a vote; it is not a reading surface (ADR 0001).
+	if strings.Contains(body, "<a ") || strings.Contains(body, "/r/") {
+		t.Errorf("confirmation must offer nothing to read: %q", body)
+	}
+}
+
+func TestExplicitFeedbackHandler_ConfirmsWithoutTitleWhenLookupFails(t *testing.T) {
+	recorder := &fakeExplicitVoteRecorder{}
+	titles := &fakeArticleTitles{titles: map[string]string{"index-1": "Should not show"}, err: errors.New("db down")}
+	handler := NewExplicitFeedbackHandler(recorder, titles, &fakeScoreSink{})
+
+	response := httptest.NewRecorder()
+	handler.Handle(response, feedbackRequestWithID("index-1", "up"))
+
+	if response.Code != http.StatusOK || len(recorder.calls) != 1 {
+		t.Fatalf("status = %d, votes = %v; a failed title lookup must not fail the vote", response.Code, recorder.calls)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "Got it, more like this tomorrow.") || strings.Contains(body, "Should not show") {
+		t.Fatalf("body = %q, want the confirmation without a title", body)
 	}
 }
 

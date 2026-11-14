@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"sort"
 	"strings"
@@ -20,9 +19,9 @@ import (
 )
 
 type Article struct {
-	ID, CanonicalURL, Title, Summary, Source string
-	Score                                    int
-	Topics                                   []string
+	ID, CanonicalURL, Title, Summary, Source, Author string
+	Score                                            int
+	Topics                                           []string
 }
 type Candidate struct {
 	Article
@@ -210,11 +209,11 @@ func (s *Service) compute(ctx context.Context, span trace.Span, day time.Time) (
 		// for this date even after the pipeline recovers. Not persisting also
 		// keeps the next window anchored to the last Digest that had Articles.
 		artifact.EmptyReason = emptyReason(artifact)
-		artifact.HTML, artifact.Text = render(artifact)
+		artifact.HTML, artifact.Text = Render(artifact)
 		slog.Warn("digest: empty, not persisted", "component", "digestartifact", "date", dateStr, "reason", artifact.EmptyReason)
 		return artifact, false, nil
 	}
-	artifact.HTML, artifact.Text = render(artifact)
+	artifact.HTML, artifact.Text = Render(artifact)
 	saved, created, err := s.store.Save(ctx, artifact)
 	if err == nil && created {
 		s.scoreSelected(ctx, candidates.items, artifact)
@@ -314,28 +313,6 @@ func emptyReason(a Artifact) string {
 		return fmt.Sprintf("No Articles finished Enrichment between %s and %s.", a.WindowStart.Format("Jan 2 15:04"), a.WindowEnd.Format("Jan 2 15:04"))
 	}
 	return fmt.Sprintf("The selection model chose none of %d candidate Articles.", a.CandidateCount)
-}
-func render(a Artifact) (string, string) {
-	if len(a.Items) == 0 {
-		return "<p>" + template.HTMLEscapeString(a.EmptyReason) + "</p>", a.EmptyReason + "\n"
-	}
-	var html, text strings.Builder
-	html.WriteString("<ol>")
-	for _, i := range a.Items {
-		label := template.HTMLEscapeString(i.Title)
-		if i.Exploration {
-			label += " <em>Exploration pick</em>"
-		}
-		var htmlClaims, textClaims strings.Builder
-		for _, c := range claims(i.Summary) {
-			fmt.Fprintf(&htmlClaims, "<p>%s</p>", template.HTMLEscapeString(c))
-			textClaims.WriteString(c + "\n")
-		}
-		fmt.Fprintf(&html, "<li><a href=%q>%s</a>%s<br><a href=%q>👍</a> <a href=%q>👎</a></li>", i.ReadURL, label, htmlClaims.String(), i.UpvoteURL, i.DownvoteURL)
-		fmt.Fprintf(&text, "%s%s\n%s%s\n👍 %s  👎 %s\n\n", i.Title, map[bool]string{true: " [Exploration pick]", false: ""}[i.Exploration], textClaims.String(), i.ReadURL, i.UpvoteURL, i.DownvoteURL)
-	}
-	html.WriteString("</ol>")
-	return html.String(), text.String()
 }
 func date(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)

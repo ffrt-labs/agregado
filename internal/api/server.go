@@ -56,27 +56,14 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		panic(err)
 	}
 
-	navBuilder := NewNavBuilder(articleRepo, sourceRepo, minRelevanceScore)
-
 	emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
-	sourcesHandler := NewSourceHandler(sourceRepo, pooler, navBuilder)
-	articlesHandler := NewArticleHandler(articleRepo, sourceRepo, navBuilder)
-	digestHandler := NewDigestHandler(scheduler, sourceRepo, articleRepo, navBuilder)
+	articlesHandler := NewArticleHandler(articleRepo)
 	feedbackHandler := NewFeedbackHandler(
 		feedbackRepo,
 		weightsRepo,
 		articleRepo,
 	)
 	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, explicitFeedbackRepo, scores)
-	bookmarkHandler := NewBookmarkHandler(articleRepo, sourceRepo, navBuilder)
-
-	tagRepo := storage.NewTagRepo(db)
-	adminHandler := NewAdminHandler(
-		tagRepo,
-		articleRepo,
-		publisher,
-		navBuilder,
-	)
 
 	s := &Server{
 		broker:          b,
@@ -86,7 +73,6 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		backupScheduler: backupScheduler,
 	}
 
-	r.Get("/", digestHandler.HomePage)
 	r.Get("/health", s.healthHandler)
 	r.Get("/health/rabbit", s.rabbitHealthHandler)
 	r.Get("/health/db", s.dbHealthHandler)
@@ -109,57 +95,17 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 
 	r.Post("/api/digest/send", s.Send)
 	r.Get("/api/digest/preview", s.Preview)
-	r.Post("/api/digest/refresh", digestHandler.Refresh)
 
 	r.Post("/api/backup/send", s.SendBackup)
 
-	r.Route("/api/sources", func(r chi.Router) {
-		r.Get("/", sourcesHandler.List)
-		r.Post("/", sourcesHandler.Create)
-		r.Put("/{id}", sourcesHandler.Update)
-		r.Delete("/{id}", sourcesHandler.Delete)
-		r.Patch("/{id}", sourcesHandler.Patch)
-		r.Get("/export", sourcesHandler.Export)
-		r.Post("/import", sourcesHandler.Import)
-	})
-
-	r.Route("/api/articles", func(r chi.Router) {
-		r.Get("/", articlesHandler.List)
-		r.Post("/{id}/read", articlesHandler.MarkRead)
-		r.Delete("/{id}/read", articlesHandler.MarkUnread)
-		r.Get("/search", articlesHandler.Search)
-	})
-
-	r.Get("/articles", articlesHandler.ListPage)
-	r.Get("/articles/search", articlesHandler.SearchPage)
-	r.Get("/articles/{id}", articlesHandler.GetPage)
 	if articleIndexOpenHandler != nil {
 		r.Get("/r/{id}", articleIndexOpenHandler.HandleOr(articlesHandler.Open))
 	} else {
 		r.Get("/r/{id}", articlesHandler.Open)
 	}
 	r.Get("/f/{id}/{vote}", explicitFeedbackHandler.Handle)
-	r.Get("/sources", sourcesHandler.ListPage)
-	r.Post("/api/sources/{id}/refresh", sourcesHandler.Refresh)
-
-	r.Get("/bookmarks", bookmarkHandler.ListPage)
-	r.Post("/api/articles/{id}/bookmark", bookmarkHandler.Toggle)
-	r.Delete("/api/bookmarks/{id}", bookmarkHandler.Remove)
-	r.Post("/api/bookmarks", bookmarkHandler.SaveLink)
 
 	r.Post("/api/articles/{id}/feedback", feedbackHandler.Handle)
-
-	// Admin console (unauthenticated in v1 — see PRD F9)
-	r.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/admin/tags", http.StatusFound)
-	})
-
-	r.Get("/admin/tags", adminHandler.TagsPage)
-	r.Post("/api/admin/tags", adminHandler.CreateTag)
-	r.Put("/api/admin/tags/{id}", adminHandler.UpdateTag)
-	r.Delete("/api/admin/tags/{id}", adminHandler.DeleteTag)
-
-	r.Post("/api/admin/enrich", adminHandler.EnrichBackfill)
 
 	return s
 }

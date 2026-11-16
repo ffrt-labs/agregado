@@ -36,11 +36,6 @@ type Article struct {
 	// with no web version keep it nil and fall back to the reader page. RSS
 	// articles leave it nil — their ExternalURL is already the canonical page.
 	CanonicalURL 			*string `db:"canonical_url" json:"canonical_url,omitempty"`
-	// RawHTML is transient ingestion provenance: the newsletter's original email
-	// HTML, carried through the queue so the worker can persist it in the
-	// newsletter_raw_html table after Create yields an id. Never a column on
-	// articles (db:"-") — see issue #2, Storage — raw HTML.
-	RawHTML 				string `db:"-" json:"raw_html,omitempty"`
 }
 
 // ExternalURLOr returns the article's external URL, or fallback when it has no

@@ -1129,6 +1129,7 @@ CREATE TABLE articles (
 -- not a column on articles: articles is SELECT *'d at six call sites (would pay
 -- the 50-200KB transfer on every page load) and raw HTML needs an independent
 -- retention lifetime. Forward-only — existing newsletters have no stored HTML.
+-- HISTORICAL: dropped by migration 000027 (#241).
 CREATE TABLE newsletter_raw_html (
     article_id UUID PRIMARY KEY REFERENCES articles(id) ON DELETE CASCADE,
     html TEXT NOT NULL,
@@ -1154,6 +1155,8 @@ CREATE INDEX idx_articles_unread ON articles(is_read, published_at DESC) WHERE N
 CREATE INDEX idx_article_tags_tag_id ON article_tags(tag_id);
 
 -- Digest history
+-- HISTORICAL: digest_logs and digest_articles were never written, and were
+-- dropped by migration 000026 (#194). digest_artifacts is the Digest record.
 CREATE TABLE digest_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sent_at TIMESTAMP DEFAULT NOW(),
@@ -1168,6 +1171,8 @@ CREATE TABLE digest_articles (
 );
 
 -- User preferences (single user for MVP)
+-- HISTORICAL: never used; dropped by migration 000027 (#241).
+-- preference_profiles (migration 000023) holds the preference profile.
 CREATE TABLE preferences (
     key VARCHAR(100) PRIMARY KEY,
     value JSONB NOT NULL,
@@ -1177,7 +1182,8 @@ CREATE TABLE preferences (
 -- ============================================
 -- ADMIN CONSOLE TABLES (F9, migration 000011)
 -- HISTORICAL: ai_prompts and ai_logs were dropped, and the ai_logging_enabled
--- setting deleted, by migration 000024 (#207). admin_settings remains, empty.
+-- setting deleted, by migration 000024 (#207). The emptied admin_settings
+-- table was then dropped by migration 000025 (#220).
 -- ============================================
 
 -- Editable system prompts (one row per AI operation)
@@ -1189,7 +1195,7 @@ CREATE TABLE ai_prompts (
 -- Seeded with the 4 current strings; categorize seed omits the inline slug list
 -- (the live tag slugs are appended by code at call time).
 
--- Persisted AI request/response log (gated by admin_settings.ai_logging_enabled)
+-- Persisted AI request/response log (gated by an ai_logging_enabled setting)
 CREATE TABLE ai_logs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     operation     TEXT NOT NULL,
@@ -1203,13 +1209,6 @@ CREATE TABLE ai_logs (
     created_at    TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX idx_ai_logs_created ON ai_logs(created_at DESC);
-
--- Generic key/value settings (seed: ai_logging_enabled = 'true')
-CREATE TABLE admin_settings (
-    key        TEXT PRIMARY KEY,
-    value      TEXT NOT NULL,
-    updated_at TIMESTAMP DEFAULT NOW()
-);
 
 -- ============================================
 -- PERSONALIZATION & CONTENT TABLES (F10–F13)

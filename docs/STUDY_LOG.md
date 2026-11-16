@@ -3652,3 +3652,37 @@ langfuse.com/docs/evaluation/experiments/experiments-via-sdk.
 Langfuse's "Link prompts to traces" page (langfuse.com/docs/prompt-management/features/link-to-traces),
 then a live trace's generation in the UI after seeding, to compare the
 recorded variables with the compiled messages.
+
+## Langfuse 9 — Retiring ai_logs, ai_prompts and the logging setting (issues #207, #220, spec #198)
+
+- **Retiring a setting is not the same as retiring its table.** Migration
+  000024 (#207) dropped `ai_logs` and `ai_prompts` and deleted the
+  `ai_logging_enabled` row, but left `admin_settings` behind, empty and
+  unreferenced. It took a follow-up (#220), migration 000025, to drop it. When
+  a table's only row is the thing being retired, retire the table in the same
+  migration.
+- **Gotcha: an older down migration can depend on a table a newer one drops.**
+  000024's down path re-inserts `ai_logging_enabled` into `admin_settings`.
+  That still works because golang-migrate runs downs newest first, so
+  000025's down recreates the table before 000024's down writes to it. The
+  000025 down does not re-seed the row; 000024's down owns that. Each down
+  restores only what its own up removed.
+- **Gotcha: `make migrate-down` is a bare `down`.** It rolls back every
+  migration, not one. To check a single new migration, run
+  `migrate -database "$POSTGRESQL_URL" -path migrations down 1` against a
+  scratch database, never production.
+- **The wider cleanup is limited by who still reads the old schema.** The same
+  batch (#241) dropped `digest_logs`, `digest_articles`, `topic_weights`,
+  `newsletter_raw_html` and `preferences`, but `articles`, `sources`, `tags`,
+  `article_tags` and `article_feedback` stay: the ownership migration (#227)
+  reads them, and `/r/{id}` still falls back to legacy Articles. Grepping for
+  table names in Go, the n8n workflows and the scripts decided the list, not
+  the age of the table. One false lead: n8n's `FROM sources` is a D1 query,
+  not Postgres.
+
+### Recommended reading (15–30 min)
+
+The golang-migrate CLI README (github.com/golang-migrate/migrate, `cli/README.md`),
+especially `up N`, `down N`, `force` and what a dirty version means. Then the
+PostgreSQL docs for `DROP TABLE` (postgresql.org/docs/current/sql-droptable.html),
+for when `CASCADE` would hide a dependency you meant to keep.

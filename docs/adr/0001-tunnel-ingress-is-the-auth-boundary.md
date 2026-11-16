@@ -13,6 +13,7 @@ See "Amendment, 2026-09-23" below.
 **Amended:** 2026-11-16 — the superseded app surface this ADR protected was
 deleted (#85), and the tunnel connector no longer runs from this repository.
 See "Amendment, 2026-11-16" below.
+**Amended:** 2026-11-16 — the ingest hostname is now `ingest.felipefreitas.dev`; the old name went to Agregado's tailnet route (#235).
 **Supersedes the implicit reading of:** PRD F9 ("admin console unauthenticated in v1")
 
 ## Context
@@ -301,3 +302,19 @@ that serves the ingest tunnel runs outside this repository, so nothing here
 deploys or configures it. The "boundary is invisible from the repository"
 consequence is now stronger: neither the ingress rules nor the connector are in
 version control here.
+
+## Amendment, 2026-11-16: the ingest hostname is `ingest.felipefreitas.dev`
+
+Recorded with the hostname rename
+([#235](https://github.com/ffrt-labs/agregado/issues/235)).
+
+The tunnel's one surviving rule, `/webhook/resend-<random-suffix>` to n8n
+(the 2026-09-23 amendment), moved to a new hostname,
+`ingest.felipefreitas.dev`, with the same path allowlist. The Resend webhook
+points there. The old ingest hostname, `agregado.felipefreitas.dev`, was
+removed from the tunnel and its DNS record deleted, so the name now belongs to
+Agregado's tailnet-only route (ADR-0008). The 2026-09-23 rule "any future n8n
+workflow needing public ingress gets its own hostname" still holds: `ingest.*`
+carries the Resend path and nothing else.
+
+The connector runs as the `cloudflared` service in `ffrt-labs/homelab-apps`.

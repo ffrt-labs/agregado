@@ -6,6 +6,8 @@
 
 **Effective:** With the production cutover in issue #84
 
+**Amended:** 2026-11-16 — Agregado moves to `agregado.felipefreitas.dev`; `agregado-app.*` becomes a permanent redirect (#235).
+
 **Changes:** The Agregado and read-path portions of ADR-0001 after cutover
 
 **Unaffected:** ADR-0001's Resend-to-n8n Bridge ingress and ADR-0007
@@ -233,3 +235,26 @@ match the Target exposure table above: the private `/api/private/*` routes
 behind the shared secret, `GET /r/{id}`, `GET /f/{id}/{vote}` and the health
 checks (`internal/api/server.go`). Adminer remains only as a dev-profile
 Compose service and is not part of the production stack.
+
+## Amendment, 2026-11-16: `agregado.felipefreitas.dev`
+
+Recorded with the hostname rename
+([#235](https://github.com/ffrt-labs/agregado/issues/235), part of
+[#85](https://github.com/ffrt-labs/agregado/issues/85)).
+
+**Agregado's hostname is `agregado.felipefreitas.dev`.** The ingest tunnel
+gave up that name (it now uses `ingest.felipefreitas.dev`; see ADR-0001's
+amendment of the same date), and its DNS record was deleted. The name now
+resolves through the tailnet wildcard to the homelab-edge Caddy, like every
+other app on the server. `PUBLIC_BASE_URL` is `https://agregado.felipefreitas.dev`,
+so new Digests link there.
+
+**`agregado-app.felipefreitas.dev` stays, permanently, as a 308 redirect**
+with the path and query kept (`ffrt-labs/homelab-edge`, `Caddyfile`). Digests
+already sent carry `agregado-app` links for `/r/{id}` and `/f/{id}/{vote}`, and
+those still record Opens and votes. Don't remove the redirect: an old Digest
+has no expiry date.
+
+**The connector runs in `ffrt-labs/homelab-apps`**, as the `cloudflared`
+service next to n8n, its only origin. That settles where "outside this
+repository" is.

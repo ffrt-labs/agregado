@@ -7,12 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/articleindex"
-	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
-	"github.com/felipeafreitas/agregado/internal/ingestion/email"
-	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
 	"github.com/felipeafreitas/agregado/internal/preferences"
 	"github.com/felipeafreitas/agregado/internal/storage"
@@ -22,12 +18,11 @@ import (
 )
 
 type Server struct {
-	broker     *broker.Broker
 	db         *storage.DB
 	httpServer *http.Server
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
+func NewServer(db *storage.DB, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -39,19 +34,10 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, pooler *r
 		Handler: r,
 	}
 
-	emailParser := email.NewParser()
-	sourceRepo := storage.NewSourceRepo(db)
 	articleRepo := storage.NewArticleRepo(db)
 	feedbackRepo := storage.NewFeedbackRepo(db)
 	explicitFeedbackRepo := storage.NewExplicitFeedbackRepo(db)
 	weightsRepo := storage.NewTopicWeightsRepo(db)
-	publisher, err := broker.NewPublisher(b)
-
-	if err != nil {
-		panic(err)
-	}
-
-	emailHandler := email.NewHandler(webhookSecret, emailParser, sourceRepo, publisher, provider)
 	articlesHandler := NewArticleHandler(articleRepo)
 	feedbackHandler := NewFeedbackHandler(
 		feedbackRepo,
@@ -61,15 +47,12 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, pooler *r
 	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, explicitFeedbackRepo, scores)
 
 	s := &Server{
-		broker:     b,
 		db:         db,
 		httpServer: &httpServer,
 	}
 
 	r.Get("/health", s.healthHandler)
-	r.Get("/health/rabbit", s.rabbitHealthHandler)
 	r.Get("/health/db", s.dbHealthHandler)
-	r.Post("/webhook/email", emailHandler.HandleWebhook)
 	if articleIndexHandler != nil {
 		r.Post("/api/private/articles/enrich", articleIndexHandler.Handle)
 	}
@@ -102,20 +85,6 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) rabbitHealthHandler(w http.ResponseWriter, r *http.Request) {
-	ch, err := s.broker.NewChannel()
-
-	if err == nil {
-		ch.Close()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-		return
-	}
-
-	writeError(w, http.StatusServiceUnavailable, err.Error())
 }
 
 func (s *Server) dbHealthHandler(w http.ResponseWriter, r *http.Request) {

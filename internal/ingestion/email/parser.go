@@ -10,6 +10,19 @@ import (
 	"github.com/jaytaylor/html2text"
 )
 
+type Headers map[string]string
+
+// Payload is the inbound email as the Cloudflare Email Routing Worker
+// serializes it.
+type Payload struct {
+	From    string  `json:"from"`
+	To      string  `json:"to"`
+	Subject string  `json:"subject"`
+	Headers Headers `json:"headers"`
+	Text    string  `json:"text"`
+	Html    string  `json:"html"`
+}
+
 type Parser struct {
 }
 

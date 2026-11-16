@@ -5,7 +5,7 @@ import "github.com/felipeafreitas/agregado/internal/config"
 // The functions below are the allowlist for everything boot puts on the wire:
 // short sets of non-sensitive values, named one by one. They exist as their own
 // functions so the choice of what reaches stdout is testable — dumping the whole
-// Config (or db, or broker) would put the database password and the Cloudflare
+// Config (or db) would put the database password and the Cloudflare
 // API token verbatim into every log store that tails stdout.
 //
 // Naming a field here is the only way a config value reaches the boot log, and
@@ -32,14 +32,5 @@ func databaseFields(cfg *config.Config) []any {
 		"component", "main",
 		"db_host", cfg.Database.Host,
 		"db_port", cfg.Database.Port,
-	}
-}
-
-// brokerFields marks a successful broker connection, on the same terms.
-func brokerFields(cfg *config.Config) []any {
-	return []any{
-		"component", "main",
-		"broker_host", cfg.Queue.Host,
-		"broker_port", cfg.Queue.Port,
 	}
 }

@@ -14,13 +14,6 @@ type Database struct {
 	Name     string `env:"DATABASE_DB,required"`
 }
 
-type Queue struct {
-	User     string `env:"RABBITMQ_USER,required"`
-	Password string `env:"RABBITMQ_PASS,required"`
-	Host     string `env:"RABBITMQ_HOST" envDefault:"localhost"`
-	Port     string `env:"RABBITMQ_PORT" envDefault:"5672"`
-}
-
 type Http struct {
 	Port string `env:"HTTP_PORT" envDefault:"8080"`
 }
@@ -121,7 +114,6 @@ type Langfuse struct {
 type Config struct {
 	Langfuse
 	Database
-	Queue
 	Http
 	Logging
 	Pooler

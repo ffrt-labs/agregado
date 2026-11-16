@@ -11,11 +11,9 @@ import (
 	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/api"
 	"github.com/felipeafreitas/agregado/internal/articleindex"
-	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
-	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/langfuse"
 	"github.com/felipeafreitas/agregado/internal/logging"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
@@ -56,49 +54,7 @@ func main() {
 	}
 	slog.Info("database connected", databaseFields(cfg)...)
 
-	b, err := broker.NewBroker(&cfg.Queue)
-
-	if err != nil {
-		fatal("failed to load broker", err)
-	}
-	slog.Info("broker connected", brokerFields(cfg)...)
-	if err := b.DeclareTopology(); err != nil {
-		fatal("failed to declare broker topology", err)
-	}
-
-	publisher, err := broker.NewPublisher(b)
-	if err != nil {
-		fatal("failed to create publisher", err)
-	}
-
-	consumer, err := broker.NewConsumer(b)
-	if err != nil {
-		fatal("failed to create consumer", err)
-	}
-
-	// Own channel (and therefore own Qos/prefetch) from the storage consumer —
-	// enrichment runs a fetch + up to two AI calls per article and needs real
-	// concurrency; storage stays fast and effectively serial. See
-	// broker.Consumer.Consume.
-	enrichConsumer, err := broker.NewConsumer(b)
-	if err != nil {
-		fatal("failed to create enrich consumer", err)
-	}
-
-	// Drains articles.dlq: every permanently-failed message is logged at ERROR
-	// and acked, so failures are recorded instead of accumulating forever in a
-	// queue with no reader. Own channel, single worker — throughput here is
-	// irrelevant, visibility is the point.
-	dlqConsumer, err := broker.NewConsumer(b)
-	if err != nil {
-		fatal("failed to create dead-letter consumer", err)
-	}
-
-	sourceRepo := storage.NewSourceRepo(db)
-	articleRepo := storage.NewArticleRepo(db)
 	articleIndexRepo := storage.NewArticleIndexRepo(db)
-	rawHTMLRepo := storage.NewRawHTMLRepo(db)
-	weightsRepo := storage.NewTopicWeightsRepo(db)
 	tagRepo := storage.NewTagRepo(db)
 
 	// Langfuse tracing is optional: unconfigured, the tracer provider is a
@@ -142,32 +98,9 @@ func main() {
 	preferenceExportHandler := preferenceexport.NewHandler(cfg.Enrichment.Secret, articleIndexRepo)
 	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo, scores)
 
-	parser := rss.NewParser()
-	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)
+	server := api.NewServer(db, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
 
-	fetcher := fetch.New(cfg.Fetch.Timeout, cfg.Fetch.MaxBytes, cfg.Fetch.MinContentChars, cfg.Fetch.UserAgent)
-
-	handler := storage.NewWorker(articleRepo, rawHTMLRepo, publisher)
-	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
-	dlqHandler := broker.NewDeadLetterHandler()
-
-	server := api.NewServer(b, db, cfg.Webhook.Secret, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
-
-	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
-	// A consumer that fails to attach leaves its queue with no reader: messages
-	// pile up silently and the process looks healthy the whole time — the exact
-	// failure mode the dead-letter drain exists to close, one level up. Fail
-	// fast instead, like every other startup step.
-	if err := consumer.Consume("articles.store", 1, 5, handler); err != nil {
-		fatal("failed to consume articles.store", err)
-	}
-	if err := enrichConsumer.Consume("articles.enrich", 5, 5, enrichHandler); err != nil {
-		fatal("failed to consume articles.enrich", err)
-	}
-	if err := dlqConsumer.Consume(broker.DeadLetterQueue, 1, 1, dlqHandler); err != nil {
-		fatal("failed to consume "+broker.DeadLetterQueue, err)
-	}
 
 	<-ctx.Done()
 
@@ -184,10 +117,5 @@ func main() {
 	if err := scores.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("langfuse: sending queued scores at shutdown failed", "component", "langfuse", "err", err)
 	}
-	publisher.Close()
-	consumer.Close()
-	enrichConsumer.Close()
-	dlqConsumer.Close()
 	db.Close()
-	b.Close()
 }

@@ -11,7 +11,7 @@ import (
 )
 
 // safeFields are the config values startup is allowed to put on the wire. Every
-// other string in Config — DB password, RabbitMQ password, Cloudflare API
+// other string in Config — DB password, Cloudflare API
 // token, SMTP password, webhook secret — is either a credential today or one
 // bad rename away from being one, so the test treats "not on this list" as
 // "must not appear in the log".
@@ -22,8 +22,6 @@ var safeFields = map[string]bool{
 	"Logging.Format": true,
 	"Database.Host":  true,
 	"Database.Port":  true,
-	"Queue.Host":     true,
-	"Queue.Port":     true,
 }
 
 // bootLines is every log line boot emits from config, keyed by message. Adding
@@ -31,7 +29,6 @@ var safeFields = map[string]bool{
 var bootLines = map[string]func(*config.Config) []any{
 	"agregado starting":  startupFields,
 	"database connected": databaseFields,
-	"broker connected":   brokerFields,
 }
 
 // TestStartupFieldsLeakNoSecrets is the grep-the-stdout acceptance criterion

@@ -56,6 +56,25 @@ type TagSetter interface {
 	SetTags(ctx context.Context, articleID string, tagIDs []string) error
 }
 
+type AIScorer interface {
+	Score(ctx context.Context, title, content string, topicWeights map[string]float64) (int, error)
+	Reason(ctx context.Context, title, content string) (string, error)
+}
+
+type ScoreUpdater interface {
+	UpdateRelevanceScore(ctx context.Context, id string, score int) error
+	UpdateRelevanceReason(ctx context.Context, id string, reason string) error
+}
+
+type WeightsQuerier interface {
+	FindAll(ctx context.Context) (map[string]float64, error)
+}
+
+// enrichTrigger is the articles.enrich message body: only the article ID.
+type enrichTrigger struct {
+	ArticleID string `json:"article_id"`
+}
+
 // NewEnrichHandler consumes articles.enrich (a trigger carrying only an
 // article ID — Postgres is the source of truth, see enrichTrigger). For each
 // article it resolves the best available content (fetch the real page,

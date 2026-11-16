@@ -51,11 +51,18 @@ computing Enrichment but never persists that content in the target design.
 
 ## Current and transitional architecture
 
-Agregado presently contains two architectures in one process.
+**Current state, 2026-11-16:** the legacy path below was removed in
+[#85](https://github.com/ffrt-labs/agregado/issues/85) (#236–#241). The RSS
+poller, RabbitMQ and its consumers and DLQ, the store worker, the legacy email
+webhook, the Reader, Source, Bookmark and admin UI, and the in-process Digest
+scheduler and SMTP delivery no longer exist. Agregado now runs only the
+post-#48 path. The diagram is kept as a record of the state before #85.
+
+Before #85, Agregado contained two architectures in one process.
 
 ```mermaid
 flowchart TB
-    subgraph Legacy[Current legacy path: operational, scheduled for removal]
+    subgraph Legacy[Legacy path: removed in #85]
         POLLER[Internal RSS poller] --> MQ[(RabbitMQ)]
         EMAIL[Legacy email webhook] --> MQ
         MQ --> STORE[Store worker]
@@ -255,18 +262,18 @@ uses current compact evidence, not an unbounded raw click log.
 
 | Area | Current state | Target state | Gate |
 |---|---|---|---|
-| RSS intake | Internal poller | Miniflux | Production cutover #84 |
-| Queueing | RabbitMQ, consumers and DLQ | n8n orchestration and reconciliation | #84, then removal #85 |
+| RSS intake | Miniflux (internal poller removed, #237) | Miniflux | Done |
+| Queueing | n8n orchestration (RabbitMQ, consumers and DLQ removed, #236) | n8n orchestration and reconciliation | Reconciliation pass not built |
 | Article content | Legacy PostgreSQL body mirror | Miniflux only | Migrated ownership verified in #83 |
-| Newsletter intake | Legacy direct webhook is being replaced; Worker read paths and D1/R2 storage exist | Resend receives, n8n parses and writes, Worker serves private Atom and permalinks | ADR-0007 build sequence, then #84 |
-| Enrichment | Legacy weights and new profile path coexist | One content-free Article Index pipeline | #84/#85 |
+| Newsletter intake | The Bridge: Resend receives, n8n parses and writes, Worker serves (legacy direct webhook removed, #236) | Resend receives, n8n parses and writes, Worker serves private Atom and permalinks | Done |
+| Enrichment | Article Index pipeline only (legacy topic weights removed, #241) | One content-free Article Index pipeline | Done |
 | Failure recovery | Failed canonical URL cannot be retried | Explicit retry transition; n8n owns schedule | New implementation slice |
-| Digest | Internal cron and SMTP plus artifact builder | Artifact builder only | #84/#85 |
+| Digest | Artifact builder; n8n schedules and sends (internal cron and SMTP removed, #239) | Artifact builder only | Done |
 | Candidate window | Since previous persisted Digest, by `enriched_at`, 72h fallback lookback | Since previous successful Digest | Done |
 | Preference profile | Stored in Postgres via the private API; regeneration endpoint built (ADR-0010) | Doc-authoritative, nightly n8n sync and regeneration | #191 live verification |
-| Reader/admin UI | Full HTMX surface | Removed | #85 |
-| Bookmarks | Legacy local bookmark fields/UI | Karakeep, completely outside Agregado | #83/#85 |
-| Ingress | Cloudflare Tunnel routes public read paths to Agregado and the Resend webhook to n8n | Agregado uses Tailscale Serve only; Cloudflare keeps only the Bridge route to n8n | #84 and ADR-0008 |
+| Reader/admin UI | Removed (#238) | Removed | Done |
+| Bookmarks | Bookmark UI removed (#238); Karakeep outside Agregado | Karakeep, completely outside Agregado | Done |
+| Ingress | Agregado is tailnet-only behind the homelab-edge Caddy; the tunnel carries only the Resend webhook to n8n, from a connector outside this repo | Agregado tailnet-only; Cloudflare keeps only the Bridge route to n8n | Done (ADR-0008 amendments) |
 | Model selection | One configured model | Task-tiered routing; stronger daily frontier call | Deferred bake-off #86 |
 
 ## Known decision and documentation drift
@@ -281,10 +288,11 @@ uses current compact evidence, not an unbounded raw click log.
 - ADR-0001 and ADR-0007 remain the correct description of the Bridge's public
   Resend-to-n8n ingress. ADR-0008 removes only Cloudflare routes whose origin is
   Agregado after #84 moves the app to tailnet-only access.
-- The running Compose configuration still reflects RabbitMQ and internal SMTP
-  delivery, and it does not fully provide the new private API configuration. Its `cloudflared` container now also routes the Bridge's
-  Resend webhook to n8n, so that responsibility survives even when Cloudflare
-  stops routing to Agregado.
+- ~~The running Compose configuration still reflects RabbitMQ and internal SMTP
+  delivery.~~ Resolved in #85: Compose runs only `db`, `agregado` (prod
+  profile) and a dev-only `adminer`. The bundled `cloudflared` service was
+  removed (#240); the tunnel connector that routes the Bridge's Resend webhook
+  to n8n runs outside this repository.
 - The implemented Digest uses a UTC `published_at` day. The target's
   since-previous-success window is a confirmed follow-up change, not a claim
   about current behavior.

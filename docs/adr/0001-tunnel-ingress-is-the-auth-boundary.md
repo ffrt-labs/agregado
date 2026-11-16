@@ -10,6 +10,9 @@ tunnel. See "Amendment, 2026-08-30" below.
 **Amended:** 2026-09-23 — the ingest hostname gained a second path, routing to
 n8n instead of the app, for the Resend-webhook newsletter-ingestion redesign.
 See "Amendment, 2026-09-23" below.
+**Amended:** 2026-11-16 — the superseded app surface this ADR protected was
+deleted (#85), and the tunnel connector no longer runs from this repository.
+See "Amendment, 2026-11-16" below.
 **Supersedes the implicit reading of:** PRD F9 ("admin console unauthenticated in v1")
 
 ## Context
@@ -250,3 +253,51 @@ prior addition, and does not introduce app-level auth anywhere. It does
 retire the "never changes again" expectation for the ingest hostname
 specifically; that expectation is now understood to have been about the
 *old* email-ingestion regex, not a permanent property of the hostname itself.
+
+## Amendment, 2026-11-16: the protected surface is gone, and the connector moved out
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)). This amendment
+narrows the picture; it adds no path to any allowlist.
+
+**Most of what this ADR's Context and Consequences describe no longer exists.**
+The admin console, Source management, bookmark pages, prompt editing, digest
+triggering and the HTMX reader were deleted
+([#238](https://github.com/ffrt-labs/agregado/issues/238),
+[#239](https://github.com/ffrt-labs/agregado/issues/239)), along with
+`templates/` and the `/articles/{uuid}` reader page. The
+`^/webhook/email/?$` handler was deleted with the RabbitMQ wiring
+([#236](https://github.com/ffrt-labs/agregado/issues/236)). The router
+(`internal/api/server.go`) now serves only:
+
+| Route | Protection beyond the network |
+|---|---|
+| `GET /health`, `GET /health/db` | none |
+| `/api/private/*` (enrich, digests, preferences, preference signals) | `X-Enrichment-Secret` shared secret |
+| `GET /r/{id}` | unguessable Article Index or legacy Article UUID |
+| `GET /f/{id}/{up\|down}` | unguessable Article Index UUID |
+
+So the Consequences bullets about the reader page leaking nav counts and
+`/admin/*` links, and about dead nav links off-network, are moot: there is no
+reader page and no nav. `GET /r/{id}` is a redirect only; for a legacy Article
+with no web home it now returns 404 instead of falling back to a reader page.
+It still records a read or an Open, so the Notes section's warning about
+`GET` routes that write still applies.
+
+**The tunnel no longer reaches Agregado at all.** [ADR-0008](0008-agregado-is-tailnet-only.md)
+and its 2026-11-14 amendment moved Agregado to tailnet-only access behind the
+homelab-edge Caddy, and the tunnel's Agregado paths were removed. The
+`read.<domain>` row of the Decision table describes a route that no longer
+exists. The only rule that survives is the ingest hostname's
+`/webhook/resend-<random-suffix>` path to n8n (the 2026-09-23 amendment
+above). This ADR's boundary now governs that one path; Agregado's boundary is
+ADR-0008's.
+
+**The `cloudflared` connector no longer runs from this repository.** The
+bundled `cloudflared` Compose service, its `CLOUDFLARE_TUNNEL_TOKEN` variable
+and deploy secret, and the token-rotation runbook were removed
+([#240](https://github.com/ffrt-labs/agregado/issues/240)). The connector
+that serves the ingest tunnel runs outside this repository, so nothing here
+deploys or configures it. The "boundary is invisible from the repository"
+consequence is now stronger: neither the ingress rules nor the connector are in
+version control here.

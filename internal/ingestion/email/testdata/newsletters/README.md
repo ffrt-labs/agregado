@@ -1,43 +1,26 @@
 # Newsletter fixtures (issue #2)
 
-The newsletter corpus this project never had. Each file is a webhook `Payload`
-(the exact JSON the Cloudflare Email Routing Worker POSTs to `/webhook/email`),
-crafted to exercise one branch of the canonical-URL extraction chain:
+The newsletter corpus this project never had. Each file is a `Payload` in the
+shape the old Cloudflare Email Routing Worker posted to Agregado's
+`/webhook/email` route. That route was removed (#85), so today these fixtures
+only feed `parser_test.go`, which tests the Go canonical-URL extraction chain.
+The live chain is the Bridge's cheerio port in n8n (ADR-0007), tested against
+identical copies in `n8n/test/fixtures/`.
+
+Each fixture exercises one branch of the chain:
 
 | Fixture | Proves | Expected `canonical_url` |
 | --- | --- | --- |
 | `01-archived-at-header.json` | `Archived-At` header wins over an HTML link | `https://dispatch.example.com/p/weekly-dispatch-42` |
 | `02-view-in-browser.json` | no header → scrape the "view in browser" anchor, reject pixel + share link | `https://overflow.example.com/p/issue-108` |
-| `03-no-web-home.json` | neither present → reader-page fallback | `NULL` (redirects to `/articles/{id}`) |
+| `03-no-web-home.json` | neither present → no canonical URL | `NULL` |
 
-## Live verification (the acceptance criterion — still outstanding)
+## History
 
-The parser and redirect logic are unit-tested (`parser_test.go`,
-`articles_test.go`). What remains is proving the **whole path** — real Worker →
-tunnel → webhook → parser → queue → worker → DB → `/r/{id}` — against real mail.
-This needs the live infra from issue #1 (base URL set, tunnel publishing
-`/r/{id}` and `/articles/{id}`) and cannot be run from unit tests.
-
-Two ways to drive it:
-
-1. **Through the real Worker (full acceptance):** send three actual emails
-   matching these fixtures to the Cloudflare Email Routing address so they flow
-   through the deployed Worker.
-2. **Straight at the webhook (path from the webhook onward):**
-
-   ```sh
-   for f in 01-archived-at-header 02-view-in-browser 03-no-web-home; do
-     curl -sS -X POST "$BASE_URL/webhook/email" \
-       -H "X-Webhook-Secret: $WEBHOOK_SECRET" \
-       -H "Content-Type: application/json" \
-       --data-binary @"$f.json"
-   done
-   ```
-
-Then confirm, per variant:
-- `articles.canonical_url` matches the table above;
-- a `newsletter_raw_html` row was written (`SELECT article_id FROM newsletter_raw_html`);
-- `GET /r/{id}` redirects to the canonical URL (variants 1-2) or to
-  `/articles/{id}` (variant 3);
-- opening variant 3's reader page off-network shows **no** nav counts and **no**
-  `/admin` links in source.
+The original plan was to live-verify the whole path (Worker → tunnel →
+`/webhook/email` → parser → queue → storage worker → `newsletter_raw_html` →
+`/r/{id}` → reader page) by posting these files to the webhook. Every hop after
+the parser has since been removed: the webhook and queue (#236), the storage
+worker (#237), the reader page (#238) and the `newsletter_raw_html` table
+(#241). The equivalent live check now runs through the Bridge; see
+`n8n/README.md` and `n8n/scripts/verify-ingest.sh`.

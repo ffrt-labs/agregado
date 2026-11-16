@@ -1,141 +1,55 @@
 # Agregado
 
-A newsletter/RSS aggregator with pub/sub architecture for learning and daily use.
+A headless, single-user service that enriches and scores Articles and builds
+the daily Digest for a personal reading workflow.
 
 ## Overview
 
-Agregado is a personal project to learn distributed systems patterns while building a useful tool. It aggregates content from RSS feeds and email newsletters, scores articles with AI at ingest time, and delivers a ranked daily digest email with a feedback loop that improves future scoring over time.
+Agregado started as a newsletter/RSS aggregator built to learn pub/sub
+patterns. After the pivot ([#48](https://github.com/ffrt-labs/agregado/issues/48))
+and the removal of the superseded system ([#85](https://github.com/ffrt-labs/agregado/issues/85)),
+it is one component of a larger Reader workflow:
+
+- **Miniflux** fetches, dedupes and stores every Source (ADR-0006).
+- **The Bridge** (Resend, n8n and a Cloudflare Worker in `email-worker/`) turns
+  newsletters into private Atom feeds that Miniflux polls (ADR-0007).
+- **n8n** orchestrates: it calls Agregado's private API for each new entry,
+  asks it for the daily Digest, and sends that Digest by email (`n8n/`).
+- **Agregado** fetches and extracts readable text, summarizes, tags and scores
+  each Article against `PREFERENCES.md`, and keeps a content-free Article
+  Index. It builds immutable Digest artifacts and records Opens and explicit
+  votes.
+
+Agregado has no UI, no message broker, no RSS poller, no mail sending and no
+scheduler. It is reachable only inside the tailnet (ADR-0008).
 
 ## Tech Stack
 
-| Component | Technology | Why |
-|-----------|------------|-----|
-| Backend | Go | Performance, simplicity, excellent concurrency |
-| Message Broker | RabbitMQ | Classic AMQP patterns, enterprise-relevant |
-| Database | PostgreSQL | Full-featured, scalable, industry standard |
-| Email Intake | Webhooks (Cloudflare Email Routing) | Event-driven, aligns with pub/sub goals |
-| AI Inference | Cloudflare Workers AI | Scoring, summarization, digest overview |
-| Deployment | Docker Compose | Self-hosted, reproducible |
+| Component | Technology |
+|-----------|------------|
+| Backend | Go (chi router) |
+| Database | PostgreSQL (golang-migrate migrations) |
+| AI Inference | Cloudflare Workers AI |
+| Prompt management and tracing | Langfuse (optional) |
+| Orchestration | n8n (separate deployment; workflows in `n8n/`) |
+| Deployment | Docker Compose behind the homelab-edge Caddy proxy |
 
 ---
 
-## Architecture
+## HTTP surface
 
-```
-╔══════════════════════════════════════════════════════════════════╗
-║                         INGESTION                                ║
-╠══════════════════════════════════════════════════════════════════╣
-║                                                                  ║
-║  ┌─────────────┐          ┌──────────────────────────────────┐  ║
-║  │  RSS Poller │          │      Email Webhook Handler        │  ║
-║  │  (periodic) │          │   (Cloudflare Email Routing)      │  ║
-║  └──────┬──────┘          └────────────┬─────────────────────┘  ║
-║         │                              │                         ║
-║         │                    ┌─────────▼──────────┐             ║
-║         │                    │  Newsletter Article  │             ║
-║         │                    │  (always created)   │             ║
-║         │                    └────┬──────────┬─────┘             ║
-║         │                         │          │                   ║
-║         │            [summarize=true]  [extract_links=true]      ║
-║         │                    ┌────▼───┐  ┌───▼───────────┐      ║
-║         │                    │AI Sum. │  │ Link Extractor │      ║
-║         │                    │→summary│  │ + Fetcher      │      ║
-║         │                    └────────┘  └───────┬────────┘      ║
-║         │                                        │               ║
-║         │                               child articles           ║
-║         │                                        │               ║
-╠═════════╪════════════════════════════════════════╪══════════════╣
-║         │              AI SCORING                │              ║
-║         │          ┌──────────────────┐          │              ║
-║         └─────────►│  Score(1–5)      │◄─────────┘             ║
-║                    │  • quality       │                         ║
-║                    │  • topic weights │◄── feedback loop        ║
-║                    └────────┬─────────┘                         ║
-║                             │ relevance_score stored on article  ║
-╠═════════════════════════════╪════════════════════════════════════╣
-║                       QUEUE │                                    ║
-║                    ┌────────▼────────┐                          ║
-║                    │    RabbitMQ     │                          ║
-║                    │  articles.ingest│                          ║
-║                    └────────┬────────┘                          ║
-║                             │                                    ║
-║                    ┌────────▼────────┐                          ║
-║                    │  Storage Worker │                          ║
-║                    │  (deduplicates) │                          ║
-║                    └────────┬────────┘                          ║
-║                             ▼                                    ║
-║                       ┌──────────┐                              ║
-║                       │PostgreSQL│                              ║
-║                       └──────────┘                              ║
-╠══════════════════════════════════════════════════════════════════╣
-║                        DIGEST (daily CRON)                       ║
-╠══════════════════════════════════════════════════════════════════╣
-║                                                                  ║
-║  Ranker: filter score ≥ 3, sort score DESC, cap N articles       ║
-║     │                                                            ║
-║     ▼                                                            ║
-║  Generator:                                                      ║
-║    1. Group articles by tag                                      ║
-║    2. Per group → AI Summarize → group summary                   ║
-║    3. All group summaries → AI Digest → overview paragraph       ║
-║    4. Per article → HMAC token (for feedback links)              ║
-║     │                                                            ║
-║     ▼                                                            ║
-║  Email (SMTP):                                                   ║
-║    [Overview paragraph]                                          ║
-║    ── Tag: Tech ──────────────────────────────────────           ║
-║    AI summary of Tech articles                                   ║
-║    • Article title  👍 👎                                        ║
-║    ── Tag: Business ──────────────────────────────────           ║
-║    ...                                                           ║
-╠══════════════════════════════════════════════════════════════════╣
-║                       FEEDBACK LOOP                              ║
-╠══════════════════════════════════════════════════════════════════╣
-║                                                                  ║
-║  👍 / 👎 links in email                                          ║
-║     │  GET /api/feedback?article_id=…&vote=up&token=…            ║
-║     ▼                                                            ║
-║  Validate HMAC token                                             ║
-║     │                                                            ║
-║     ├── Insert → article_feedback                                ║
-║     └── Upsert → topic_weights (±0.1, clamped 0.1–2.0)          ║
-║                       ▲                                          ║
-║                       └── used in next Score() prompt            ║
-╚══════════════════════════════════════════════════════════════════╝
-```
+| Route | Caller | Protection |
+|-------|--------|------------|
+| `POST /api/private/articles/enrich` | n8n | `X-Enrichment-Secret` |
+| `POST /api/private/digests`, `POST /api/private/digests/{date}` | n8n | `X-Enrichment-Secret` |
+| `GET /api/private/preferences/signals` | n8n | `X-Enrichment-Secret` |
+| `GET`/`PUT /api/private/preferences`, `POST /api/private/preferences/regenerate` | n8n | `X-Enrichment-Secret` |
+| `GET /r/{id}` | Digest link | records the first Open, then redirects |
+| `GET /f/{id}/{up\|down}` | Digest link | records or replaces the explicit vote |
+| `GET /health`, `GET /health/db` | operator | none |
 
----
-
-## Data Flow
-
-### Ingestion
-
-**RSS feeds:** Poller fetches feeds on a configurable interval → parses entries → scores each article (1–5) using AI with topic weights → publishes to RabbitMQ → Storage Worker deduplicates by URL → saves to PostgreSQL.
-
-**Email newsletters:** Cloudflare Email Routing → Webhook Handler → always creates a newsletter article. Two per-source toggles control additional processing:
-- `summarize = true` → AI generates a summary of the newsletter body → stored in `articles.summary`
-- `extract_links = true` → goquery extracts links from HTML → go-readability fetches and parses each → child articles created with `parent_article_id` pointing to the newsletter → each child is scored and published to the queue
-
-### Daily Digest
-
-CRON triggers the digest pipeline:
-1. **Rank** — query articles from last 24h where `relevance_score >= 3` (or unscored), sorted by score DESC, capped at N
-2. **Group** — articles grouped by tag (Tech, Business, etc.)
-3. **Summarize** — AI generates a 2–3 sentence summary per tag group
-4. **Overview** — AI generates a 2-sentence intro from all group summaries ("summaries of summaries")
-5. **Tokens** — HMAC-SHA256 token generated per article per vote direction for feedback links
-6. **Render** — HTML template + plain text fallback
-7. **Send** — SMTP delivery
-
-### Feedback Loop
-
-Each digest article includes 👍/👎 links. Clicking one:
-1. Validates the HMAC token (prevents tampering)
-2. Records a row in `article_feedback`
-3. Fetches the article's tags
-4. Upserts `topic_weights` (up → weight += 0.1, down → weight -= 0.1, clamped 0.1–2.0)
-
-Next time the AI scorer runs, the topic weights are passed in the prompt, biasing the score toward topics the user has engaged with.
+All of it sits behind the tailnet. See [the Article Index API](docs/article-index-api.md)
+and [the architecture overview](docs/architecture/agregado.md).
 
 ---
 
@@ -143,14 +57,14 @@ Next time the AI scorer runs, the topic weights are passed in the prompt, biasin
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - Docker & Docker Compose
 - Make (optional)
 
 ### Development Setup
 
 ```bash
-# Start dependencies (PostgreSQL + RabbitMQ)
+# Start PostgreSQL (Adminer: docker compose --profile dev up adminer)
 make dev-deps
 
 # Run database migrations
@@ -160,11 +74,11 @@ make migrate-up
 make dev
 ```
 
-### Docker Compose (Full Stack)
+### Production
 
-```bash
-docker-compose up
-```
+`docker compose --profile prod up -d agregado` builds and starts the app. The
+deploy workflow (`.github/workflows/deploy.yml`) does this on the home server.
+The external `edge` and `langfuse-ingest` Docker networks must already exist.
 
 ---
 
@@ -187,17 +101,15 @@ LOG_FORMAT=text LOG_LEVEL=debug make dev
 {"time":"...","level":"INFO","msg":"agregado starting","component":"main","http_port":"8080"}
 ```
 
-Every record carries a `component` field (`main`, `broker`, `deadletter`,
-`storage`, `enrich`, `ai`, `digest`, `api`, `backup`, `poller`, `langfuse`) —
-deliberately low-cardinality, so it can become a log-store label. High-cardinality
-identifiers like `article_id` and `url` are line fields, never labels.
+Every record carries a `component` field (for example `main`, `api`,
+`articleindex`, `digestartifact`, `preferences`, `ai`, `langfuse`) —
+deliberately low-cardinality, so it can become a log-store label.
+High-cardinality identifiers like `article_id` and `url` are line fields,
+never labels.
 
-Failures surface at `ERROR` the moment they happen: a handler error is logged
-with its queue and a truncated body *before* the message is dead-lettered, and a
-consumer drains `articles.dlq` — logging each dead message and acking it, with
-no retry. Startup logs a short list of non-sensitive fields; the `Config` struct
-is never serialized, so the database password and Cloudflare API token stay out
-of the log stream.
+Failures surface at `ERROR` or `WARN` the moment they happen. Startup logs a
+short list of non-sensitive fields; the `Config` struct is never serialized, so
+the database password and Cloudflare API token stay out of the log stream.
 
 See [F17 in the PRD](docs/PRD.md) for the design decisions behind this.
 
@@ -207,31 +119,38 @@ See [F17 in the PRD](docs/PRD.md) for the design decisions behind this.
 
 ```
 agregado/
-├── cmd/agregado/          # Application entry point
+├── cmd/
+│   ├── agregado/              # The HTTP service
+│   ├── digest-preview/        # Render the Digest email from fixture data
+│   ├── migrate-ownership/     # One-shot legacy-to-Article-Index migration (#83)
+│   └── seed-langfuse-prompts/ # Seed the managed prompts into Langfuse
 ├── internal/
 │   ├── ai/                # AI provider interface + Cloudflare implementation
-│   ├── api/               # HTTP handlers (sources, articles, feedback, digest)
-│   ├── broker/            # RabbitMQ integration (publisher, consumer)
-│   ├── config/            # Configuration (env vars → structs)
-│   ├── digest/            # Ranker, generator, mailer, scheduler
-│   ├── domain/            # Business entities (Article, Source, Tag)
-│   ├── ingestion/
-│   │   ├── email/         # Webhook handler, email parser
-│   │   ├── fetch/         # Link extractor + article fetcher
-│   │   └── rss/           # Feed parser, poller
+│   ├── api/               # Router, Open redirect, explicit votes
+│   ├── articleindex/      # Enrichment pipeline and Article Index API
+│   ├── digestartifact/    # Digest selection, rendering and storage API
+│   ├── preferences/       # Stored PREFERENCES.md versions and regeneration
+│   ├── preferenceexport/  # Preference signal export and Open recording
+│   ├── ingestion/fetch/   # Article fetcher + readable-text extraction
 │   ├── logging/           # slog setup — the single logging seam
+│   ├── langfuse/, telemetry/ # Prompt serving, tracing and scores
 │   └── storage/           # PostgreSQL repositories
+├── email-worker/          # The Bridge's Cloudflare Worker (feeds, permalinks)
+├── n8n/                   # n8n workflows, their sources and tests
 ├── evals/                 # Python Langfuse experiment harness (see evals/README.md)
 ├── migrations/            # Database migrations (golang-migrate)
-├── docker/                # Dockerfile
-└── docs/                  # PRD, ADRs, roadmap archive, study log
+└── docs/                  # PRD, ADRs, architecture, runbooks, study log
 ```
+
+Some legacy code is still in the tree with no production caller, such as
+`internal/ingestion/email` (the old newsletter parser) and `internal/digest`
+(the old Digest generator).
 
 ---
 
 ## Documentation
 
-- [Product Requirements (PRD)](docs/PRD.md) — Full feature specifications
+- [Product Requirements (PRD)](docs/PRD.md) — Original feature specifications; many describe removed parts (see its current-state note)
 - [Issues](https://github.com/ffrt-labs/agregado/issues) — Live roadmap; what's actually being worked on
 - [ADRs](docs/adr/) — Architectural decisions, including deliberate non-goals
 - [Roadmap Archive](docs/ROADMAP-ARCHIVE.md) — Frozen history of Phases 1–18
@@ -239,10 +158,11 @@ agregado/
 
 ## Learning Goals
 
-1. **Pub/Sub patterns** — Message queues, exchanges, consumers, dead-letter queues
+1. **Pub/Sub patterns** — Message queues, exchanges, consumers, dead-letter
+   queues (the RabbitMQ layer that taught these was removed in #85)
 2. **Go concurrency** — Goroutines, channels, graceful shutdown
 3. **Database design** — Migrations, indexes, full-text search, upsert patterns
-4. **API design** — RESTful patterns, HMAC token validation
+4. **API design** — RESTful patterns, shared-secret private APIs
 5. **AI integration** — Provider interfaces, prompt engineering, feedback loops
 6. **DevOps basics** — Docker, health checks, Cloudflare Workers
 

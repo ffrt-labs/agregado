@@ -3,6 +3,9 @@
 **Status:** Accepted
 **Date:** 2026-09-09
 **Issue:** [#58](https://github.com/ffrt-labs/agregado/issues/58)
+**Amended:** 2026-11-16 — the poller, RabbitMQ layer and storage worker
+decisions 2 and 6 retire are now deleted, and decision 3 was superseded by
+ADR-0007 (#85). See "Amendment, 2026-11-16" below.
 
 ## Context
 
@@ -100,3 +103,35 @@ Sources alike. It is never logged into as a UI.**
 - **What happens to `internal/ingestion` as a package, and what else in the current
   codebase survives the pivot**, is [#62](https://github.com/ffrt-labs/agregado/issues/62)'s
   question, unblocked by this decision landing.
+
+## Amendment, 2026-11-16: the retirements happened
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)).
+
+- **Decision 2 is done.** `internal/ingestion/rss`, the RSS poller and its
+  `RSS_POLL_INTERVAL` setting were deleted
+  ([#237](https://github.com/ffrt-labs/agregado/issues/237)). Miniflux is the
+  only RSS intake.
+- **Decision 6 is done.** RabbitMQ, its consumers, the dead-letter queue, the
+  `cmd/test-broker` smoke command and the Compose service were deleted
+  ([#236](https://github.com/ffrt-labs/agregado/issues/236)), and
+  `internal/storage/worker.go` went with
+  [#237](https://github.com/ffrt-labs/agregado/issues/237). n8n receives
+  Miniflux's `new_entries` webhook and calls `POST /api/private/articles/enrich`.
+  No queue exists inside Agregado.
+- **Decision 3 was superseded before it was built.**
+  [ADR-0007](0007-resend-n8n-cloudflare-split-for-newsletter-ingestion.md) put
+  newsletter intake in the Bridge (Resend, n8n and a Cloudflare Worker) instead
+  of repurposing `internal/ingestion/email`. Agregado's `/webhook/email`
+  handler was deleted with the broker wiring. The package's parser remains as
+  tested code with no production caller (see
+  [ADR-0004](0004-newsletter-canonical-url-extraction.md)'s 2026-11-16
+  amendment). The Consequences line "`internal/ingestion/email` keeps doing
+  double duty inside Agregado" no longer holds: the Bridge is the standalone
+  newsletter-to-feed tool.
+- **Decision 5 holds, with legacy tables still present.** The Article Index
+  holds no article body. The legacy `sources`, `articles`, `tags`,
+  `article_tags` and `article_feedback` tables are kept for the ownership
+  migration and the legacy `GET /r/{id}` fallback; migration 000027 lists why
+  each one stays.

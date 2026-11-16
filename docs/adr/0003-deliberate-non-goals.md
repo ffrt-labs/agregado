@@ -2,6 +2,9 @@
 
 **Status:** Accepted
 **Date:** 2026-07-17 (consolidating decisions from Phases 15–19)
+**Amended:** 2026-11-16 — the RabbitMQ, dead-letter and admin-endpoint
+mechanics two entries relied on were removed (#85). See "Amendment,
+2026-11-16" below.
 
 ## Context
 
@@ -122,6 +125,45 @@ failure after the fact — that is the trigger for the collector session.
 ### App-level authentication
 
 Not built. The Cloudflare Tunnel ingress ACL is the boundary. See **ADR 0001**.
+
+## Amendment, 2026-11-16: entries that named removed components
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)). The non-goals
+stand; some of the reasons and mechanisms they cite are gone.
+
+**No enrichment retry.** The legacy pipeline this entry described is gone:
+RabbitMQ ([#236](https://github.com/ffrt-labs/agregado/issues/236)), the
+storage worker ([#237](https://github.com/ffrt-labs/agregado/issues/237)) and
+the admin endpoints ([#238](https://github.com/ffrt-labs/agregado/issues/238)),
+including the backfill trigger. The "TTL + dead-letter-exchange" reason no
+longer applies, because there is no broker. Enrichment now runs through the
+private Article Index endpoint. A failed record is stored as failed with its
+reason, and a repeat request for the same canonical URL returns the existing
+record rather than retrying (`internal/articleindex/service.go`). n8n retries a
+failed *call* (3 attempts, then an alert; `n8n/README.md`), but there is still
+no retry of a failed *record*. The non-goal holds; the revisit trigger is now
+"failed Article Index records turn out to be mostly transient failures."
+
+**Structured logging and dead-letter queue.** The `articles.dlq` consumer
+(`internal/broker/deadletter.go`) was deleted with the rest of the broker, so
+the "dead-letter half" of the partial supersession no longer exists. The
+structured-logging half and its producer contract are unchanged. The `broker`,
+`deadletter`, `storage`, `backup` and `poller` log components went with their
+code.
+
+**The digest misconfiguration banner.** Agregado no longer emails a Digest.
+n8n sends the persisted Digest artifact
+([#239](https://github.com/ffrt-labs/agregado/issues/239)), rendered by
+`internal/digestartifact`, which has no localhost banner. The banner and its
+`slog.Warn` remain in `internal/digest/generator.go`, but no package imports
+`internal/digest` any more, so the "banner in the digest email" consequence no
+longer reaches anyone.
+
+**App-level authentication.** Still not built. Agregado's boundary is now the
+tailnet plus a shared secret on private routes
+([ADR-0008](0008-agregado-is-tailnet-only.md)); ADR-0001's tunnel ACL covers
+only the n8n ingest path.
 
 ## Consequences
 

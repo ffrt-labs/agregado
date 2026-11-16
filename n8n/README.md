@@ -185,7 +185,8 @@ it sends a request pre-signed by `Sign R2 request` (see below).
 
 Env access in Code nodes must not be blocked (`N8N_BLOCK_ENV_ACCESS_IN_NODE=false`).
 Also set the webhook path suffix (`resend-REPLACE_WITH_RANDOM_SUFFIX`) to match the
-tunnel rule, and apply `email-worker/migrations/0002_ingest_alerts.sql` to D1.
+tunnel rule (Cloudflare dashboard; the tunnel connector runs outside this repo, see
+ADR-0007's 2026-11-16 amendment), and apply `email-worker/migrations/0002_ingest_alerts.sql` to D1.
 
 Environment on the n8n container, article enrichment (#144) — shares
 `NODE_FUNCTION_ALLOW_BUILTIN`, `CF_ACCOUNT_ID`/`BRIDGE_D1_DATABASE_ID`, and

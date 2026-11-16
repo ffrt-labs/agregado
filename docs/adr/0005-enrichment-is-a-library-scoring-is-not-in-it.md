@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-08-23
 **Issue:** [#57](https://github.com/ffrt-labs/agregado/issues/57)
+**Amended:** 2026-11-16 — the legacy topic-weight scoring input was removed
+(#85). See "Amendment, 2026-11-16" below.
 
 ## Context
 
@@ -106,3 +108,20 @@ Two facts constrain the answer:
   [#62](https://github.com/ffrt-labs/agregado/issues/62).
 - The library is small enough that if it never gains a second consumer, nothing
   was lost: it is the code Agregado would have written anyway.
+
+## Amendment, 2026-11-16: one scoring input left
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)). The decision is
+unchanged; this records that the code now matches it with nothing left over
+from the old scorer.
+
+The legacy scorer took learned `topic_weights` as its preference input. Its
+only writer, the old `POST /api/articles/{id}/feedback` endpoint, was removed,
+and migration 000027 drops the table
+([#241](https://github.com/ffrt-labs/agregado/issues/241)). The live scoring
+path is the Article Index pipeline: `internal/articleindex/service.go` calls
+`ScoreWithPreferences` with the accepted `PREFERENCES.md` version, which stays
+outside the enrichment code as decision 3 requires. The old
+`Score(…, topicWeights)` provider method and `storage.NewEnrichHandler`, its
+RabbitMQ-era caller, are still in the tree, but nothing calls the handler.

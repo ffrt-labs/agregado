@@ -8,6 +8,10 @@
 #
 # Everything the ownership migration leaves behind — Sources, Article bodies,
 # raw newsletter HTML, topic weights, digest history — survives only here.
+# Migrations 000026 and 000027 (#194, #241) drop digest_logs,
+# newsletter_raw_html and topic_weights, so the dump must be taken before they
+# run. On a database where they already ran, the script still works: it counts
+# only the tables that exist and lists the missing ones in the manifest.
 #
 #   scripts/legacy-postgres-dump.sh [output-directory]
 #
@@ -51,7 +55,7 @@ echo "==> stopping ${APP_SERVICE} so the dump is cold"
 docker compose --profile prod stop "$APP_SERVICE" 2>/dev/null || true
 
 # Ask compose for this service, not `docker ps --filter name=`: that filter is a
-# substring match, so agregado-db, agregado-rabbitmq-1 and friends all match
+# substring match, so agregado-db and any other agregado-* container match
 # "agregado" and the check refused to dump even with the app stopped.
 if docker compose --profile prod ps --status running --quiet "$APP_SERVICE" 2>/dev/null | grep -q .; then
 	echo "REFUSING TO DUMP — ${APP_SERVICE} is still running, so the dump would not be cold." >&2
@@ -64,16 +68,25 @@ fi
 # These counts are the restore check's expected values. They are written to the
 # manifest before the dump so a mismatch later is unambiguous.
 echo "==> recording source row counts"
-COUNT_SQL="
-SELECT 'sources', COUNT(*) FROM sources UNION ALL
-SELECT 'articles', COUNT(*) FROM articles UNION ALL
-SELECT 'article_tags', COUNT(*) FROM article_tags UNION ALL
-SELECT 'tags', COUNT(*) FROM tags UNION ALL
-SELECT 'article_feedback', COUNT(*) FROM article_feedback UNION ALL
-SELECT 'newsletter_raw_html', COUNT(*) FROM newsletter_raw_html UNION ALL
-SELECT 'article_index', COUNT(*) FROM article_index UNION ALL
-SELECT 'article_index_feedback', COUNT(*) FROM article_index_feedback UNION ALL
-SELECT 'digest_logs', COUNT(*) FROM digest_logs
+# Tables a later migration drops (digest_logs by 000026; newsletter_raw_html
+# and topic_weights by 000027) are counted only if they still exist, so the
+# script runs on either side of those migrations. The restored database is
+# checked against the same list.
+COUNTED_TABLES="article_feedback article_index article_index_feedback article_tags articles digest_logs newsletter_raw_html sources tags topic_weights"
+PRESENT_TABLES=$(psql -d "$DATABASE_DB" -At -c "
+SELECT t FROM unnest(string_to_array('${COUNTED_TABLES}', ' ')) AS t
+WHERE to_regclass('public.' || t) IS NOT NULL
+ORDER BY 1;")
+MISSING_TABLES=$(comm -23 <(tr ' ' '\n' <<<"$COUNTED_TABLES" | sort) <(sort <<<"$PRESENT_TABLES") | tr '\n' ' ')
+if [[ -z "$PRESENT_TABLES" ]]; then
+	echo "REFUSING TO DUMP — none of the expected tables exist in ${DATABASE_DB}." >&2
+	exit 1
+fi
+if [[ -n "$MISSING_TABLES" ]]; then
+	echo "    not present (already dropped by a migration): ${MISSING_TABLES}"
+fi
+COUNT_SQL=$(while read -r t; do echo "SELECT '${t}', COUNT(*) FROM ${t}"; done <<<"$PRESENT_TABLES" | sed '$!s/$/ UNION ALL/')
+COUNT_SQL="${COUNT_SQL}
 ORDER BY 1;"
 SOURCE_COUNTS=$(psql -d "$DATABASE_DB" -At -F',' -c "$COUNT_SQL")
 
@@ -123,6 +136,10 @@ fi
 	echo
 	echo "row counts at dump time:"
 	echo "$SOURCE_COUNTS" | sed 's/^/  /'
+	if [[ -n "$MISSING_TABLES" ]]; then
+		echo
+		echo "not present at dump time (dropped by a migration): ${MISSING_TABLES}"
+	fi
 } > "$MANIFEST"
 
 echo

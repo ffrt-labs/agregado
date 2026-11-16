@@ -1,8 +1,9 @@
 # Agregado
 
 A single-user personal content pipeline: sources are ingested, enriched with AI,
-filtered, and surfaced — as a curated daily digest and as a browsable feed.
-Content that survives the filter can be promoted into a durable personal archive.
+filtered, and surfaced as a curated daily digest. Content that survives the filter
+can be promoted into a durable personal archive. (Agregado's own browsable web UI was
+removed in #85; whether any browsable surface exists is #63's question.)
 
 This glossary is the project's language. Use these terms exactly; prefer them
 over the alternatives listed under _Avoid_.
@@ -98,6 +99,8 @@ _Avoid_: Preferences (too vague — always the file), Profile (ambiguous outside
 
 **Digest**:
 The curated daily email — AI-selected Articles, read every day. The only push surface.
+Agregado builds each Digest as an immutable artifact; n8n schedules it and sends it.
+Agregado itself neither schedules nor sends email.
 _Avoid_: Newsletter (that is an inbound Source), Roundup
 
 ### The archive

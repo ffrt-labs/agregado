@@ -295,8 +295,9 @@ the intended product rather than reorganizing code scheduled for deletion.
 ## Explicitly deferred decisions
 
 - Sync mechanism between committed n8n JSON and the live n8n instance.
-- Final ownership of the shared `cloudflared` container after Agregado stops
-  receiving public traffic.
+- ~~Final ownership of the shared `cloudflared` container after Agregado stops
+  receiving public traffic.~~ Settled in #240: the connector runs outside this
+  repository (ADR-0008's 2026-11-16 amendment).
 - Summary strategy and final model-routing table, to be decided by #86.
 - Exact SMTP provider, because the architecture requires SMTP-like delivery but
   no provider-specific behavior.

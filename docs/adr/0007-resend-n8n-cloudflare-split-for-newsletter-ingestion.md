@@ -4,6 +4,8 @@
 **Date:** 2026-09-23
 **Supersedes the ingestion half of:** [ADR-0004](0004-newsletter-canonical-url-extraction.md)'s implementation (not its decision — see Consequences), the Cloudflare Email Routing + single-Worker design [Map #95](https://github.com/ffrt-labs/agregado/issues/95) chartered and [#105](https://github.com/ffrt-labs/agregado/issues/105) never got to build
 **Related:** [ADR-0001](0001-tunnel-ingress-is-the-auth-boundary.md) (amended alongside this ADR), [ADR-0006](0006-miniflux-is-the-reader-backend-not-a-service.md) (unaffected — see Consequences)
+**Amended:** 2026-11-16 — the Go email webhook is deleted and the tunnel
+connector runs outside this repository (#85). See "Amendment, 2026-11-16" below.
 **Map:** [Map — Newsletter ingestion redesign: Resend + n8n replace Cloudflare Email Routing](https://github.com/ffrt-labs/agregado/issues/110)
 
 ## Context
@@ -207,3 +209,26 @@ and both the feed entry and `/p/{uuid}` permalink render correctly per
 variant. Failure-path verification (a deliberately malformed fixture) confirms
 the active-alert-on-first-failure behavior and that a Resend-triggered retry
 does not double-write R2/D1.
+
+## Amendment, 2026-11-16: what is left in this repository
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)). The split itself is
+unchanged.
+
+- **Agregado's own email ingestion is gone.** The `/webhook/email` handler
+  (`internal/ingestion/email/webhook.go`) was deleted with the RabbitMQ wiring
+  ([#236](https://github.com/ffrt-labs/agregado/issues/236)), and the storage
+  worker that persisted its Articles and raw HTML went with
+  [#237](https://github.com/ffrt-labs/agregado/issues/237). The Bridge is the
+  only newsletter intake. What remains in Go is the parser package, tested
+  but with no production caller (ADR-0004's 2026-11-16 amendment).
+- **The tunnel connector is not part of this repository's deployment.** The
+  bundled `cloudflared` Compose service and `CLOUDFLARE_TUNNEL_TOKEN` were
+  removed ([#240](https://github.com/ffrt-labs/agregado/issues/240)). The
+  Cloudflare Tunnel connector that carries Resend's webhook to n8n runs outside
+  this repository; Agregado's deploy no longer starts, health-checks or
+  configures it. The ingress rule is still the one ADR-0001's 2026-09-23
+  amendment describes.
+- **What this repository still owns for the Bridge:** the n8n workflow JSON and
+  its sources and tests (`n8n/`), and the slimmed Worker (`email-worker/`).

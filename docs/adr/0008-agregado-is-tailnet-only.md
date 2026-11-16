@@ -211,3 +211,25 @@ to n8n stays, as decision 2 requires.
 2026-09-30 amendment names it, but that record doesn't exist. Feeds are
 served from `email-worker.f11s.workers.dev`, and Miniflux subscribes there.
 Moving them to the custom domain later means updating every Miniflux feed URL.
+
+## Amendment, 2026-11-16: the connector left this repository
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)).
+
+**The `cloudflared` follow-up is settled.** The shared `cloudflared` container
+no longer lives here: the Compose service, `CLOUDFLARE_TUNNEL_TOKEN` and the
+deploy's tunnel health wait were removed
+([#240](https://github.com/ffrt-labs/agregado/issues/240)). The connector that
+serves the Bridge's ingest route runs outside this repository. Its Bridge
+responsibility is unchanged, as this ADR expected.
+
+**The legacy surface this ADR planned to remove is deleted, not just
+unrouted.** The reading UI, admin pages, Source and bookmark pages, internal
+mail and the Digest scheduler are gone
+([#238](https://github.com/ffrt-labs/agregado/issues/238),
+[#239](https://github.com/ffrt-labs/agregado/issues/239)). The routes left
+match the Target exposure table above: the private `/api/private/*` routes
+behind the shared secret, `GET /r/{id}`, `GET /f/{id}/{vote}` and the health
+checks (`internal/api/server.go`). Adminer remains only as a dev-profile
+Compose service and is not part of the production stack.

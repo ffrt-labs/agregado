@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-07-23
 **Issue:** [#2](https://github.com/ffrt-labs/agregado/issues/2)
+**Amended:** 2026-11-16 — raw-HTML persistence, the storage worker and the
+reader-page fallback were removed (#85). See "Amendment, 2026-11-16" below.
 
 ## Context
 
@@ -80,3 +82,36 @@ and is **live-verified** by sending three crafted emails — one with an
 through the real Worker → webhook → parser path, then confirming `canonical_url`,
 the raw-HTML row, and the `/r/{id}` redirect per variant. The crafted emails are
 kept as fixtures — the newsletter corpus the project never had.
+
+## Amendment, 2026-11-16: the storage half is gone; the extraction decision stands
+
+Recorded while removing the superseded system
+([#85](https://github.com/ffrt-labs/agregado/issues/85)).
+[ADR-0007](0007-resend-n8n-cloudflare-split-for-newsletter-ingestion.md)
+moved the implementation of this decision to n8n. The Go-side pieces it left
+behind are now gone or changed:
+
+- **Decision 3, raw-HTML persistence, is gone.** The storage worker that wrote
+  `newsletter_raw_html` was removed
+  ([#237](https://github.com/ffrt-labs/agregado/issues/237)),
+  `domain.Article.RawHTML` was dropped, and migration 000027 drops the table
+  ([#241](https://github.com/ffrt-labs/agregado/issues/241)). Existing rows
+  survive only in the legacy cold dump (`scripts/legacy-postgres-dump.sh`). The
+  "store the raw artifact at the ingestion boundary" lesson still holds: the
+  Bridge stores each newsletter's HTML in R2 (ADR-0007).
+- **Decision 4's last fallback is gone.** The reader page was deleted
+  ([#238](https://github.com/ffrt-labs/agregado/issues/238)). The legacy
+  `GET /r/{id}` handler (`internal/api/articles.go`) redirects to
+  `canonical_url`, else `external_url`, else returns 404. The Consequences
+  line "this is why the reader page cannot be deleted" no longer holds.
+  Newsletters with no web home now have no in-app view; their Bridge
+  permalink is their home.
+- **The Go extraction chain has no production caller.** The `/webhook/email`
+  handler was deleted ([#236](https://github.com/ffrt-labs/agregado/issues/236)).
+  `internal/ingestion/email`'s parser, with `resolveCanonicalURL` and
+  `isCanonicalCandidate`, remains only as tested code. The live chain is
+  n8n's cheerio port (`n8n/src/extract.js`), tested against the same three
+  fixture cases (`n8n/test/fixtures/`).
+
+The extraction decision itself (`Archived-At`, then a "view in browser"
+anchor, then nothing, behind one acceptance predicate) is unchanged.

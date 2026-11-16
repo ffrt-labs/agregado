@@ -2,7 +2,21 @@
 
 > A newsletter/RSS aggregator with pub/sub architecture for learning and daily use.
 
+> **Current state (2026-11-16):** this PRD is the original specification and is
+> kept as history. Much of what it describes was removed in
+> [#85](https://github.com/ffrt-labs/agregado/issues/85) (#236–#241): RabbitMQ,
+> the RSS poller and storage worker, the `/webhook/email` route, the HTMX UI and
+> its `templates/`, Source and bookmark management, OPML import/export and
+> backups, internal SMTP mail, the internal Digest scheduler (`DIGEST_SCHEDULE`),
+> topic weights and the legacy feedback endpoint. Agregado is now a headless,
+> tailnet-only enrichment, Article Index and Digest-artifact service that n8n
+> calls. For the current system read `README.md`,
+> `docs/architecture/agregado.md` and the ADRs (`docs/adr/`), not this file.
+> Sections that describe removed parts carry a short note.
+
 ## Technical Stack
+
+> **Current state (2026-11-16, #85):** RabbitMQ and the HTMX frontend are removed, and email intake moved to the Bridge (ADR-0007). See the note at the top of this file.
 
 | Component | Choice | Justification |
 |-----------|--------|---------------|
@@ -17,6 +31,8 @@
 ---
 
 ## 1. Architecture Overview
+
+> **Current state (2026-11-16, #85):** the diagram and component table below describe the original design. The poller, webhook handler, RabbitMQ, CRON scheduler, SMTP sender and HTMX web UI no longer exist. See `docs/architecture/agregado.md`.
 
 ### System Components
 
@@ -98,6 +114,8 @@
 
 ### Pub/Sub Strategy
 
+> **Current state (2026-11-16, #85):** removed. There is no message broker (#236); n8n orchestrates.
+
 **Why pub/sub fits this problem:**
 1. **Decoupling** - Ingestors (RSS, email) don't need to know about consumers (storage, digest)
 2. **Fan-out** - One article can trigger multiple actions (store, dedupe, future: AI summarize)
@@ -127,6 +145,8 @@ Exchange: digest.trigger (type: direct)
 ### MVP Features
 
 #### F1: RSS Feed Ingestion
+
+> **Current state (2026-11-16, #85):** the poller is removed (#237). Miniflux ingests RSS (ADR-0006).
 **User Story:** As a user, I can add RSS feed URLs and have articles automatically fetched.
 
 **Acceptance Criteria:**
@@ -148,6 +168,8 @@ Exchange: digest.trigger (type: direct)
 - Acknowledge messages only after successful storage
 
 #### F3: Email Newsletter Ingestion
+
+> **Current state (2026-11-16, #85):** Agregado's `/webhook/email` route is removed (#236). The Bridge (Resend, n8n, Cloudflare Worker) ingests newsletters (ADR-0007).
 **User Story:** As a user, I can forward newsletters to a dedicated email and have them appear as articles.
 
 **Hybrid Processing Approach:**
@@ -286,6 +308,8 @@ already in hand — it just isn't read.
 - A newly-seen newsletter still auto-creates its source on first email.
 
 #### F4: Daily Digest Email
+
+> **Current state (2026-11-16, #85):** Agregado no longer schedules or sends the Digest (#239). It builds an immutable Digest artifact on `POST /api/private/digests`; n8n schedules and sends it.
 **User Story:** As a user, I receive a daily email with top articles from the last 24 hours, organized by topic.
 
 **Structure:**
@@ -349,6 +373,8 @@ Daily Digest
 - `GET /` never blocks on a cold digest cache; it shows a "generating" state and the digest appears on a subsequent load once the background compute finishes.
 
 #### F5: Web UI - Browse Articles
+
+> **Current state (2026-11-16, #85):** the whole web UI (F5 to F5.3, F13) and its `templates/` are removed (#238). Only the `GET /r/{id}` redirect and `GET /f/{id}/{vote}` remain.
 **User Story:** As a user, I can browse all my articles in a clean web interface.
 
 **Acceptance Criteria:**
@@ -422,6 +448,8 @@ Additionally, newsletters have **no external page** — their body lives in
 - Opening an article records it as read without a separate click.
 
 #### F6: Source Management UI
+
+> **Current state (2026-11-16, #85):** Source management, OPML import/export (F6.1) and the emailed OPML backup (F6.2) are removed (#238, #239, #240). Miniflux owns Sources.
 **User Story:** As a user, I can manage my RSS feeds and see their status.
 
 **Acceptance Criteria:**
@@ -533,6 +561,8 @@ log raw classifier output; feed richer content; support multiple tags.
 > `distilled_content` instead of the first 500 chars of raw HTML.
 
 #### F9: Admin Console — Tag Settings (AI logs and prompt editor retired)
+
+> **Current state (2026-11-16, #85):** the admin console is removed (#238).
 **User Story:** As the operator, I can manage the tag taxonomy from an `/admin`
 area; the categorize prompt's allowed slugs come from the live tags.
 
@@ -585,6 +615,8 @@ accumulate forever with no cleanup.
   via `POST /api/retention/run`.
 
 #### F11: Personalization — Implicit Feedback & Topic Cloud
+
+> **Current state (2026-11-16, #85):** topic weights and the legacy feedback endpoint are removed (#241). Scoring uses `PREFERENCES.md` (ADR-0010).
 **User Story:** As a user, the app learns what I like from what I *open* (not just
 what I vote on), builds a "nuvem de assuntos" (topic cloud) of my interests, and
 uses it to score future articles higher.
@@ -896,6 +928,8 @@ no implicit feedback from `/r/{id}` opens yet (Phase 12.4); `sources.default_tag
 is another dead column, noted but not fixed here.
 
 #### F17: Producer-Side Observability (Structured Logging + Failure Visibility)
+
+> **Current state (2026-11-16, #85):** the dead-letter consumer and the `broker`, `deadletter`, `poller` and `backup` log components are removed with their code (#236, #237, #240). Structured logging is unchanged.
 **User Story:** As the operator, I can tell when Agregado breaks — from stdout
 alone, at the moment it happens, without a manual `SELECT count(*)`.
 
@@ -1298,6 +1332,8 @@ CREATE INDEX idx_social_digests_date ON social_digests(digest_date DESC);
 
 ### API Endpoints
 
+> **Current state (2026-11-16, #85):** most endpoints below are removed. The live routes are listed in `README.md` ("HTTP surface").
+
 ```
 # Sources
 GET    /api/sources              - List all sources
@@ -1370,6 +1406,8 @@ DELETE /api/admin/tags/{id}      - Delete tag
 ```
 
 ### Message Format (RabbitMQ)
+
+> **Current state (2026-11-16, #85):** removed with RabbitMQ (#236).
 
 ```json
 {
@@ -1491,6 +1529,8 @@ INSERT INTO preferences (key, value) VALUES (
 ---
 
 ## 4. Key Go Libraries
+
+> **Current state (2026-11-16, #85):** the RabbitMQ (`amqp091-go`), SMTP (`go-mail`), feed-parsing (`gofeed`) and cron (`robfig/cron`) dependencies are removed; `go.mod` is authoritative.
 
 | Purpose | Library | Why |
 |---------|---------|-----|

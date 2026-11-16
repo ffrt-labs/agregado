@@ -67,9 +67,6 @@ func (p *Parser) Parse(payload Payload) (*domain.Article, SenderInfo, error) {
 		// sentinel only to satisfy a NOT NULL column (issue #3).
 		Author: &author,
 		CanonicalURL: resolveCanonicalURL(payload.Headers, payload.Html),
-		// Persist the raw HTML as ingestion provenance so the extraction
-		// heuristic above can be re-run against real mail later (issue #2).
-		RawHTML: payload.Html,
 	}, sender, nil
 }
 

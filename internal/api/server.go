@@ -35,15 +35,8 @@ func NewServer(db *storage.DB, minRelevanceScore int, articleIndexHandler *artic
 	}
 
 	articleRepo := storage.NewArticleRepo(db)
-	feedbackRepo := storage.NewFeedbackRepo(db)
 	explicitFeedbackRepo := storage.NewExplicitFeedbackRepo(db)
-	weightsRepo := storage.NewTopicWeightsRepo(db)
 	articlesHandler := NewArticleHandler(articleRepo)
-	feedbackHandler := NewFeedbackHandler(
-		feedbackRepo,
-		weightsRepo,
-		articleRepo,
-	)
 	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, explicitFeedbackRepo, scores)
 
 	s := &Server{
@@ -75,8 +68,6 @@ func NewServer(db *storage.DB, minRelevanceScore int, articleIndexHandler *artic
 		r.Get("/r/{id}", articlesHandler.Open)
 	}
 	r.Get("/f/{id}/{vote}", explicitFeedbackHandler.Handle)
-
-	r.Post("/api/articles/{id}/feedback", feedbackHandler.Handle)
 
 	return s
 }

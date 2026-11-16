@@ -38,10 +38,6 @@ func TestParseNewsletterFixtures(t *testing.T) {
 				t.Fatalf("Parse: %v", err)
 			}
 
-			if payload.Html != "" && article.RawHTML != payload.Html {
-				t.Errorf("RawHTML not carried through for %s", tc.file)
-			}
-
 			switch {
 			case tc.want == "" && article.CanonicalURL != nil:
 				t.Errorf("CanonicalURL = %q, want nil", *article.CanonicalURL)
@@ -153,20 +149,6 @@ func TestParseCanonicalURL(t *testing.T) {
 				t.Errorf("CanonicalURL = %q, want %q", *article.CanonicalURL, tc.want)
 			}
 		})
-	}
-}
-
-// TestParsePersistsRawHTML proves Parse carries the original HTML forward on
-// the Article so the worker can persist it (issue #2) rather than html2text
-// discarding it at the boundary as before.
-func TestParsePersistsRawHTML(t *testing.T) {
-	html := `<html><body><p>Hello</p></body></html>`
-	article, _, err := NewParser().Parse(Payload{Html: html})
-	if err != nil {
-		t.Fatalf("Parse returned error: %v", err)
-	}
-	if article.RawHTML != html {
-		t.Errorf("RawHTML = %q, want %q", article.RawHTML, html)
 	}
 }
 

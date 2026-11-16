@@ -151,7 +151,9 @@ json-enc scripts.
   `GET /api/digest/preview` (already returns HTML).
 - Digest **history**: lists `digest_logs`. **Backend dependency:** digest-history
   logging (TODO 3.3) is deferred/not implemented, so history is empty until that
-  lands — show an empty state. Health + preview + send-now work with existing
+  lands — show an empty state. *(Superseded: `digest_logs` and `digest_articles`
+  were dropped by migration 000026 (#194); `digest_artifacts` is the Digest
+  record now, and this UI was removed in #238.)* Health + preview + send-now work with existing
   endpoints, no new backend.
 
 ### Out of scope (recommended next)

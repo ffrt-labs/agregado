@@ -13,7 +13,6 @@ Agregado is a personal project to learn distributed systems patterns while build
 | Backend | Go | Performance, simplicity, excellent concurrency |
 | Message Broker | RabbitMQ | Classic AMQP patterns, enterprise-relevant |
 | Database | PostgreSQL | Full-featured, scalable, industry standard |
-| Frontend | HTMX + Go templates | Minimal JS, stays in Go ecosystem |
 | Email Intake | Webhooks (Cloudflare Email Routing) | Event-driven, aligns with pub/sub goals |
 | AI Inference | Cloudflare Workers AI | Scoring, summarization, digest overview |
 | Deployment | Docker Compose | Self-hosted, reproducible |
@@ -224,7 +223,6 @@ agregado/
 │   └── storage/           # PostgreSQL repositories
 ├── evals/                 # Python Langfuse experiment harness (see evals/README.md)
 ├── migrations/            # Database migrations (golang-migrate)
-├── templates/             # HTMX + Go HTML templates
 ├── docker/                # Dockerfile
 └── docs/                  # PRD, ADRs, roadmap archive, study log
 ```
@@ -244,7 +242,7 @@ agregado/
 1. **Pub/Sub patterns** — Message queues, exchanges, consumers, dead-letter queues
 2. **Go concurrency** — Goroutines, channels, graceful shutdown
 3. **Database design** — Migrations, indexes, full-text search, upsert patterns
-4. **API design** — RESTful patterns, HTMX hypermedia, HMAC token validation
+4. **API design** — RESTful patterns, HMAC token validation
 5. **AI integration** — Provider interfaces, prompt engineering, feedback loops
 6. **DevOps basics** — Docker, health checks, Cloudflare Workers
 

@@ -14,6 +14,5 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 
 WORKDIR /app
 COPY --from=builder /bin/agregado .
-COPY --from=builder /app/templates ./templates/
 CMD ["/app/agregado"]
 EXPOSE 8080

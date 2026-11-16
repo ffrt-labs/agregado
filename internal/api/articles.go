@@ -9,7 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// ArticleOpener is what the legacy Open needs: find the Article, then mark it read.
+// ArticleOpener is what Open, the fallback for pre-Article-Index links, needs:
+// find the Article, then mark it read.
 type ArticleOpener interface {
 	GetById(ctx context.Context, id string) (*domain.Article, error)
 	MarkRead(ctx context.Context, id string) error
@@ -39,7 +40,7 @@ func webURL(a *domain.Article) (string, bool) {
 	return "", false
 }
 
-// Open is the click-through for legacy Article links (GET /r/{id}) that the
+// Open is the fallback for pre-Article-Index links (GET /r/{id}) — ids the
 // Article Index does not know: it marks the article read and redirects to its
 // web home. The in-app reader page was removed (#238), so an Article with no
 // web home has nowhere to go and is a 404.

@@ -11,7 +11,7 @@ import (
 // (#238), and the topic_weights table that endpoint nudged is dropped (#241).
 // Explicit feedback lives at /f/{id}/{vote} on the Article Index instead.
 func TestServerNoLongerRoutesLegacyArticleFeedback(t *testing.T) {
-	s := NewServer(nil, 0, nil, nil, nil, nil, nil, nil)
+	s := NewServer(nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/articles/abc/feedback", strings.NewReader(`{"vote":"up"}`))
 	rec := httptest.NewRecorder()

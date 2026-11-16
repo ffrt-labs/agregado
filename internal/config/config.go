@@ -27,10 +27,6 @@ type Logging struct {
 	Format string `env:"LOG_FORMAT" envDefault:"json"`
 }
 
-type Webhook struct {
-	Secret string `env:"WEBHOOK_SECRET" envDefault:"dev-secret-change-in-production"`
-}
-
 // Enrichment protects the n8n-to-Agregado ingress. It is intentionally
 // distinct from the email bridge secret: the two callers have different trust
 // boundaries and must be independently revocable.
@@ -39,12 +35,9 @@ type Enrichment struct {
 }
 
 type Digest struct {
-	MaxArticles       int `env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
-	LookbackHours     int `env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
 	MinRelevanceScore int `env:"DIGEST_MIN_SCORE" envDefault:"3"`
-	// BaseURL is the public origin (e.g. https://agregado.example.com) used to
-	// build absolute links in the digest email — relative links don't resolve
-	// inside a mail client.
+	// BaseURL is the origin used to build the Digest artifact's absolute
+	// links ({base}/r/{article-id} and the /f/{article-id}/up|down vote links).
 	BaseURL string `env:"PUBLIC_BASE_URL" envDefault:"http://localhost:8080"`
 }
 
@@ -112,7 +105,6 @@ type Config struct {
 	Database
 	Http
 	Logging
-	Webhook
 	Enrichment
 	Digest
 	AI

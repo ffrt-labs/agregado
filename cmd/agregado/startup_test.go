@@ -11,8 +11,8 @@ import (
 )
 
 // safeFields are the config values startup is allowed to put on the wire. Every
-// other string in Config — DB password, Cloudflare API
-// token, SMTP password, webhook secret — is either a credential today or one
+// other string in Config — DB password, Cloudflare API token, enrichment
+// secret, Langfuse secret key — is either a credential today or one
 // bad rename away from being one, so the test treats "not on this list" as
 // "must not appear in the log".
 var safeFields = map[string]bool{

@@ -42,38 +42,3 @@ func (r *TagRepo) CategorySlugs(ctx context.Context) ([]string, error) {
 	}
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
-
-func (r *TagRepo) FindByID(ctx context.Context, id string) (*domain.Tag, error) {
-	rows, err := r.db.pool.Query(ctx, "SELECT * FROM tags WHERE id = $1", id)
-	if err != nil {
-		return nil, err
-	}
-	tag, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[domain.Tag])
-	if err != nil {
-		return nil, err
-	}
-	return &tag, nil
-}
-
-func (r *TagRepo) Create(ctx context.Context, name, slug, color string) error {
-	_, err := r.db.pool.Exec(
-		ctx,
-		"INSERT INTO tags (name, slug, color) VALUES ($1, $2, $3)",
-		name, slug, color,
-	)
-	return err
-}
-
-func (r *TagRepo) Update(ctx context.Context, id, name, slug, color string) error {
-	_, err := r.db.pool.Exec(
-		ctx,
-		"UPDATE tags SET name = $2, slug = $3, color = $4, updated_at = NOW() WHERE id = $1",
-		id, name, slug, color,
-	)
-	return err
-}
-
-func (r *TagRepo) Delete(ctx context.Context, id string) error {
-	_, err := r.db.pool.Exec(ctx, "DELETE FROM tags WHERE id = $1", id)
-	return err
-}

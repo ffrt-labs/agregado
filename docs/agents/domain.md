@@ -17,8 +17,8 @@ Single-context repo:
 /
 ├── CONTEXT.md
 ├── docs/adr/
-│   ├── 0001-postgres-storage.md
-│   └── 0002-rabbitmq-broker.md
+│   ├── 0001-tunnel-ingress-is-the-auth-boundary.md
+│   └── 0002-no-database-backed-tests.md
 └── internal/
 ```
 

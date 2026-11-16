@@ -30,6 +30,6 @@ func (p *CloudflareProvider) categorize(ctx context.Context, title, content stri
 	if err != nil {
 		return slug, false, err
 	}
-	// Same normalisation the tag lookup applies (storage.categorizeArticle).
+	// Normalise the slug (trim, lower-case) before matching it against the allowed set.
 	return slug, slices.Contains(slugs, strings.TrimSpace(strings.ToLower(slug))), nil
 }

@@ -98,7 +98,7 @@ func main() {
 	preferenceExportHandler := preferenceexport.NewHandler(cfg.Enrichment.Secret, articleIndexRepo)
 	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo, scores)
 
-	server := api.NewServer(db, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
+	server := api.NewServer(db, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
 
 	go server.Start(ctx, cfg.Http.Port)
 

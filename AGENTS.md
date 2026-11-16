@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Agregado is a newsletter/RSS aggregator with pub/sub architecture.
+Agregado is a headless, single-user Go service that enriches and scores Articles and builds the daily Digest; Miniflux, n8n and the Bridge do the rest.
 
 ---
 

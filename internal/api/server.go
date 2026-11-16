@@ -22,7 +22,7 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func NewServer(db *storage.DB, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
+func NewServer(db *storage.DB, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,

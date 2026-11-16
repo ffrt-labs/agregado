@@ -6,6 +6,7 @@
 **Related:** [ADR-0001](0001-tunnel-ingress-is-the-auth-boundary.md) (amended alongside this ADR), [ADR-0006](0006-miniflux-is-the-reader-backend-not-a-service.md) (unaffected — see Consequences)
 **Amended:** 2026-11-16 — the Go email webhook is deleted and the tunnel
 connector runs outside this repository (#85). See "Amendment, 2026-11-16" below.
+**Amended:** 2026-11-16 — Resend delivers to `ingest.felipefreitas.dev` (#235). See ADR-0001's amendment of that date.
 **Map:** [Map — Newsletter ingestion redesign: Resend + n8n replace Cloudflare Email Routing](https://github.com/ffrt-labs/agregado/issues/110)
 
 ## Context
@@ -232,3 +233,14 @@ unchanged.
   amendment describes.
 - **What this repository still owns for the Bridge:** the n8n workflow JSON and
   its sources and tests (`n8n/`), and the slimmed Worker (`email-worker/`).
+
+## Amendment, 2026-11-16: Resend delivers to `ingest.felipefreitas.dev`
+
+Recorded with the hostname rename
+([#235](https://github.com/ffrt-labs/agregado/issues/235)).
+
+"The vacated ingest hostname" in the Decision above is no longer
+`agregado.felipefreitas.dev`. The Resend webhook now points at
+`https://ingest.felipefreitas.dev/webhook/resend-<random-suffix>`, with the
+same path and the same Svix verification. ADR-0001's amendment of this date
+has the ingress detail. The tunnel connector runs in `ffrt-labs/homelab-apps`.

@@ -27,10 +27,6 @@ type Logging struct {
 	Format string `env:"LOG_FORMAT" envDefault:"json"`
 }
 
-type Pooler struct {
-	Interval time.Duration `env:"RSS_POLL_INTERVAL" envDefault:"15m"`
-}
-
 type Webhook struct {
 	Secret string `env:"WEBHOOK_SECRET" envDefault:"dev-secret-change-in-production"`
 }
@@ -116,7 +112,6 @@ type Config struct {
 	Database
 	Http
 	Logging
-	Pooler
 	Webhook
 	Enrichment
 	Digest

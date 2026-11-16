@@ -20,7 +20,6 @@ func startupFields(cfg *config.Config) []any {
 		"ai_model", cfg.AI.Model,
 		"log_level", cfg.Level,
 		"log_format", cfg.Format,
-		"rss_poll_interval", cfg.Pooler.Interval.String(),
 	}
 }
 

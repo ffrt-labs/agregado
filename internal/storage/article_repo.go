@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/domain"
@@ -94,36 +93,6 @@ func (r *ArticleRepo) ListBySource(ctx context.Context, id string, limit, offset
 	}
 
 	return articles, nil
-}
-
-func (r *ArticleRepo) Create(ctx context.Context, article domain.Article) (string, error) {
-	row := r.db.pool.QueryRow(
-		ctx,
-		"INSERT INTO articles(source_id, external_url, title, author, summary, content, content_hash, published_at, word_count, estimated_read_minutes, canonical_url) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (external_url) DO NOTHING RETURNING id",
-		article.SourceID,
-		article.ExternalURL,
-		article.Title,
-		article.Author,
-		article.Summary,
-		article.Content,
-		article.ContentHash,
-		article.PublishedAt,
-		article.WordCount,
-		article.EstimatedReadMinutes,
-		article.CanonicalURL,
-	)
-
-	var id string
-	err := row.Scan(&id)
-
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return "", err
-	}
-
-	return id, nil
 }
 
 func (r *ArticleRepo) Delete(ctx context.Context, id string) error {

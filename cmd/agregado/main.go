@@ -11,16 +11,13 @@ import (
 	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/api"
 	"github.com/felipeafreitas/agregado/internal/articleindex"
-	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
 	"github.com/felipeafreitas/agregado/internal/config"
-	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/fetch"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
 	"github.com/felipeafreitas/agregado/internal/langfuse"
 	"github.com/felipeafreitas/agregado/internal/logging"
-	"github.com/felipeafreitas/agregado/internal/mail"
 	"github.com/felipeafreitas/agregado/internal/preferenceexport"
 	"github.com/felipeafreitas/agregado/internal/preferences"
 	"github.com/felipeafreitas/agregado/internal/storage"
@@ -145,22 +142,6 @@ func main() {
 	preferenceExportHandler := preferenceexport.NewHandler(cfg.Enrichment.Secret, articleIndexRepo)
 	articleIndexOpenHandler := preferenceexport.NewOpenHandler(articleIndexRepo, scores)
 
-	ranker := digest.NewRanker(
-		articleRepo,
-		tagRepo,
-		cfg.Digest.MaxArticles,
-		cfg.Digest.MinRelevanceScore,
-	)
-	generator, err := digest.NewDefaultGenerator(provider, cfg.Digest.BaseURL)
-
-	if err != nil {
-		fatal("failed to create generator", err)
-	}
-
-	mailer := mail.NewMailer(cfg.SMTP)
-	scheduler := digest.NewScheduler(ranker, generator, mailer, sourceRepo, cfg.Digest)
-	backupScheduler := backup.NewScheduler(sourceRepo, mailer, cfg.Backup)
-
 	parser := rss.NewParser()
 	poller := rss.NewPoller(sourceRepo, parser, publisher, cfg.Pooler.Interval)
 
@@ -170,15 +151,10 @@ func main() {
 	enrichHandler := storage.NewEnrichHandler(articleRepo, sourceRepo, articleRepo, fetcher, provider, tagRepo, articleRepo, provider, articleRepo, weightsRepo, cfg.Digest.MinRelevanceScore, cfg.Fetch.DistillMaxChars)
 	dlqHandler := broker.NewDeadLetterHandler()
 
-	server := api.NewServer(b, db, cfg.Webhook.Secret, scheduler, backupScheduler, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
+	server := api.NewServer(b, db, cfg.Webhook.Secret, poller, provider, cfg.Digest.MinRelevanceScore, articleIndexHandler, digestArtifactHandler, preferenceExportHandler, articleIndexOpenHandler, preferencesHandler, scores)
 
 	go poller.Start(ctx)
 	go server.Start(ctx, cfg.Http.Port)
-	go func() {
-		if err := backupScheduler.Start(ctx); err != nil {
-			fatal("failed to start backup scheduler", err)
-		}
-	}()
 	// A consumer that fails to attach leaves its queue with no reader: messages
 	// pile up silently and the process looks healthy the whole time — the exact
 	// failure mode the dead-letter drain exists to close, one level up. Fail

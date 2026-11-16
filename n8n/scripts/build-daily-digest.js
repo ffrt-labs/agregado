@@ -10,8 +10,7 @@ const OUT = path.join(__dirname, "..", "workflows", "daily-digest.json");
 
 const codeNode = (name, position, needs, body) => codeNodeFor(SRC, name, position, needs, body);
 
-// Matches DIGEST_SCHEDULE's default (internal/config/config.go) — the legacy
-// scheduler this workflow replaces (#85) used the same cron string.
+// n8n owns the digest's schedule; Agregado no longer schedules one (#85).
 const DIGEST_CRON = "0 8 * * *";
 // The cron is read in this workflow's timezone. n8n's instance default
 // (GENERIC_TIMEZONE, America/Chicago in homelab-apps) made 08:00 land at

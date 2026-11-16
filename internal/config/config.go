@@ -50,32 +50,13 @@ type Enrichment struct {
 }
 
 type Digest struct {
-	RecipientEmail    string `env:"DIGEST_RECIPIENT_EMAIL" envDefault:""`
-	Schedule          string `env:"DIGEST_SCHEDULE" envDefault:"0 8 * * *"`
-	MaxArticles       int    `env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
-	LookbackHours     int    `env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
-	MinRelevanceScore int    `env:"DIGEST_MIN_SCORE" envDefault:"3"`
+	MaxArticles       int `env:"DIGEST_MAX_ARTICLES" envDefault:"20"`
+	LookbackHours     int `env:"DIGEST_LOOKBACK_HOURS" envDefault:"24"`
+	MinRelevanceScore int `env:"DIGEST_MIN_SCORE" envDefault:"3"`
 	// BaseURL is the public origin (e.g. https://agregado.example.com) used to
 	// build absolute links in the digest email — relative links don't resolve
 	// inside a mail client.
 	BaseURL string `env:"PUBLIC_BASE_URL" envDefault:"http://localhost:8080"`
-}
-
-type SMTP struct {
-	Host     string `env:"SMTP_HOST" envDefault:"smtp.gmail.com"`
-	Port     int    `env:"SMTP_PORT" envDefault:"587"`
-	Username string `env:"SMTP_USERNAME" envDefault:""`
-	Password string `env:"SMTP_PASSWORD" envDefault:""`
-	FromName string `env:"SMTP_FROM_NAME" envDefault:"Agregado Digest"`
-	FromMail string `env:"SMTP_FROM_MAIL" envDefault:""`
-}
-
-type Backup struct {
-	RecipientEmail string `env:"BACKUP_RECIPIENT_EMAIL" envDefault:""`
-	// Schedule defaults to weekly (Sun 03:00) — sources change rarely, unlike
-	// the daily digest content. A set-but-empty BACKUP_SCHEDULE also gets this
-	// default (env/v10 treats "" like unset when envDefault is present).
-	Schedule string `env:"BACKUP_SCHEDULE" envDefault:"0 3 * * 0"`
 }
 
 // Karakeep is the Bookmarker's REST API, used only by the ownership migration
@@ -147,9 +128,7 @@ type Config struct {
 	Webhook
 	Enrichment
 	Digest
-	SMTP
 	AI
-	Backup
 	Fetch
 	Karakeep
 }

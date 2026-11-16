@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/ai"
 	"github.com/felipeafreitas/agregado/internal/articleindex"
-	"github.com/felipeafreitas/agregado/internal/backup"
 	"github.com/felipeafreitas/agregado/internal/broker"
-	"github.com/felipeafreitas/agregado/internal/digest"
 	"github.com/felipeafreitas/agregado/internal/digestartifact"
 	"github.com/felipeafreitas/agregado/internal/ingestion/email"
 	"github.com/felipeafreitas/agregado/internal/ingestion/rss"
@@ -25,14 +22,12 @@ import (
 )
 
 type Server struct {
-	broker          *broker.Broker
-	db              *storage.DB
-	httpServer      *http.Server
-	scheduler       *digest.Scheduler
-	backupScheduler *backup.Scheduler
+	broker     *broker.Broker
+	db         *storage.DB
+	httpServer *http.Server
 }
 
-func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler *digest.Scheduler, backupScheduler *backup.Scheduler, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
+func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, pooler *rss.Poller, provider ai.Provider, minRelevanceScore int, articleIndexHandler *articleindex.Handler, digestArtifactHandler *digestartifact.Handler, preferenceExportHandler *preferenceexport.Handler, articleIndexOpenHandler *preferenceexport.OpenHandler, preferencesHandler *preferences.Handler, scores telemetry.ScoreSink) *Server {
 	r := chi.NewRouter()
 	r.Use(
 		middleware.RequestID,
@@ -66,11 +61,9 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 	explicitFeedbackHandler := NewExplicitFeedbackHandler(explicitFeedbackRepo, explicitFeedbackRepo, scores)
 
 	s := &Server{
-		broker:          b,
-		db:              db,
-		httpServer:      &httpServer,
-		scheduler:       scheduler,
-		backupScheduler: backupScheduler,
+		broker:     b,
+		db:         db,
+		httpServer: &httpServer,
 	}
 
 	r.Get("/health", s.healthHandler)
@@ -92,11 +85,6 @@ func NewServer(b *broker.Broker, db *storage.DB, webhookSecret string, scheduler
 		r.Put("/api/private/preferences", preferencesHandler.Put)
 		r.Post("/api/private/preferences/regenerate", preferencesHandler.Regenerate)
 	}
-
-	r.Post("/api/digest/send", s.Send)
-	r.Get("/api/digest/preview", s.Preview)
-
-	r.Post("/api/backup/send", s.SendBackup)
 
 	if articleIndexOpenHandler != nil {
 		r.Get("/r/{id}", articleIndexOpenHandler.HandleOr(articlesHandler.Open))
@@ -164,51 +152,4 @@ func (s *Server) Start(ctx context.Context, port string) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
-}
-
-func (s *Server) Send(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	err := s.scheduler.Send(ctx)
-
-	if err != nil {
-		slog.Error("digest send error", "component", "api", "err", err)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) SendBackup(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	err := s.backupScheduler.Send(ctx)
-
-	if err != nil {
-		slog.Error("backup send error", "component", "api", "err", err)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) Preview(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-
-	preview, err := s.scheduler.Preview(ctx)
-
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, preview.HTML)
 }

@@ -25,7 +25,7 @@ test("the trigger is a schedule, not a webhook: this workflow has no inbound HTT
 	assert.equal(workflow.nodes.some((n) => n.type === "n8n-nodes-base.webhook"), false);
 });
 
-test("the schedule matches DIGEST_SCHEDULE's default (internal/config/config.go)", () => {
+test("the schedule fires daily at 08:00", () => {
 	const trigger = workflow.nodes.find((n) => n.type === "n8n-nodes-base.scheduleTrigger");
 	assert.equal(trigger.parameters.rule.interval[0].expression, "0 8 * * *");
 });

@@ -224,11 +224,10 @@ deferred decision (`docs/architecture/ecosystem.md`, "Explicitly deferred
 decisions") — this workflow uses n8n's generic `emailSend` node rather than a
 provider-specific one so that choice stays open.
 
-The schedule node's cron expression (`0 8 * * *`) matches `DIGEST_SCHEDULE`'s
-default (`internal/config/config.go`) — the legacy scheduler this workflow
-replaces (#85, once #84 cuts over). It is not read from that env var; n8n's
-Schedule Trigger has no `$env` access of its own, so keep the two in sync by
-hand if `DIGEST_SCHEDULE` ever changes.
+n8n owns the digest's schedule: the schedule node's cron expression
+(`0 8 * * *`, Europe/Berlin) is the only place it is set. Agregado no longer
+schedules or sends a digest (#85); change the cron in
+`scripts/build-daily-digest.js` and run `npm run build`.
 
 Environment on the n8n container, preferences sync (#191) — shares
 `AGREGADO_BASE_URL`, `ENRICHMENT_SECRET` and `BRIDGE_ALERT_URL` with the
@@ -415,7 +414,6 @@ live exercise.
 - Article enrichment's retry loop caps at 3 attempts (2s/4s/8s backoff) and
   then alerts; there is no separate reconciliation pass — deliberately out of
   scope per #144 (a follow-up ticket once this fast path is live and proven).
-- Daily digest's schedule (`0 8 * * *`) is not read from `DIGEST_SCHEDULE` —
-  n8n's Schedule Trigger node has no `$env` access, so the two must be kept in
-  sync by hand if the env var ever changes. Same for a reconciliation pass:
-  none exists (N/A per the issue — the daily schedule is the only trigger).
+- Daily digest's schedule (`0 8 * * *`) is hard-coded in the workflow; n8n's
+  Schedule Trigger node has no `$env` access. There is no reconciliation pass
+  (N/A per the issue — the daily schedule is the only trigger).

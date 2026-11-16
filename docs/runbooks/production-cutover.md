@@ -102,6 +102,11 @@ subscription to `<alias>@<receiving-domain>`, and a Miniflux subscription to
 inserted by hand with wrangler, and the SQL was not kept in the repo. Mail
 that reaches a Source before it is `active` is ignored, not held.
 
+The feeds are on the `workers.dev` host because `bridge.felipefreitas.dev`
+has no DNS record yet ([ADR-0008](../adr/0008-agregado-is-tailnet-only.md)).
+For the matching n8n `BRIDGE_ORIGIN` and `verify-ingest.sh` `BRIDGE_HOST`
+values, see [n8n/README.md](../../n8n/README.md#configuration-n8n).
+
 Adding one later follows
 [newsletter-source-onboarding.md](newsletter-source-onboarding.md). #225
 tracks a small app to automate it.

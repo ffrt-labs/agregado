@@ -23,14 +23,9 @@ Run `gh issue view <number> --comments`.
 
 ## Authentication
 
-The sandbox proxy injects real GitHub credentials for `api.github.com`, but `gh`
-refuses to start without *some* token in the environment and its error message
-("please run gh auth login") reads like an auth failure. Set any placeholder —
-the proxy substitutes the real credential:
-
-```bash
-export GH_TOKEN=proxy-injected   # value is irrelevant
-```
+Leave `GH_TOKEN` unset. The sandbox proxy injects real GitHub credentials for
+`api.github.com`. If you set a placeholder token, `gh` sends it as a bad
+credential and every call fails with `HTTP 401: Bad credentials`.
 
 Verify with a **read** (`gh issue list`), never `gh auth status`, which reports
 "not logged in" even when credentials are being injected — and never with a

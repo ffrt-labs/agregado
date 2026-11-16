@@ -195,9 +195,19 @@ Environment on the n8n container, article enrichment (#144) — shares
 | Variable | Purpose |
 |---|---|
 | `MINIFLUX_WEBHOOK_SECRET` | verifies `X-Miniflux-Signature` on the `new_entries` webhook |
-| `BRIDGE_ORIGIN` | e.g. `https://bridge.example.com`; matches an entry's URL against `{BRIDGE_ORIGIN}/p/{uuid}` to recognise a Bridge permalink |
+| `BRIDGE_ORIGIN` | the Bridge's origin, with scheme: `https://email-worker.f11s.workers.dev` (see below); matches an entry's URL against `{BRIDGE_ORIGIN}/p/{uuid}` to recognise a Bridge permalink |
 | `AGREGADO_BASE_URL` | Agregado's tailnet base URL (ADR-0008); `/api/private/articles/enrich` is appended |
 | `ENRICHMENT_SECRET` | shared secret sent as `X-Enrichment-Secret` (`docs/article-index-api.md`) |
+
+**The Bridge's host.** Feeds and permalinks are served from
+`email-worker.f11s.workers.dev`. The intended hostname is
+`bridge.felipefreitas.dev`, but its DNS record doesn't exist yet (ADR-0008,
+2026-09-30 and 2026-11-14 amendments). `BRIDGE_ORIGIN` must be the origin
+Miniflux subscribes to, or no permalink matches. `scripts/verify-ingest.sh`
+takes the same host as `BRIDGE_HOST`, which is the hostname only, without a
+scheme: `email-worker.f11s.workers.dev`, not `https://email-worker.f11s.workers.dev`.
+Moving to the custom domain means changing both values and every Miniflux feed
+URL.
 
 Credentials to select after import: none beyond `Cloudflare API` (D1 edit,
 shared with newsletter ingest) — the enrich and Miniflux-facing calls use

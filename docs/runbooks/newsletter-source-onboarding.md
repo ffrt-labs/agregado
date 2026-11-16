@@ -24,8 +24,12 @@ Resend's dashboard.
    ```
 
    Activation is manual on purpose: confirmation mails vary too much to auto-detect.
-5. **Subscribe in Miniflux** to `https://<bridge-host>/feed/tldr.atom` with Basic auth
-   (any username, `$SECRET` as password).
+5. **Subscribe in Miniflux** to `https://email-worker.f11s.workers.dev/feed/tldr.atom`
+   with Basic auth (any username, `$SECRET` as password). That is the Bridge's
+   host until `bridge.felipefreitas.dev` gets its DNS record
+   ([ADR-0008](../adr/0008-agregado-is-tailnet-only.md)); see
+   [n8n/README.md](../../n8n/README.md#configuration-n8n)
+   for why the article-enrichment workflow's `BRIDGE_ORIGIN` must match it.
 
 Mail to an unregistered alias is dropped without alert. A `pending` Source's mail is
 dropped too, so re-request the confirmation if it arrived before step 1.

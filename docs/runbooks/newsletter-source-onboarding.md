@@ -33,3 +33,28 @@ Resend's dashboard.
 
 Mail to an unregistered alias is dropped without alert. A `pending` Source's mail is
 dropped too, so re-request the confirmation if it arrived before step 1.
+
+## Find an entry's id
+
+An entry's id is the SHA-256 of the Message-ID **as received from Resend**, with
+the `<>` stripped. Resend rewrites the Message-ID on inbound
+(`...@eu-west-1.amazonses.com`), so you cannot derive the id from the mail as
+sent. Two ways to get it:
+
+- **From the delivered Message-ID.** Open the n8n execution for the mail and
+  copy the `Message-ID` header from the output of the `Fetch email` node (the
+  webhook body itself carries no headers), then:
+
+  ```sh
+  printf %s 'id@host' | sha256sum | cut -d' ' -f1
+  ```
+
+  Pass the value without the angle brackets.
+- **From D1.** Look the entry up by Source and title:
+
+  ```sh
+  npx wrangler d1 execute bridge --remote --command \
+    "SELECT id, title FROM entries WHERE source_id = 'tldr' AND title LIKE '%keyword%'"
+  ```
+
+  The same id is the entry's R2 object key and its Atom `<id>`.

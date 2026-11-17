@@ -17,8 +17,10 @@ CREATE TABLE sources (
 
 CREATE TABLE entries (
 	-- hash(Message-ID) — also the Atom <id> and, verbatim, the permalink
-	-- UUID's source material (agregado#100). Deterministic, not random, so
-	-- redelivery of the same message resolves to the same identity.
+	-- UUID's source material (agregado#100). The Message-ID is the one Resend
+	-- delivers (rewritten on inbound), not derivable from the sent mail.
+	-- Deterministic, not random, so redelivery of the same message resolves to
+	-- the same identity.
 	id TEXT PRIMARY KEY,
 	source_id TEXT NOT NULL REFERENCES sources(id),
 	-- NULL when extraction recovered no canonical URL (agregado ADR-0004) —

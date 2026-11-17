@@ -49,7 +49,8 @@
         "database_id": "7fe01102-7868-4d18-8416-07a94b31a2fb"
     }
 	],
-	// Original HTML, keyed on hash(Message-ID) (agregado#97, #100).
+	// Original HTML, keyed on hash(Message-ID as received from Resend, which
+	// rewrites it on inbound) (agregado#97, #100, #169).
 	"r2_buckets": [
     {
         "binding": "BRIDGE_BUCKET",

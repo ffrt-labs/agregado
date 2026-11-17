@@ -39,7 +39,7 @@ issues listed at the end, ordinary agent work from here.
 | Source onboarding | No `FORWARD_EMAIL`; n8n no-ops on `pending`; manual flip to `active` | map #110 |
 | Enrichment input | Bridge's stored readable content supplied as `bridge_content` when Miniflux's `new_entries` fires; enricher never reads Miniflux's copy | [#107](https://github.com/ffrt-labs/agregado/issues/107) |
 | Digest link, email-only Article | Links to Index key verbatim — canonical URL or `/p/{uuid}` | [#108](https://github.com/ffrt-labs/agregado/issues/108) |
-| Entry identity | `hash(Message-ID)` end-to-end, unchanged | inherited from #95 |
+| Entry identity | `hash(Message-ID)` end-to-end, unchanged; the Message-ID as received from Resend (rewritten on inbound, not derivable from the sent mail, [#169](https://github.com/ffrt-labs/agregado/issues/169)) | inherited from #95 |
 | Feed protection | Per-Source hashed Basic auth, `/feed/{source-id}.atom`, unchanged | inherited from #95 |
 | Permalink | `/p/{uuid}`, self-contained, never redirects, unchanged | inherited from #95 |
 | Workflow versioning | Exported JSON, committed to this repo, same bar as #104 set for Worker code | map #110 |
@@ -58,7 +58,7 @@ n8n Webhook node — routed via Cloudflare Tunnel, new ingress path (ADR-0001 am
    │  4. Extract canonical URL: `Archived-At` header → scraped "view in browser" → nothing (cheerio)
    │  5. Capture every remote subresource (HTTP Request node per asset; skip+log on failure)
    │  6. Sanitize: two policies off one sanitizer — permalink fidelity vs. feed-entry signal
-   │  7. Write original HTML → R2 (key: hash(Message-ID))
+   │  7. Write original HTML → R2 (key: hash(Message-ID as received from Resend))
    │  8. Write entry metadata + readable content → D1 (upsert on hash(Message-ID))
    │  9. (No enrichment call here — see "Enrichment call" below; it runs on Miniflux's new_entries)
    │ 10. On any failure in 1-4 or 7-8: fail the execution loudly, alert once per webhook (hash(svix-id))
@@ -129,12 +129,13 @@ extraction). Click-tracking wrappers are decoded locally in both, never
 followed remotely.
 
 **Writes.**
-- R2: original HTML (post subresource-inlining), keyed on `hash(Message-ID)`.
-  Plain overwrite on retry.
+- R2: original HTML (post subresource-inlining), keyed on `hash(Message-ID)`
+  (the Message-ID as received from Resend). Plain overwrite on retry.
 - D1: entry metadata (Atom `<id>` = `hash(Message-ID)`, permalink UUID
   derived the same way, canonical URL if recovered, readable content) via
   `INSERT OR REPLACE` keyed on `hash(Message-ID)`.
-- Same-`Message-ID` redelivery (Resend retry) is dropped by the upsert — no
+- Same-`Message-ID` redelivery (Resend retry replays the same payload, so the
+  same rewritten Message-ID) is dropped by the upsert — no
   duplicate entries, no double-write side effects, since both writes are
   idempotent by construction.
 

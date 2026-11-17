@@ -7,6 +7,7 @@
 **Amended:** 2026-11-16 — the Go email webhook is deleted and the tunnel
 connector runs outside this repository (#85). See "Amendment, 2026-11-16" below.
 **Amended:** 2026-11-16 — Resend delivers to `ingest.felipefreitas.dev` (#235). See ADR-0001's amendment of that date.
+**Amended:** 2026-11-17 — the entry id hashes the Message-ID as received from Resend (#169). See "Amendment, 2026-11-17" below.
 **Map:** [Map — Newsletter ingestion redesign: Resend + n8n replace Cloudflare Email Routing](https://github.com/ffrt-labs/agregado/issues/110)
 
 ## Context
@@ -103,7 +104,8 @@ R2/D1 write) fails the n8n execution loudly. Resend's Svix-backed webhook
 retries for **~27 hours** (5s, 5m, 30m, 2h, 5h, 10h, 10h) before giving up —
 n8n re-runs the whole chain from scratch on redelivery, with no internal
 resume/state tracking. This is safe because both writes are keyed on
-`hash(Message-ID)` (the inherited entry-identity scheme) with upsert/overwrite
+`hash(Message-ID)` (the inherited entry-identity scheme; the Message-ID as
+received from Resend, see the 2026-11-17 amendment) with upsert/overwrite
 semantics (`INSERT OR REPLACE` for D1, plain overwrite for R2): a retried
 execution redoes the single-email work and lands on the same key. n8n sends an
 active alert on the first failure per `hash(Message-ID)` — not passive-log-only,
@@ -244,3 +246,15 @@ Recorded with the hostname rename
 `https://ingest.felipefreitas.dev/webhook/resend-<random-suffix>`, with the
 same path and the same Svix verification. ADR-0001's amendment of this date
 has the ingress detail. The tunnel connector runs in `ffrt-labs/homelab-apps`.
+
+## Amendment, 2026-11-17: whose Message-ID the entry id hashes
+
+Recorded with [#169](https://github.com/ffrt-labs/agregado/issues/169). The
+decision is unchanged.
+
+`hash(Message-ID)` above is the hash of the Message-ID **as received from
+Resend**. Resend rewrites it on inbound (`...@eu-west-1.amazonses.com`, found in
+[#138](https://github.com/ffrt-labs/agregado/issues/138)), so the entry id is
+not derivable from the mail as sent. Resend redeliveries replay the same
+payload, so retries still resolve to the same D1 and R2 keys. To find an
+entry's id, see the onboarding runbook's "Find an entry's id".

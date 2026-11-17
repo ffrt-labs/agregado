@@ -148,7 +148,7 @@ sequenceDiagram
     N->>N: Verify signature and fetch full message
     N->>N: Resolve Source alias; extract URL and readable content
     N->>N: Capture remote assets and sanitize two representations
-    N->>S: Upsert D1 metadata and R2 content by hash(Message-ID)
+    N->>S: Upsert D1 metadata and R2 content by hash(Message-ID as received from Resend)
     N->>A: Enrich with extracted content inline
     W->>S: Read entry data
     M->>W: Poll Basic-auth Atom feed

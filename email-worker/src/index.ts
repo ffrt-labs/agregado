@@ -77,7 +77,8 @@ async function handlePermalinkRequest(env: Env, uuid: string): Promise<Response>
 	if (!entry) return new Response("Not Found", { status: 404 });
 
 	// entries.id doubles as the R2 key (agregado#100: one identity axis,
-	// hash(Message-ID), end-to-end — no separate stored key column).
+	// hash(Message-ID as received from Resend), end-to-end — no separate
+	// stored key column).
 	const object = await env.BRIDGE_BUCKET.get(entry.id);
 	if (!object) return new Response("Not Found", { status: 404 });
 

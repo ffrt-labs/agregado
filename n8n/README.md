@@ -43,7 +43,8 @@ any node's error output → Claim alert (D1) → Notify (first time only) → Fa
 ```
 
 Fail-loud: the last node returns non-2xx so Resend redelivers (~27h). Both
-writes are keyed on `hash(Message-ID)`, so a retry overwrites, never duplicates.
+writes are keyed on `hash(Message-ID)` (the Message-ID as received from Resend,
+rewritten on inbound), so a retry overwrites, never duplicates.
 
 ## Enrichment (deviation from plan step 9)
 
@@ -254,8 +255,10 @@ always the same UTC date.
 ## Deliberate deviations from the plan
 
 - **Permalink UUID is an HMAC of `hash(Message-ID)`**, not the bare hash. The
-  publisher knows the Message-ID, so a bare hash would let the sender guess the
-  "unguessable" permalink. Still deterministic, so retries agree.
+  Message-ID is the one Resend delivers (rewritten on inbound, so the publisher
+  does not choose it), and the bare hash is also the public Atom `<id>`. The
+  HMAC keeps the "unguessable" permalink from being derivable from it. Still
+  deterministic, so retries agree.
 - **Alerts are keyed on the webhook's `svix-id`** (stable across Resend
   redeliveries), not `hash(Message-ID)`, because a failure in content fetch
   happens before the Message-ID is known.

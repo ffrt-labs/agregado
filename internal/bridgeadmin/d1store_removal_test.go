@@ -2,6 +2,7 @@ package bridgeadmin
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -15,17 +16,23 @@ func lastCall(t *testing.T, calls *[]d1Call) d1Call {
 	return (*calls)[len(*calls)-1]
 }
 
+// assertStatusMove checks call is the guarded status update: set to, only
+// on alias's row, only while it is from.
+func assertStatusMove(t *testing.T, call d1Call, to Status, alias string, from Status) {
+	t.Helper()
+	want := []any{string(to), alias, string(from)}
+	if call.SQL != "UPDATE sources SET status = ? WHERE id = ? AND status = ?" || fmt.Sprint(call.Params) != fmt.Sprint(want) {
+		t.Errorf("call = %+v, want %s -> %s guarded on %v", call, from, to, want)
+	}
+}
+
 func TestD1Store_PauseOnlyTouchesActiveRows(t *testing.T) {
 	store, calls := d1Stub(t, nil)
 
 	if err := store.Pause(context.Background(), "syntax"); err != nil {
 		t.Fatal(err)
 	}
-	call := lastCall(t, calls)
-	if !strings.HasPrefix(call.SQL, "UPDATE sources SET status = 'paused'") || !strings.Contains(call.SQL, "AND status = 'active'") ||
-		len(call.Params) != 1 || call.Params[0] != "syntax" {
-		t.Errorf("call = %+v, want an update guarded by status = 'active'", call)
-	}
+	assertStatusMove(t, lastCall(t, calls), StatusPaused, "syntax", StatusActive)
 }
 
 func TestD1Store_ResumeOnlyTouchesPausedRows(t *testing.T) {
@@ -34,10 +41,7 @@ func TestD1Store_ResumeOnlyTouchesPausedRows(t *testing.T) {
 	if err := store.Resume(context.Background(), "syntax"); err != nil {
 		t.Fatal(err)
 	}
-	call := lastCall(t, calls)
-	if !strings.HasPrefix(call.SQL, "UPDATE sources SET status = 'active'") || !strings.Contains(call.SQL, "status = 'paused'") {
-		t.Errorf("sql = %q, want an update guarded by status = 'paused'", call.SQL)
-	}
+	assertStatusMove(t, lastCall(t, calls), StatusActive, "syntax", StatusPaused)
 }
 
 func TestD1Store_IssueSummaryCountsAndDatesTheLastIssue(t *testing.T) {

@@ -3,9 +3,9 @@
 // Sources end to end (spec #225, ADR-0012). It reads and writes the Bridge's
 // D1 tables and drives Miniflux's API; it never touches Agregado's Postgres.
 //
-// Each external system sits behind one small interface below. Later slices
-// grow them (Resend mail for Confirm, R2 objects for Delete, feed updates for
-// Rename/Reconnect) and the tests fake them, per ADR-0002.
+// Each external system sits behind one small interface below: D1
+// (SourceStore), Miniflux, Resend's received mail (ReceivedMail) and R2
+// (ObjectStore). The tests fake them, per ADR-0002.
 package bridgeadmin
 
 import (
@@ -16,12 +16,14 @@ import (
 	"github.com/felipeafreitas/agregado/internal/resend"
 )
 
-// Newsletter Source statuses, as stored in D1 sources.status. n8n turns mail
-// into Articles only for Active (n8n/src/entry.js gateSource).
+// Status is a Newsletter Source's status, as stored in D1 sources.status.
+// n8n turns mail into Articles only for Active (n8n/src/entry.js gateSource).
+type Status string
+
 const (
-	StatusPending = "pending"
-	StatusActive  = "active"
-	StatusPaused  = "paused"
+	StatusPending Status = "pending"
+	StatusActive  Status = "active"
+	StatusPaused  Status = "paused"
 )
 
 // Source is one Newsletter Source row. Alias is sources.id: the lowercase
@@ -29,7 +31,7 @@ const (
 type Source struct {
 	Alias       string
 	DisplayName string
-	Status      string
+	Status      Status
 }
 
 // IssueStats summarises a Source's stored issues (D1 entries rows).

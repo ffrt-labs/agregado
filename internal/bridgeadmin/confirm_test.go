@@ -206,15 +206,12 @@ func TestList_ResendDownLeavesTheSourcesListed(t *testing.T) {
 }
 
 func TestD1Store_ActivateOnlyTurnsPendingRowsActive(t *testing.T) {
-	store, calls := d1Stub(t, map[string]string{"UPDATE sources SET status = 'active'": `[]`})
+	store, calls := d1Stub(t, map[string]string{"UPDATE sources SET status": `[]`})
 	ok, err := store.Activate(context.Background(), "tldr")
 	if err != nil || !ok {
 		t.Fatalf("activate = %v, %v", ok, err)
 	}
-	call := (*calls)[0]
-	if !strings.Contains(call.SQL, "status = 'pending'") || len(call.Params) != 1 || call.Params[0] != "tldr" {
-		t.Errorf("call = %+v, want an update guarded by status = 'pending'", call)
-	}
+	assertStatusMove(t, (*calls)[0], StatusActive, "tldr", StatusPending)
 
 	untouched, _ := d1Stub(t, nil)
 	if ok, err := untouched.Activate(context.Background(), "tldr"); err != nil || ok {

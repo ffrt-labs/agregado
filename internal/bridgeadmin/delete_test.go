@@ -33,7 +33,7 @@ func (f *fakeStore) fail(step string) error {
 	return nil
 }
 
-func (f *fakeStore) setStatus(alias, status string, onlyFrom ...string) {
+func (f *fakeStore) setStatus(alias string, status Status, onlyFrom ...Status) {
 	for i, s := range f.sources {
 		if s.Alias != alias {
 			continue
@@ -173,7 +173,7 @@ func newDeleteApp(store *fakeStore, mf *fakeMiniflux, objects *fakeObjects) http
 	return app.Routes()
 }
 
-func statusOf(store *fakeStore, alias string) string {
+func statusOf(store *fakeStore, alias string) Status {
 	for _, s := range store.sources {
 		if s.Alias == alias {
 			return s.Status

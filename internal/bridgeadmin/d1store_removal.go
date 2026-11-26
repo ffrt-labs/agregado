@@ -8,15 +8,15 @@ import (
 // SourceRemoval over D1. Each statement is naturally idempotent: an UPDATE
 // or DELETE matching no row succeeds with zero changes.
 
-// Pause is guarded by status = 'active', so a Paused row always had been
-// Active and Resume cannot move a Pending Source past Activate.
+// Pause is guarded on Active, so a Paused row always had been Active and
+// Resume cannot move a Pending Source past Activate.
 func (s *D1Store) Pause(ctx context.Context, alias string) error {
-	_, err := s.db.Exec(ctx, "UPDATE sources SET status = 'paused' WHERE id = ? AND status = 'active'", alias)
+	_, err := s.moveStatus(ctx, alias, StatusActive, StatusPaused)
 	return err
 }
 
 func (s *D1Store) Resume(ctx context.Context, alias string) error {
-	_, err := s.db.Exec(ctx, "UPDATE sources SET status = 'active' WHERE id = ? AND status = 'paused'", alias)
+	_, err := s.moveStatus(ctx, alias, StatusPaused, StatusActive)
 	return err
 }
 

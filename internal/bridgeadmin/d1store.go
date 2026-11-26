@@ -29,7 +29,7 @@ func (s *D1Store) Sources(ctx context.Context) ([]Source, error) {
 	}
 	sources := make([]Source, len(rows))
 	for i, r := range rows {
-		sources[i] = Source{Alias: r.ID, DisplayName: r.DisplayName, Status: r.Status}
+		sources[i] = Source{Alias: r.ID, DisplayName: r.DisplayName, Status: Status(r.Status)}
 	}
 	return sources, nil
 }
@@ -73,12 +73,12 @@ func (s *D1Store) SourceExists(ctx context.Context, alias string) (bool, error) 
 func (s *D1Store) InsertPending(ctx context.Context, source Source, secretHash string) error {
 	_, err := s.db.Exec(ctx,
 		"INSERT INTO sources (id, display_name, basic_auth_secret_hash, status) VALUES (?, ?, ?, ?)",
-		source.Alias, source.DisplayName, secretHash, StatusPending)
+		source.Alias, source.DisplayName, secretHash, string(StatusPending))
 	return err
 }
 
 func (s *D1Store) RemovePending(ctx context.Context, alias string) error {
-	_, err := s.db.Exec(ctx, "DELETE FROM sources WHERE id = ? AND status = 'pending'", alias)
+	_, err := s.db.Exec(ctx, "DELETE FROM sources WHERE id = ? AND status = ?", alias, string(StatusPending))
 	return err
 }
 
@@ -103,10 +103,15 @@ func (s *D1Store) updateOne(ctx context.Context, alias, sql string, params ...an
 	return nil
 }
 
-// Activate is guarded by status = 'pending', so it never resumes a Paused
-// Source; meta.changes says whether a row moved.
+// Activate is guarded on Pending, so it never resumes a Paused Source.
 func (s *D1Store) Activate(ctx context.Context, alias string) (bool, error) {
-	meta, err := s.db.Exec(ctx, "UPDATE sources SET status = 'active' WHERE id = ? AND status = 'pending'", alias)
+	return s.moveStatus(ctx, alias, StatusPending, StatusActive)
+}
+
+// moveStatus sets alias's status to `to` only while it is `from`, and
+// reports whether a row moved (meta.changes).
+func (s *D1Store) moveStatus(ctx context.Context, alias string, from, to Status) (bool, error) {
+	meta, err := s.db.Exec(ctx, "UPDATE sources SET status = ? WHERE id = ? AND status = ?", string(to), alias, string(from))
 	if err != nil {
 		return false, err
 	}

@@ -92,7 +92,8 @@ func TestD1Store_RemovePendingOnlyTouchesPendingRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := (*calls)[0]
-	if !strings.Contains(call.SQL, "status = 'pending'") || call.Params[0] != "syntax" {
+	if call.SQL != "DELETE FROM sources WHERE id = ? AND status = ?" || len(call.Params) != 2 ||
+		call.Params[0] != "syntax" || call.Params[1] != string(StatusPending) {
 		t.Errorf("call = %+v, want a delete guarded by status = 'pending'", call)
 	}
 }

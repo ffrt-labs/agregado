@@ -30,11 +30,11 @@ var templateFS embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{
 	"date": func(t *time.Time) string { return t.UTC().Format("2006-01-02") },
-	"title": func(status string) string {
+	"title": func(status Status) string {
 		if status == "" {
 			return ""
 		}
-		return strings.ToUpper(status[:1]) + status[1:]
+		return strings.ToUpper(string(status[:1])) + string(status[1:])
 	},
 }).ParseFS(templateFS, "templates/*.html"))
 
@@ -112,11 +112,11 @@ func (a *App) address(alias string) string {
 
 // Fetch health of a Source's Miniflux feed.
 const (
-	healthOK      = "ok"
-	healthFailing = "failing"
-	healthPending = "unchecked"
-	healthNoFeed  = "missing"
-	healthUnknown = "unknown"
+	healthOK        = "ok"
+	healthFailing   = "failing"
+	healthUnchecked = "unchecked"
+	healthNoFeed    = "missing"
+	healthUnknown   = "unknown"
 )
 
 type sourceRow struct {
@@ -178,7 +178,7 @@ func (a *App) list(w http.ResponseWriter, r *http.Request) {
 			row.Health, row.HealthError = healthFailing, matched[0].ParsingErrorMessage
 			row.CheckedAt = &matched[0].CheckedAt
 		case matched[0].CheckedAt.IsZero():
-			row.Health = healthPending
+			row.Health = healthUnchecked
 		default:
 			row.Health = healthOK
 			row.CheckedAt = &matched[0].CheckedAt

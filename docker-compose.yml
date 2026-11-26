@@ -88,6 +88,8 @@ services:
 
       MINIFLUX_URL: ${MINIFLUX_URL:-http://miniflux:8080}
       BRIDGE_ADMIN_MINIFLUX_API_KEY: ${BRIDGE_ADMIN_MINIFLUX_API_KEY}
+
+      BRIDGE_ADMIN_RESEND_API_KEY: ${BRIDGE_ADMIN_RESEND_API_KEY}
     networks:
       - edge
     restart: unless-stopped

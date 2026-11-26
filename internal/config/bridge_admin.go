@@ -18,6 +18,15 @@ type BridgeAdmin struct {
 	Cloudflare BridgeAdminCloudflare
 	Bridge     Bridge
 	Miniflux   Miniflux
+	Resend     BridgeAdminResend
+}
+
+// BridgeAdminResend is the app's own Resend key, for reading received mail
+// (Confirm and Unclaimed mail). Resend has no read-only key type: this one
+// must be able to read received emails, so it is a full-access key, kept
+// apart from n8n's so either can be revoked alone (ADR-0012).
+type BridgeAdminResend struct {
+	APIKey string `env:"BRIDGE_ADMIN_RESEND_API_KEY,required,notEmpty"`
 }
 
 type BridgeAdminCloudflare struct {

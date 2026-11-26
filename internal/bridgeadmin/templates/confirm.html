@@ -1,0 +1,33 @@
+{{define "confirm.html"}}{{template "head" .DisplayName}}
+<h1>{{.DisplayName}}</h1>
+<p><a href="/">Back to the Sources</a></p>
+
+<p><code>{{.Alias}}</code> · <span class="status status-{{.Status}}">{{title .Status}}</span> · receiving address <code>{{.Address}}</code></p>
+
+{{if eq .Status "pending"}}
+<p>Subscribe at the publisher with the address above, follow the confirmation link in the mail below, then activate. Until it is Active, n8n ignores its mail.</p>
+<form method="post" action="/sources/{{.Alias}}/activate"><button type="submit">Activate</button></form>
+{{end}}
+
+<h2>Received mail</h2>
+<p class="hint">Only the subject, sender, date and the links found in each email are shown; emails are never rendered.</p>
+{{if .MailError}}<div class="notice notice-bad">Could not read mail from Resend: {{.MailError}}</div>{{end}}
+
+{{range .Mail}}
+<section class="mail">
+  <h3>{{if .Subject}}{{.Subject}}{{else}}<span class="muted">(no subject)</span>{{end}}</h3>
+  <p class="muted">From {{.From}}{{if .Received}} · {{.Received}}{{end}}</p>
+  {{- if .LinkError}}<p class="bad">Could not open this email: {{.LinkError}}</p>
+  {{- else if .Links}}
+  <ul class="links">
+    {{- range .Links}}
+    <li><a href="{{.URL}}" rel="noreferrer noopener" target="_blank">{{if .Text}}{{.Text}}{{else}}{{.URL}}{{end}}</a>{{if .Text}} <span class="muted">{{.URL}}</span>{{end}}</li>
+    {{- end}}
+  </ul>
+  {{- else if .Opened}}<p class="muted">No links in this email.</p>
+  {{- else}}<p class="muted">Older mail: links not loaded.</p>{{end}}
+</section>
+{{else}}
+{{if not .MailError}}<p class="muted">No mail to this address yet.</p>{{end}}
+{{end}}
+{{template "foot"}}{{end}}

@@ -14,9 +14,26 @@ subscribes Miniflux to its feed with a fresh password, which it does not keep.
 If Miniflux refuses the subscription, nothing is saved; fix the cause and add
 it again.
 
-Then subscribe at the publisher with the receiving address the List shows, and
-confirm and activate as in steps 3 and 4 below. Those steps move into the app
-with #229.
+Then subscribe at the publisher with the receiving address the List shows.
+Open the Source's **Confirm** link (Pending Sources only). It lists the mail
+Resend received for that address with the links found in each email; follow
+the confirmation link, then press **Activate**. The emails themselves are
+never shown.
+
+The List's **Unclaimed mail** section shows recent mail to aliases with no
+Source. **Register this alias** opens Add with the alias filled in.
+
+The app reads mail with its own Resend key, `BRIDGE_ADMIN_RESEND_API_KEY`.
+Resend has no read-only key type and a sending-only key cannot read received
+mail, so create a full-access key for the app (Resend dashboard, API Keys),
+separate from n8n's.
+
+Click a Source's name to **Rename** it (the display name in D1, which is the
+feed title, and the Miniflux feed title change together; the alias never
+changes) or **Reconnect** it. Reconnect rotates the feed password and gives the
+new one to Miniflux, subscribing the feed again if it was deleted there. Use it
+when the List shows "Fetch failing" with a 401 or "No Miniflux feed". If it
+reports a Miniflux error after saving the new hash, Reconnect again.
 
 **Pause** stops a Source turning mail into Articles and keeps everything;
 **Resume** makes it Active again. **Delete** shows how many issues go, then

@@ -92,6 +92,8 @@ services:
       BRIDGE_R2_BUCKET: ${BRIDGE_R2_BUCKET:-bridge-original-html}
       BRIDGE_ADMIN_R2_ACCESS_KEY_ID: ${BRIDGE_ADMIN_R2_ACCESS_KEY_ID}
       BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY: ${BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY}
+
+      BRIDGE_ADMIN_RESEND_API_KEY: ${BRIDGE_ADMIN_RESEND_API_KEY}
     networks:
       - edge
     restart: unless-stopped

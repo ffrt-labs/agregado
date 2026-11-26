@@ -74,6 +74,14 @@ next to D1 and R2, or the homelab, next to Miniflux and n8n.
    `BRIDGE_RECEIVING_DOMAIN` (the Resend catch-all). A Source's feed is
    `BRIDGE_ORIGIN/feed/<alias>.atom`, and the List finds its Miniflux feed by
    that exact URL.
+8. **Confirm reads mail from Resend's receiving API and never renders it**
+   (#229). The app's key is `BRIDGE_ADMIN_RESEND_API_KEY`. A Pending Source's
+   page lists the mail to its address (`GET /emails/receiving?to=`, the
+   latest 100) with subject, sender, date and the `http(s)` links found in
+   each body (`GET /emails/receiving/{id}`, hrefs only, shown escaped).
+   Unclaimed mail is the latest 100 unfiltered, grouped by alias, minus
+   aliases that have a Source. Activate moves only a Pending Source to
+   Active. Resend being down never blocks the List or Activate.
 
 ## Consequences
 
@@ -98,6 +106,13 @@ next to D1 and R2, or the homelab, next to Miniflux and n8n.
   a 404 in Miniflux and is removed by hand.
 - The Cloudflare token can edit the whole `bridge` database. D1 tokens cannot
   be scoped to tables.
+- The Resend key is not read-only. Resend keys are either full access or
+  sending access, and sending access cannot read received mail, so
+  `BRIDGE_ADMIN_RESEND_API_KEY` must be a full-access key. The app only
+  makes GET calls with it; it is still revocable apart from n8n's.
+- Unclaimed mail only sees the latest 100 received emails, and Resend's `to`
+  filter is exact and case-sensitive, so mail to `TLDR@` does not show on
+  `tldr`'s Confirm page.
 
 ## Alternatives considered
 

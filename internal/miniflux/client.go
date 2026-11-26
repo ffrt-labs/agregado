@@ -93,6 +93,25 @@ func (c *Client) CreateFeed(ctx context.Context, feed NewFeed) (int64, error) {
 	return created.FeedID, err
 }
 
+// FeedUpdate changes some of a feed's settings. Empty fields are left as they
+// are: Rename sets Title, Reconnect sets Username and Password.
+type FeedUpdate struct {
+	Title    string `json:"title,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// UpdateFeed applies update to feed id. Miniflux answers 201 with the feed.
+func (c *Client) UpdateFeed(ctx context.Context, id int64, update FeedUpdate) error {
+	return c.call(ctx, http.MethodPut, fmt.Sprintf("/v1/feeds/%d", id), update, nil, http.StatusCreated)
+}
+
+// RefreshFeed makes Miniflux fetch feed id now; it answers once the fetch is
+// done, so a feed that still fails to authenticate fails here.
+func (c *Client) RefreshFeed(ctx context.Context, id int64) error {
+	return c.call(ctx, http.MethodPut, fmt.Sprintf("/v1/feeds/%d/refresh", id), nil, nil, http.StatusNoContent)
+}
+
 func (c *Client) call(ctx context.Context, method, path string, in, out any, want int) error {
 	var body io.Reader
 	if in != nil {

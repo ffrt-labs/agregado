@@ -1,0 +1,23 @@
+{{define "edit.html"}}{{template "head" .DisplayName}}
+<h1>{{.DisplayName}}</h1>
+<p><a href="/">Back to the Sources</a></p>
+
+{{if .Notice}}<div class="notice notice-ok">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="notice notice-bad">{{.Error}}</div>{{end}}
+
+<p>Alias <code>{{.Alias}}</code>, receiving address <code>{{.Address}}</code>. The alias cannot be changed.</p>
+
+<h2>Rename</h2>
+<form method="post" action="/sources/{{.Alias}}/rename">
+  <label for="display_name">Display name</label>
+  <input type="text" id="display_name" name="display_name" value="{{.DisplayName}}" required>
+  <p class="hint">The feed title, changed in the app and in Miniflux together.</p>
+  <p><button type="submit">Rename</button></p>
+</form>
+
+<h2>Reconnect</h2>
+<form method="post" action="/sources/{{.Alias}}/reconnect">
+  <p class="hint">Rotates the feed password and gives the new one to Miniflux, subscribing the feed again if it was deleted there. Use it when Miniflux fails to fetch the feed.</p>
+  <p><button type="submit">Reconnect</button></p>
+</form>
+{{template "foot"}}{{end}}

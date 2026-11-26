@@ -104,3 +104,40 @@ func TestD1Store_SourceExists(t *testing.T) {
 		t.Fatalf("exists = %v, %v", ok, err)
 	}
 }
+
+func TestD1Store_RenameSourceSetsOnlyTheDisplayName(t *testing.T) {
+	store, calls := d1Stub(t, map[string]string{"SET display_name": `[]`})
+
+	if err := store.RenameSource(context.Background(), "lenny", "Lenny's Newsletter"); err != nil {
+		t.Fatal(err)
+	}
+	call := (*calls)[0]
+	if !strings.HasPrefix(call.SQL, "UPDATE sources SET display_name = ? WHERE id = ?") ||
+		len(call.Params) != 2 || call.Params[0] != "Lenny's Newsletter" || call.Params[1] != "lenny" {
+		t.Errorf("call = %+v", call)
+	}
+}
+
+func TestD1Store_SetSecretHashReplacesTheStoredHash(t *testing.T) {
+	store, calls := d1Stub(t, map[string]string{"SET basic_auth_secret_hash": `[]`})
+
+	if err := store.SetSecretHash(context.Background(), "lenny", "def456"); err != nil {
+		t.Fatal(err)
+	}
+	call := (*calls)[0]
+	if !strings.HasPrefix(call.SQL, "UPDATE sources SET basic_auth_secret_hash = ? WHERE id = ?") ||
+		len(call.Params) != 2 || call.Params[0] != "def456" || call.Params[1] != "lenny" {
+		t.Errorf("call = %+v", call)
+	}
+}
+
+func TestD1Store_RenameAndSetSecretHashFailWhenTheSourceIsGone(t *testing.T) {
+	store, _ := d1Stub(t, nil) // every statement reports 0 changes
+
+	if err := store.RenameSource(context.Background(), "gone", "Gone"); err == nil {
+		t.Error("renaming a missing Source succeeded")
+	}
+	if err := store.SetSecretHash(context.Background(), "gone", "x"); err == nil {
+		t.Error("a new hash for a missing Source succeeded")
+	}
+}

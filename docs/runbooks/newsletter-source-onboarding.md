@@ -35,11 +35,13 @@ new one to Miniflux, subscribing the feed again if it was deleted there. Use it
 when the List shows "Fetch failing" with a 401 or "No Miniflux feed". If it
 reports a Miniflux error after saving the new hash, Reconnect again.
 
-**Pause** stops a Source turning mail into Articles and keeps everything;
-**Resume** makes it Active again. **Delete** shows how many issues go, then
-pauses the Source and removes its Miniflux feed, its issues in R2 and D1, and
-its row. If a step fails, the Source stays Paused with the error shown, and
-Delete again resumes where it stopped. Afterwards, unsubscribe at the
+**Pause** stops an Active Source turning mail into Articles and keeps
+everything; **Resume** makes it Active again. A Pending Source has no Pause:
+Confirm and Activate it instead. **Delete** shows how many issues go, then
+pauses the Source if it is Active and removes its Miniflux feed, its issues in
+R2 and D1, and its row. If a step fails, the Source stays Paused (or Pending)
+with the error shown, and Delete again resumes where it stopped. Deleting an
+alias that has no Source and nothing left behind answers 404. Afterwards, unsubscribe at the
 publisher. Permalinks to its issues in old Digests then return 404
 ([ADR-0003](../adr/0003-deliberate-non-goals.md), amendment 2026-11-26).
 

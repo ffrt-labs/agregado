@@ -35,7 +35,8 @@ Source ingests; "Bridge" names specifically the email→feed conversion)
 **Newsletter Source**:
 A Source the Bridge serves: one newsletter, reached through one alias. It is
 **Pending** from registration until its subscription is confirmed, then **Active**.
-It can be **Paused** and resumed later. Only an Active one turns mail into Articles.
+An Active one can be **Paused** and resumed later; a Pending one cannot, so it
+becomes Active only through confirmation. Only an Active one turns mail into Articles.
 Mail reaching a Pending or Paused one is ignored, not held for later.
 _Avoid_: Bridge feed, alias (the alias is its address, not the Source)
 

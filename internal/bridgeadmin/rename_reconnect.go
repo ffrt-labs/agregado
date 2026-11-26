@@ -2,12 +2,10 @@ package bridgeadmin
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/felipeafreitas/agregado/internal/miniflux"
 	"github.com/go-chi/chi/v5"
@@ -76,14 +74,7 @@ func (a *App) renameSource(w http.ResponseWriter, r *http.Request) {
 	}
 	hadFeed, err := a.rename(ctx, source, strings.TrimSpace(r.PostFormValue("display_name")))
 	if err != nil {
-		status := http.StatusBadGateway
-		var input errInput
-		if errors.As(err, &input) {
-			status = http.StatusUnprocessableEntity
-		} else {
-			slog.Error("rename newsletter source failed", "component", "bridge-admin", "alias", source.Alias, "err", err)
-		}
-		a.renderEdit(w, status, editPage{Source: source, Error: err.Error()})
+		a.renderEdit(w, failureStatus(err, "rename", source.Alias), editPage{Source: source, Error: err.Error()})
 		return
 	}
 	slog.Info("newsletter source renamed", "component", "bridge-admin", "alias", source.Alias, "miniflux_feed", hadFeed)
@@ -128,8 +119,6 @@ func (a *App) rename(ctx context.Context, source Source, name string) (hadFeed b
 	return true, fmt.Errorf("Miniflux could not retitle the feed: %v. Nothing was renamed", updateErr)
 }
 
-const rollbackTimeout = 30 * time.Second
-
 func (a *App) reconnectSource(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	source, ok := a.pathSource(w, r)
@@ -138,8 +127,7 @@ func (a *App) reconnectSource(w http.ResponseWriter, r *http.Request) {
 	}
 	resubscribed, err := a.reconnect(ctx, source.Alias)
 	if err != nil {
-		slog.Error("reconnect newsletter source failed", "component", "bridge-admin", "alias", source.Alias, "err", err)
-		a.renderEdit(w, http.StatusBadGateway, editPage{Source: source, Error: err.Error()})
+		a.renderEdit(w, failureStatus(err, "reconnect", source.Alias), editPage{Source: source, Error: err.Error()})
 		return
 	}
 	slog.Info("newsletter source reconnected", "component", "bridge-admin", "alias", source.Alias, "resubscribed", resubscribed)
@@ -183,13 +171,7 @@ func (a *App) reconnect(ctx context.Context, alias string) (resubscribed bool, e
 
 	const retry = "D1 already has the new password, so the feed fails until it gets it: Reconnect again"
 	if !hasFeed {
-		_, err := a.miniflux.CreateFeed(ctx, miniflux.NewFeed{
-			FeedURL:    a.feedURL(alias),
-			CategoryID: category,
-			Username:   alias, // see add: Miniflux sends Basic auth only with a username
-			Password:   secret,
-		})
-		if err != nil {
+		if err := a.subscribe(ctx, alias, category, secret); err != nil {
 			return true, fmt.Errorf("Miniflux could not subscribe: %v. %s", err, retry)
 		}
 		return true, nil

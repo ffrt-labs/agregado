@@ -250,6 +250,18 @@ type errInput struct{ msg string }
 
 func (e errInput) Error() string { return e.msg }
 
+// failureStatus is the status a failed action answers with: 422 for what the
+// owner typed (errInput), else 502, since every other failure is one of the
+// app's systems. Those are logged; input mistakes are not.
+func failureStatus(err error, action, alias string) int {
+	var input errInput
+	if errors.As(err, &input) {
+		return http.StatusUnprocessableEntity
+	}
+	slog.Error(action+" newsletter source failed", "component", "bridge-admin", "alias", alias, "err", err)
+	return http.StatusBadGateway
+}
+
 func (a *App) addSource(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -263,13 +275,7 @@ func (a *App) addSource(w http.ResponseWriter, r *http.Request) {
 
 	source, err := a.add(r.Context(), page.DisplayName, page.Alias, selected)
 	if err != nil {
-		status := http.StatusBadGateway
-		var input errInput
-		if errors.As(err, &input) {
-			status = http.StatusUnprocessableEntity
-		} else {
-			slog.Error("add newsletter source failed", "component", "bridge-admin", "alias", page.Alias, "err", err)
-		}
+		status := failureStatus(err, "add", page.Alias)
 		page.Error = err.Error()
 		a.renderForm(w, r.Context(), status, page, selected)
 		return
@@ -317,24 +323,34 @@ func (a *App) add(ctx context.Context, displayName, alias, categoryID string) (S
 		return Source{}, fmt.Errorf("could not save the Source in D1: %w", err)
 	}
 
-	_, subErr := a.miniflux.CreateFeed(ctx, miniflux.NewFeed{
-		FeedURL:    a.feedURL(alias),
-		CategoryID: category,
-		// The Worker ignores the username, but Miniflux sends Basic auth only
-		// when it is non-empty.
-		Username: alias,
-		Password: secret,
-	})
+	subErr := a.subscribe(ctx, alias, category, secret)
 	if subErr == nil {
 		return source, nil
 	}
 	// Roll back on a fresh context: the request's may be what just expired.
-	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
 	defer cancel()
 	if err := a.store.RemovePending(rollbackCtx, alias); err != nil {
 		return Source{}, fmt.Errorf("Miniflux could not subscribe (%v), and removing the Pending Source from D1 failed too (%v); remove %s by hand before retrying", subErr, err, alias)
 	}
 	return Source{}, fmt.Errorf("Miniflux could not subscribe: %v. Nothing was saved", subErr)
+}
+
+// rollbackTimeout bounds undoing a half-done write (Add's Pending row,
+// Rename's D1 name) on a context detached from the request.
+const rollbackTimeout = 30 * time.Second
+
+// subscribe has Miniflux subscribe to alias's feed in category, with secret
+// as its Basic-auth password. The Worker ignores the username, but Miniflux
+// sends Basic auth only when it is non-empty. Add and Reconnect use it.
+func (a *App) subscribe(ctx context.Context, alias string, category int64, secret string) error {
+	_, err := a.miniflux.CreateFeed(ctx, miniflux.NewFeed{
+		FeedURL:    a.feedURL(alias),
+		CategoryID: category,
+		Username:   alias,
+		Password:   secret,
+	})
+	return err
 }
 
 // resolveCategory turns the picked category id into one Miniflux knows; an

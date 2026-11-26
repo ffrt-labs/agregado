@@ -18,13 +18,26 @@ type BridgeAdmin struct {
 	Cloudflare BridgeAdminCloudflare
 	Bridge     Bridge
 	Miniflux   Miniflux
+	R2         BridgeAdminR2
+}
+
+// BridgeAdminR2 reaches the Bridge's bucket of original issue HTML through
+// R2's S3 API, which Delete (#230) empties of a Source's issues. The S3 API
+// takes a token scoped to this one bucket ("Object Read & Write"); its
+// Access Key ID and Secret Access Key go here. Dedicated to this app, not
+// n8n's BRIDGE_R2_ACCESS_KEY_ID/SECRET.
+type BridgeAdminR2 struct {
+	// Bucket is the same name n8n uses (bridge-original-html in prod).
+	Bucket          string `env:"BRIDGE_R2_BUCKET,required,notEmpty"`
+	AccessKeyID     string `env:"BRIDGE_ADMIN_R2_ACCESS_KEY_ID,required,notEmpty"`
+	SecretAccessKey string `env:"BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY,required,notEmpty"`
 }
 
 type BridgeAdminCloudflare struct {
 	// AccountID is the same account Workers AI uses, hence the shared name.
 	AccountID string `env:"CLOUDFLARE_ACCOUNT_ID,required,notEmpty"`
-	// APIToken needs D1 Edit on the Bridge's database (and, from #230, R2
-	// write on its bucket). Never the Workers AI token.
+	// APIToken needs D1 Edit on the Bridge's database. Never the Workers AI
+	// token. R2 goes through BridgeAdminR2's S3 credentials instead.
 	APIToken string `env:"BRIDGE_ADMIN_CF_API_TOKEN,required,notEmpty"`
 }
 

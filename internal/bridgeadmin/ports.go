@@ -52,6 +52,8 @@ type SourceStore interface {
 	// rollback for an Add whose Miniflux subscription failed. A no-op when the
 	// row is gone or no longer Pending.
 	RemovePending(ctx context.Context, alias string) error
+
+	SourceRemoval
 }
 
 // Miniflux is the reader backend's API as this app needs it. *miniflux.Client
@@ -61,4 +63,39 @@ type Miniflux interface {
 	Categories(ctx context.Context) ([]miniflux.Category, error)
 	CreateCategory(ctx context.Context, title string) (miniflux.Category, error)
 	CreateFeed(ctx context.Context, feed miniflux.NewFeed) (int64, error)
+	// DeleteFeed unsubscribes a feed; one already gone is not an error.
+	DeleteFeed(ctx context.Context, id int64) error
+}
+
+// IssueSummary is what Delete's confirmation says goes: how many issues the
+// Source has stored, and when the last one was published.
+type IssueSummary struct {
+	Count       int
+	LastIssueAt *time.Time
+}
+
+// SourceRemoval is the part of SourceStore that Pause and Delete use (#230).
+// Every write is idempotent: run against a row or rows already gone, it
+// succeeds without changing anything, which is what lets an interrupted
+// Delete resume.
+type SourceRemoval interface {
+	// Pause sets a Source Paused, whatever its status. n8n then ignores its
+	// mail; everything stored is kept.
+	Pause(ctx context.Context, alias string) error
+	// Resume sets a Paused Source Active again; other statuses are untouched.
+	Resume(ctx context.Context, alias string) error
+	IssueSummary(ctx context.Context, alias string) (IssueSummary, error)
+	// EntryIDs lists the Source's entries ids, which are also its R2 keys.
+	EntryIDs(ctx context.Context, alias string) ([]string, error)
+	DeleteEntries(ctx context.Context, alias string) error
+	// DeleteSource removes the Source row. Its entries must be gone first
+	// (entries.source_id references it).
+	DeleteSource(ctx context.Context, alias string) error
+}
+
+// ObjectStore is the Bridge's R2 bucket of original issue HTML, keyed by
+// entries id. *r2.Client is the real one.
+type ObjectStore interface {
+	// DeleteObject removes one object; one already gone is not an error.
+	DeleteObject(ctx context.Context, key string) error
 }

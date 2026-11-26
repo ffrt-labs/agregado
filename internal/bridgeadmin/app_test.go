@@ -24,6 +24,7 @@ type fakeStore struct {
 	statsFrom time.Time
 	insertErr error
 	removed   []string
+	issues    fakeIssues // delete_test.go
 }
 
 func (f *fakeStore) Sources(context.Context) ([]Source, error) { return f.sources, nil }
@@ -76,6 +77,9 @@ type fakeMiniflux struct {
 	feedsErr   error
 	createErr  error
 	subscribed []miniflux.NewFeed
+	// delete_test.go
+	deleteErr    error
+	deletedFeeds []int64
 }
 
 func (f *fakeMiniflux) Feeds(context.Context) ([]miniflux.Feed, error) { return f.feeds, f.feedsErr }

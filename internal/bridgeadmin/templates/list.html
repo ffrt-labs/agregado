@@ -7,7 +7,7 @@
 
 <table>
   <thead>
-    <tr><th>Name</th><th>Alias</th><th>Receiving address</th><th>Status</th><th>Last issue</th><th>Issues, 30 days</th><th>Miniflux</th></tr>
+    <tr><th>Name</th><th>Alias</th><th>Receiving address</th><th>Status</th><th>Last issue</th><th>Issues, 30 days</th><th>Miniflux</th><th></th></tr>
   </thead>
   <tbody>
   {{range .Rows}}
@@ -25,9 +25,14 @@
         {{- else if eq .Health "missing"}}<span class="bad">No Miniflux feed</span>
         {{- else}}<span class="muted">Fetch unknown</span>{{end -}}
       </td>
+      <td class="actions">
+        {{- if eq .Status "paused"}}<form method="post" action="/sources/{{.Alias}}/resume"><button type="submit">Resume</button></form>
+        {{- else}}<form method="post" action="/sources/{{.Alias}}/pause"><button type="submit">Pause</button></form>{{end}}
+        <a href="/sources/{{.Alias}}/delete">Delete</a>
+      </td>
     </tr>
   {{else}}
-    <tr><td colspan="7" class="muted">No Newsletter Sources yet.</td></tr>
+    <tr><td colspan="8" class="muted">No Newsletter Sources yet.</td></tr>
   {{end}}
   </tbody>
 </table>

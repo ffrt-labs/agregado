@@ -54,6 +54,7 @@ type App struct {
 	cfg       Config
 	now       func() time.Time
 	newSecret func() (string, error)
+	objects   ObjectStore // set by WithObjects; Delete needs it
 }
 
 func New(store SourceStore, mf Miniflux, cfg Config) *App {
@@ -71,6 +72,7 @@ func (a *App) Routes() http.Handler {
 	r.Get("/", a.list)
 	r.Get("/sources/new", a.newSource)
 	r.Post("/sources", a.addSource)
+	a.removalRoutes(r)
 	return r
 }
 

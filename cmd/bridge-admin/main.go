@@ -16,6 +16,7 @@ import (
 
 	"github.com/felipeafreitas/agregado/internal/bridgeadmin"
 	"github.com/felipeafreitas/agregado/internal/cloudflare/d1"
+	"github.com/felipeafreitas/agregado/internal/cloudflare/r2"
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/logging"
 	"github.com/felipeafreitas/agregado/internal/miniflux"
@@ -47,6 +48,12 @@ func main() {
 		ReceivingDomain: cfg.Bridge.ReceivingDomain,
 		BridgeOrigin:    cfg.Bridge.Origin,
 	})
+	app.WithObjects(r2.New(r2.Options{
+		AccountID:       cfg.Cloudflare.AccountID,
+		AccessKeyID:     cfg.R2.AccessKeyID,
+		SecretAccessKey: cfg.R2.SecretAccessKey,
+		Bucket:          cfg.R2.Bucket,
+	}))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Http.Port,

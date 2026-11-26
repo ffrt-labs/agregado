@@ -12,7 +12,7 @@
   <tbody>
   {{range .Rows}}
     <tr>
-      <td>{{.DisplayName}}</td>
+      <td><a href="/sources/{{.Alias}}/edit">{{.DisplayName}}</a></td>
       <td><code>{{.Alias}}</code></td>
       <td><span class="address"><input type="text" readonly value="{{.Address}}" onfocus="this.select()"><button type="button" data-copy="{{.Address}}">Copy</button></span></td>
       <td><span class="status status-{{.Status}}">{{title .Status}}</span></td>

@@ -52,6 +52,12 @@ type SourceStore interface {
 	// rollback for an Add whose Miniflux subscription failed. A no-op when the
 	// row is gone or no longer Pending.
 	RemovePending(ctx context.Context, alias string) error
+	// RenameSource sets a Source's display name, which is its Atom feed title.
+	// It fails if there is no such Source.
+	RenameSource(ctx context.Context, alias, displayName string) error
+	// SetSecretHash replaces a Source's feed password hash (Reconnect). It
+	// fails if there is no such Source.
+	SetSecretHash(ctx context.Context, alias, secretHash string) error
 }
 
 // Miniflux is the reader backend's API as this app needs it. *miniflux.Client
@@ -61,4 +67,6 @@ type Miniflux interface {
 	Categories(ctx context.Context) ([]miniflux.Category, error)
 	CreateCategory(ctx context.Context, title string) (miniflux.Category, error)
 	CreateFeed(ctx context.Context, feed miniflux.NewFeed) (int64, error)
+	UpdateFeed(ctx context.Context, id int64, update miniflux.FeedUpdate) error
+	RefreshFeed(ctx context.Context, id int64) error
 }

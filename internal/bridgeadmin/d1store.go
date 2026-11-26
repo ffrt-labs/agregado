@@ -2,6 +2,7 @@ package bridgeadmin
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/cloudflare/d1"
@@ -79,4 +80,25 @@ func (s *D1Store) InsertPending(ctx context.Context, source Source, secretHash s
 func (s *D1Store) RemovePending(ctx context.Context, alias string) error {
 	_, err := s.db.Exec(ctx, "DELETE FROM sources WHERE id = ? AND status = 'pending'", alias)
 	return err
+}
+
+func (s *D1Store) RenameSource(ctx context.Context, alias, displayName string) error {
+	return s.updateOne(ctx, alias, "UPDATE sources SET display_name = ? WHERE id = ?", displayName, alias)
+}
+
+func (s *D1Store) SetSecretHash(ctx context.Context, alias, secretHash string) error {
+	return s.updateOne(ctx, alias, "UPDATE sources SET basic_auth_secret_hash = ? WHERE id = ?", secretHash, alias)
+}
+
+// updateOne runs an UPDATE of one Source row and fails when no row matched,
+// so a Source deleted meanwhile is reported rather than silently skipped.
+func (s *D1Store) updateOne(ctx context.Context, alias, sql string, params ...any) error {
+	meta, err := s.db.Exec(ctx, sql, params...)
+	if err != nil {
+		return err
+	}
+	if meta.Changes == 0 {
+		return fmt.Errorf("no Newsletter Source %q in D1", alias)
+	}
+	return nil
 }

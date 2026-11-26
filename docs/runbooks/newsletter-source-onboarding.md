@@ -18,6 +18,13 @@ Then subscribe at the publisher with the receiving address the List shows, and
 confirm and activate as in steps 3 and 4 below. Those steps move into the app
 with #229.
 
+Click a Source's name to **Rename** it (the display name in D1, which is the
+feed title, and the Miniflux feed title change together; the alias never
+changes) or **Reconnect** it. Reconnect rotates the feed password and gives the
+new one to Miniflux, subscribing the feed again if it was deleted there. Use it
+when the List shows "Fetch failing" with a 401 or "No Miniflux feed". If it
+reports a Miniflux error after saving the new hash, Reconnect again.
+
 ## By hand
 
 The manual flow, for when the app is down.

@@ -71,6 +71,7 @@ func (a *App) Routes() http.Handler {
 	r.Get("/", a.list)
 	r.Get("/sources/new", a.newSource)
 	r.Post("/sources", a.addSource)
+	a.renameReconnectRoutes(r)
 	return r
 }
 

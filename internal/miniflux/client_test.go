@@ -101,3 +101,51 @@ func TestCreateFeed_SurfacesMinifluxErrorMessage(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestUpdateFeed_SendsOnlyTheGivenFields(t *testing.T) {
+	mux := http.NewServeMux()
+	var bodies []map[string]any
+	mux.HandleFunc("PUT /v1/feeds/262", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":262,"title":"whatever"}`))
+	})
+	client := newStub(t, mux)
+	if err := client.UpdateFeed(context.Background(), 262, FeedUpdate{Title: "Lenny's Newsletter"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.UpdateFeed(context.Background(), 262, FeedUpdate{Username: "lenny", Password: "n3w"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("bodies = %v", bodies)
+	}
+	if len(bodies[0]) != 1 || bodies[0]["title"] != "Lenny's Newsletter" {
+		t.Errorf("rename body = %v, want only the title", bodies[0])
+	}
+	if len(bodies[1]) != 2 || bodies[1]["username"] != "lenny" || bodies[1]["password"] != "n3w" {
+		t.Errorf("credentials body = %v, want only username and password", bodies[1])
+	}
+}
+
+func TestRefreshFeed(t *testing.T) {
+	mux := http.NewServeMux()
+	refreshed := false
+	mux.HandleFunc("PUT /v1/feeds/262/refresh", func(w http.ResponseWriter, r *http.Request) {
+		refreshed = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("PUT /v1/feeds/9/refresh", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error_message":"401 Unauthorized"}`))
+	})
+	client := newStub(t, mux)
+	if err := client.RefreshFeed(context.Background(), 262); err != nil || !refreshed {
+		t.Fatalf("refresh: %v, refreshed %v", err, refreshed)
+	}
+	if err := client.RefreshFeed(context.Background(), 9); err == nil || !strings.Contains(err.Error(), "401 Unauthorized") {
+		t.Fatalf("err = %v", err)
+	}
+}

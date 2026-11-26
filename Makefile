@@ -1,7 +1,7 @@
 include .env
 export
 
-.PHONY: dev-deps dev-deps-down dev build migrate-up migrate-down migrate-ownership migrate-ownership-apply legacy-dump seed-langfuse-prompts experiment experiment-test digest-preview
+.PHONY: dev-deps dev-deps-down dev bridge-admin build migrate-up migrate-down migrate-ownership migrate-ownership-apply legacy-dump seed-langfuse-prompts experiment experiment-test digest-preview
 
 dev-deps:
 	docker-compose up -d
@@ -11,6 +11,11 @@ dev-deps-down:
 
 dev:
 	go run ./cmd/agregado
+
+# The Newsletters app (cmd/bridge-admin). Needs the BRIDGE_* / MINIFLUX_* vars
+# from .env.example; it does not use the database.
+bridge-admin:
+	go run ./cmd/bridge-admin
 
 build:
 	go build -o bin/agregado ./cmd/agregado

@@ -64,6 +64,33 @@ services:
       - langfuse-ingest
 
     restart: unless-stopped
+
+  # The Newsletters app (cmd/bridge-admin, ADR-0012). No host port: the
+  # homelab-edge Caddy reaches it as bridge-admin:8080 over `edge`, and only
+  # for tailnet clients. It talks to Cloudflare D1 over HTTPS and to
+  # Miniflux (miniflux:8080) over `edge`; it never uses Agregado's database.
+  bridge-admin:
+    profiles: ["prod"]
+    build:
+      context: .
+      network: host
+      args:
+        CMD: bridge-admin
+    image: agregado-bridge-admin
+    environment:
+      HTTP_PORT: "8080"
+
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      BRIDGE_ADMIN_CF_API_TOKEN: ${BRIDGE_ADMIN_CF_API_TOKEN}
+      BRIDGE_D1_DATABASE_ID: ${BRIDGE_D1_DATABASE_ID}
+      BRIDGE_ORIGIN: ${BRIDGE_ORIGIN}
+      BRIDGE_RECEIVING_DOMAIN: ${BRIDGE_RECEIVING_DOMAIN}
+
+      MINIFLUX_URL: ${MINIFLUX_URL:-http://miniflux:8080}
+      BRIDGE_ADMIN_MINIFLUX_API_KEY: ${BRIDGE_ADMIN_MINIFLUX_API_KEY}
+    networks:
+      - edge
+    restart: unless-stopped
 volumes:
   postgres_data:
 networks:

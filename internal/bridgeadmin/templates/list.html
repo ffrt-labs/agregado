@@ -3,6 +3,7 @@
 <p><a href="/sources/new">Add a newsletter</a></p>
 
 {{if .Added}}<div class="notice notice-ok">Added {{.Added}}. It is Pending: subscribe at the publisher with its receiving address below.</div>{{end}}
+{{if .Activated}}<div class="notice notice-ok">Activated {{.Activated}}. n8n now turns its mail into Articles.</div>{{end}}
 {{if .MinifluxError}}<div class="notice notice-bad">Miniflux is unreachable, so fetch health is unknown: {{.MinifluxError}}</div>{{end}}
 
 <table>
@@ -15,7 +16,7 @@
       <td><a href="/sources/{{.Alias}}/edit">{{.DisplayName}}</a></td>
       <td><code>{{.Alias}}</code></td>
       <td><span class="address"><input type="text" readonly value="{{.Address}}" onfocus="this.select()"><button type="button" data-copy="{{.Address}}">Copy</button></span></td>
-      <td><span class="status status-{{.Status}}">{{title .Status}}</span></td>
+      <td><span class="status status-{{.Status}}">{{title .Status}}</span>{{if eq .Status "pending"}} <a href="/sources/{{.Alias}}/confirm">Confirm</a>{{end}}</td>
       <td>{{if .LastIssueAt}}{{date .LastIssueAt}}{{else}}<span class="muted">No issues yet</span>{{end}}</td>
       <td class="num">{{.Last30Days}}</td>
       <td>
@@ -31,6 +32,27 @@
   {{end}}
   </tbody>
 </table>
+
+{{if .MailError}}<div class="notice notice-bad">Resend is unreachable, so unclaimed mail is unknown: {{.MailError}}</div>{{end}}
+{{if .Unclaimed}}
+<h2>Unclaimed mail</h2>
+<p class="hint">Recent mail to aliases that have no Newsletter Source. n8n drops it.</p>
+<table>
+  <thead>
+    <tr><th>Address</th><th>Emails</th><th>Latest</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .Unclaimed}}
+    <tr>
+      <td><code>{{.Address}}</code></td>
+      <td class="num">{{.Count}} {{if eq .Count 1}}email{{else}}emails{{end}}</td>
+      <td>{{if .Latest.Subject}}{{.Latest.Subject}}{{else}}<span class="muted">(no subject)</span>{{end}}<br><span class="muted">From {{.Latest.From}}{{if .Latest.Received}} · {{.Latest.Received}}{{end}}</span></td>
+      <td><a href="/sources/new?alias={{.Alias}}">Register this alias</a></td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
 
 <script>
   document.querySelectorAll("button[data-copy]").forEach(function (button) {

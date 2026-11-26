@@ -102,3 +102,13 @@ func (s *D1Store) updateOne(ctx context.Context, alias, sql string, params ...an
 	}
 	return nil
 }
+
+// Activate is guarded by status = 'pending', so it never resumes a Paused
+// Source; meta.changes says whether a row moved.
+func (s *D1Store) Activate(ctx context.Context, alias string) (bool, error) {
+	meta, err := s.db.Exec(ctx, "UPDATE sources SET status = 'active' WHERE id = ? AND status = 'pending'", alias)
+	if err != nil {
+		return false, err
+	}
+	return meta.Changes > 0, nil
+}

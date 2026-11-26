@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/felipeafreitas/agregado/internal/miniflux"
+	"github.com/felipeafreitas/agregado/internal/resend"
 )
 
 // Newsletter Source statuses, as stored in D1 sources.status. n8n turns mail
@@ -58,6 +59,9 @@ type SourceStore interface {
 	// SetSecretHash replaces a Source's feed password hash (Reconnect). It
 	// fails if there is no such Source.
 	SetSecretHash(ctx context.Context, alias, secretHash string) error
+	// Activate sets a Pending Source to Active and reports whether it did; a
+	// Source in any other status, or no Source, is left alone (false).
+	Activate(ctx context.Context, alias string) (bool, error)
 }
 
 // Miniflux is the reader backend's API as this app needs it. *miniflux.Client
@@ -69,4 +73,15 @@ type Miniflux interface {
 	CreateFeed(ctx context.Context, feed miniflux.NewFeed) (int64, error)
 	UpdateFeed(ctx context.Context, id int64, update miniflux.FeedUpdate) error
 	RefreshFeed(ctx context.Context, id int64) error
+}
+
+// ReceivedMail is Resend's receiving API as this app needs it, for Confirm and
+// Unclaimed mail. *resend.Client is the real one. Its key can read received
+// mail; Resend has no narrower key type (ADR-0012).
+type ReceivedMail interface {
+	// ReceivedEmails returns the latest resend.ListLimit emails, newest first,
+	// only those to the given addresses when any are given. Items carry no body.
+	ReceivedEmails(ctx context.Context, recipients ...string) ([]resend.Email, error)
+	// ReceivedEmail returns one email with its HTML and text body.
+	ReceivedEmail(ctx context.Context, id string) (resend.Email, error)
 }

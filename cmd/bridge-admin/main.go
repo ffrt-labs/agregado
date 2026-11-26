@@ -19,6 +19,7 @@ import (
 	"github.com/felipeafreitas/agregado/internal/config"
 	"github.com/felipeafreitas/agregado/internal/logging"
 	"github.com/felipeafreitas/agregado/internal/miniflux"
+	"github.com/felipeafreitas/agregado/internal/resend"
 	"github.com/joho/godotenv"
 )
 
@@ -46,7 +47,7 @@ func main() {
 	app := bridgeadmin.New(store, reader, bridgeadmin.Config{
 		ReceivingDomain: cfg.Bridge.ReceivingDomain,
 		BridgeOrigin:    cfg.Bridge.Origin,
-	})
+	}).WithReceivedMail(resend.New(resend.DefaultBaseURL, cfg.Resend.APIKey, 0))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Http.Port,

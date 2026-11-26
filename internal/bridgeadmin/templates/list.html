@@ -3,6 +3,7 @@
 <p><a href="/sources/new">Add a newsletter</a></p>
 
 {{if .Added}}<div class="notice notice-ok">Added {{.Added}}. It is Pending: subscribe at the publisher with its receiving address below.</div>{{end}}
+{{if .Activated}}<div class="notice notice-ok">Activated {{.Activated}}. n8n now turns its mail into Articles.</div>{{end}}
 {{if .MinifluxError}}<div class="notice notice-bad">Miniflux is unreachable, so fetch health is unknown: {{.MinifluxError}}</div>{{end}}
 
 <table>

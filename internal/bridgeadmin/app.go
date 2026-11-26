@@ -54,6 +54,7 @@ type App struct {
 	cfg       Config
 	now       func() time.Time
 	newSecret func() (string, error)
+	mail      ReceivedMail
 }
 
 func New(store SourceStore, mf Miniflux, cfg Config) *App {
@@ -71,6 +72,8 @@ func (a *App) Routes() http.Handler {
 	r.Get("/", a.list)
 	r.Get("/sources/new", a.newSource)
 	r.Post("/sources", a.addSource)
+	r.Get("/sources/{alias}/confirm", a.confirm)
+	r.Post("/sources/{alias}/activate", a.activate)
 	return r
 }
 
@@ -105,6 +108,9 @@ type listPage struct {
 	Rows          []sourceRow
 	Added         string
 	MinifluxError string
+	Activated     string
+	Unclaimed     []unclaimedAlias
+	MailError     string
 }
 
 func (a *App) list(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +144,9 @@ func (a *App) list(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.Alias == r.URL.Query().Get("added") {
 			page.Added = s.DisplayName
+		}
+		if s.Alias == r.URL.Query().Get("activated") {
+			page.Activated = s.DisplayName
 		}
 		switch feed, ok := byURL[a.feedURL(s.Alias)]; {
 		case feedsErr != nil:

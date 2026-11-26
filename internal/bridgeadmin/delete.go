@@ -23,15 +23,6 @@ func (a *App) removalRoutes(r chi.Router) {
 	r.Post("/sources/{alias}/delete", a.deleteSource)
 }
 
-// aliasParam is the {alias} in the path, or "" if it cannot be one.
-func aliasParam(r *http.Request) string {
-	alias := chi.URLParam(r, "alias")
-	if ValidateAlias(alias) != nil {
-		return ""
-	}
-	return alias
-}
-
 func (a *App) pauseSource(w http.ResponseWriter, r *http.Request) {
 	a.setStatus(w, r, "pause", a.store.Pause)
 }
@@ -43,7 +34,7 @@ func (a *App) resumeSource(w http.ResponseWriter, r *http.Request) {
 func (a *App) setStatus(w http.ResponseWriter, r *http.Request, verb string, apply func(context.Context, string) error) {
 	alias := aliasParam(r)
 	if alias == "" {
-		http.NotFound(w, r)
+		a.notFound(w, chi.URLParam(r, "alias"))
 		return
 	}
 	if err := apply(r.Context(), alias); err != nil {
@@ -54,20 +45,6 @@ func (a *App) setStatus(w http.ResponseWriter, r *http.Request, verb string, app
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// findSource is the Source with this alias, if there is one.
-func (a *App) findSource(ctx context.Context, alias string) (Source, bool, error) {
-	sources, err := a.store.Sources(ctx)
-	if err != nil {
-		return Source{}, false, err
-	}
-	for _, s := range sources {
-		if s.Alias == alias {
-			return s, true, nil
-		}
-	}
-	return Source{}, false, nil
-}
-
 type deletePage struct {
 	Source
 	Address string
@@ -76,27 +53,16 @@ type deletePage struct {
 }
 
 func (a *App) confirmDelete(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	alias := aliasParam(r)
-	if alias == "" {
-		http.NotFound(w, r)
-		return
-	}
-	source, ok, err := a.findSource(ctx, alias)
-	if err != nil {
-		a.fail(w, "Could not read the Newsletter Sources from D1", err)
-		return
-	}
+	source, ok := a.pathSource(w, r)
 	if !ok {
-		http.NotFound(w, r)
 		return
 	}
-	issues, err := a.store.IssueSummary(ctx, alias)
+	issues, err := a.store.IssueSummary(r.Context(), source.Alias)
 	if err != nil {
-		a.fail(w, "Could not count "+alias+"'s issues in D1", err)
+		a.fail(w, "Could not count "+source.Alias+"'s issues in D1", err)
 		return
 	}
-	a.render(w, http.StatusOK, "delete.html", deletePage{Source: source, Address: a.address(alias), Issues: issues})
+	a.render(w, http.StatusOK, "delete.html", deletePage{Source: source, Address: a.address(source.Alias), Issues: issues})
 }
 
 type deletedPage struct {
@@ -107,7 +73,7 @@ type deletedPage struct {
 func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 	alias := aliasParam(r)
 	if alias == "" {
-		http.NotFound(w, r)
+		a.notFound(w, chi.URLParam(r, "alias"))
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), deleteTimeout)
@@ -126,7 +92,7 @@ func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 
 	removed, err := a.remove(ctx, alias)
 	if err == nil && !found && !removed {
-		a.render(w, http.StatusNotFound, "error.html", errorPage{Message: "Nothing to delete", Detail: errNoSource.Error() + " " + alias})
+		a.notFound(w, alias)
 		return
 	}
 	if err != nil {

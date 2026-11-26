@@ -361,6 +361,56 @@ func (a *App) resolveCategory(ctx context.Context, picked string) (int64, error)
 	return created.ID, nil
 }
 
+var errNoSource = errors.New("no such Newsletter Source")
+
+// aliasParam is the {alias} in the path, or "" if it cannot be one.
+func aliasParam(r *http.Request) string {
+	alias := chi.URLParam(r, "alias")
+	if ValidateAlias(alias) != nil {
+		return ""
+	}
+	return alias
+}
+
+// findSource is the Source with this alias, if there is one; the table is
+// small, so it is found among all of them.
+func (a *App) findSource(ctx context.Context, alias string) (Source, bool, error) {
+	sources, err := a.store.Sources(ctx)
+	if err != nil {
+		return Source{}, false, err
+	}
+	for _, s := range sources {
+		if s.Alias == alias {
+			return s, true, nil
+		}
+	}
+	return Source{}, false, nil
+}
+
+// pathSource is the Source the {alias} in the path names. When there is
+// none, or D1 cannot say, it has already answered (404 or 502) and ok is
+// false.
+func (a *App) pathSource(w http.ResponseWriter, r *http.Request) (source Source, ok bool) {
+	alias := aliasParam(r)
+	if alias == "" {
+		a.notFound(w, chi.URLParam(r, "alias"))
+		return Source{}, false
+	}
+	source, ok, err := a.findSource(r.Context(), alias)
+	if err != nil {
+		a.fail(w, "Could not read the Newsletter Sources from D1", err)
+		return Source{}, false
+	}
+	if !ok {
+		a.notFound(w, alias)
+	}
+	return source, ok
+}
+
+func (a *App) notFound(w http.ResponseWriter, alias string) {
+	a.render(w, http.StatusNotFound, "error.html", errorPage{Message: "Not found", Detail: errNoSource.Error() + " " + strconv.Quote(alias)})
+}
+
 type errorPage struct {
 	Message string
 	Detail  string

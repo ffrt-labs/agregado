@@ -27,22 +27,6 @@ type editPage struct {
 	Error   string
 }
 
-var errNoSource = errors.New("no such Newsletter Source")
-
-// lookupSource finds one Source by alias in D1.
-func (a *App) lookupSource(ctx context.Context, alias string) (Source, error) {
-	sources, err := a.store.Sources(ctx)
-	if err != nil {
-		return Source{}, fmt.Errorf("could not read the Newsletter Sources from D1: %w", err)
-	}
-	for _, s := range sources {
-		if s.Alias == alias {
-			return s, nil
-		}
-	}
-	return Source{}, errNoSource
-}
-
 // feedFor finds the Miniflux feed of a Source (feedsOf). ok is false when
 // Miniflux has no such feed.
 func (a *App) feedFor(ctx context.Context, alias string) (feed miniflux.Feed, ok bool, err error) {
@@ -57,13 +41,8 @@ func (a *App) feedFor(ctx context.Context, alias string) (feed miniflux.Feed, ok
 }
 
 func (a *App) editSource(w http.ResponseWriter, r *http.Request) {
-	source, err := a.lookupSource(r.Context(), chi.URLParam(r, "alias"))
-	if errors.Is(err, errNoSource) {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		a.fail(w, "Could not open the Newsletter Source", err)
+	source, ok := a.pathSource(w, r)
+	if !ok {
 		return
 	}
 	page := editPage{Source: source}
@@ -91,13 +70,8 @@ func (a *App) renameSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	source, err := a.lookupSource(ctx, chi.URLParam(r, "alias"))
-	if errors.Is(err, errNoSource) {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		a.fail(w, "Could not rename the Newsletter Source", err)
+	source, ok := a.pathSource(w, r)
+	if !ok {
 		return
 	}
 	hadFeed, err := a.rename(ctx, source, strings.TrimSpace(r.PostFormValue("display_name")))
@@ -158,13 +132,8 @@ const rollbackTimeout = 30 * time.Second
 
 func (a *App) reconnectSource(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	source, err := a.lookupSource(ctx, chi.URLParam(r, "alias"))
-	if errors.Is(err, errNoSource) {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		a.fail(w, "Could not reconnect the Newsletter Source", err)
+	source, ok := a.pathSource(w, r)
+	if !ok {
 		return
 	}
 	resubscribed, err := a.reconnect(ctx, source.Alias)

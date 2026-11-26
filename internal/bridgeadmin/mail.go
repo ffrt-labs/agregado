@@ -54,33 +54,13 @@ func receivedAt(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04 UTC")
 }
 
-// sourceByAlias finds one Source among all of them; the table is small.
-func (a *App) sourceByAlias(ctx context.Context, alias string) (Source, bool, error) {
-	sources, err := a.store.Sources(ctx)
-	if err != nil {
-		return Source{}, false, err
-	}
-	for _, s := range sources {
-		if s.Alias == alias {
-			return s, true, nil
-		}
-	}
-	return Source{}, false, nil
-}
-
 func (a *App) confirm(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	source, ok, err := a.sourceByAlias(ctx, chi.URLParam(r, "alias"))
-	if err != nil {
-		a.fail(w, "Could not read the Newsletter Sources from D1", err)
-		return
-	}
+	source, ok := a.pathSource(w, r)
 	if !ok {
-		a.render(w, http.StatusNotFound, "error.html", errorPage{Message: "No Newsletter Source has that alias."})
 		return
 	}
 	page := confirmPage{Source: source, Address: a.address(source.Alias)}
-	page.Mail, page.MailError = a.mailTo(ctx, page.Address)
+	page.Mail, page.MailError = a.mailTo(r.Context(), page.Address)
 	a.render(w, http.StatusOK, "confirm.html", page)
 }
 
@@ -164,7 +144,11 @@ func (a *App) unclaimed(ctx context.Context, sources []Source) ([]unclaimedAlias
 }
 
 func (a *App) activate(w http.ResponseWriter, r *http.Request) {
-	alias := chi.URLParam(r, "alias")
+	alias := aliasParam(r)
+	if alias == "" {
+		a.notFound(w, chi.URLParam(r, "alias"))
+		return
+	}
 	ok, err := a.store.Activate(r.Context(), alias)
 	if err != nil {
 		a.fail(w, "Could not activate the Source in D1", err)

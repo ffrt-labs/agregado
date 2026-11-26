@@ -103,7 +103,7 @@ func (f *fakeMiniflux) CreateFeed(_ context.Context, feed miniflux.NewFeed) (int
 }
 
 func newTestApp(store *fakeStore, mf *fakeMiniflux) http.Handler {
-	app := New(store, mf, Config{
+	app := New(store, mf, nil, nil, Config{
 		ReceivingDomain: "news.example.com",
 		BridgeOrigin:    "https://bridge.example.com",
 	})
@@ -248,7 +248,7 @@ func TestAdd_RegistersAPendingSourceAndSubscribesMinifluxWithItsPassword(t *test
 
 func TestAdd_SubscribesWithoutADoubleSlashWhenTheOriginEndsInOne(t *testing.T) {
 	mf := &fakeMiniflux{categories: []miniflux.Category{{ID: 7, Title: "Newsletters"}}}
-	app := New(&fakeStore{}, mf, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com/"})
+	app := New(&fakeStore{}, mf, nil, nil, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com/"})
 
 	post(t, app.Routes(), "/sources", url.Values{"display_name": {"Syntax"}, "alias": {"syntax"}, "category_id": {"7"}})
 

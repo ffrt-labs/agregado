@@ -16,13 +16,6 @@ import (
 // finish, Delete again resumes.
 const deleteTimeout = 5 * time.Minute
 
-// WithObjects gives the app the Bridge's R2 bucket, which Delete empties of
-// the Source's issues. Without it Delete fails at that step.
-func (a *App) WithObjects(objects ObjectStore) *App {
-	a.objects = objects
-	return a
-}
-
 func (a *App) removalRoutes(r chi.Router) {
 	r.Post("/sources/{alias}/pause", a.pauseSource)
 	r.Post("/sources/{alias}/resume", a.resumeSource)

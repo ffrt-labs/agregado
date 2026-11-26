@@ -17,13 +17,6 @@ import (
 // two; older ones still show subject, sender and date.
 const maxOpened = 10
 
-// WithReceivedMail gives the app Resend's receiving API, for Confirm and
-// Unclaimed mail. Without it those views say mail is unavailable.
-func (a *App) WithReceivedMail(mail ReceivedMail) *App {
-	a.mail = mail
-	return a
-}
-
 // receivedMail is one email as the app shows it: never its body, only the
 // links found in it.
 type receivedMail struct {

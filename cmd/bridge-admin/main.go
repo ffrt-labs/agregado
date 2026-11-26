@@ -45,16 +45,17 @@ func main() {
 		APIToken:   cfg.Cloudflare.APIToken,
 	}))
 	reader := miniflux.New(cfg.Miniflux.URL, cfg.Miniflux.APIKey, 0)
-	app := bridgeadmin.New(store, reader, bridgeadmin.Config{
-		ReceivingDomain: cfg.Bridge.ReceivingDomain,
-		BridgeOrigin:    cfg.Bridge.Origin,
-	}).WithReceivedMail(resend.New(resend.DefaultBaseURL, cfg.Resend.APIKey, 0))
-	app.WithObjects(r2.New(r2.Options{
+	mail := resend.New(resend.DefaultBaseURL, cfg.Resend.APIKey, 0)
+	objects := r2.New(r2.Options{
 		AccountID:       cfg.Cloudflare.AccountID,
 		AccessKeyID:     cfg.R2.AccessKeyID,
 		SecretAccessKey: cfg.R2.SecretAccessKey,
 		Bucket:          cfg.R2.Bucket,
-	}))
+	})
+	app := bridgeadmin.New(store, reader, mail, objects, bridgeadmin.Config{
+		ReceivingDomain: cfg.Bridge.ReceivingDomain,
+		BridgeOrigin:    cfg.Bridge.Origin,
+	})
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Http.Port,

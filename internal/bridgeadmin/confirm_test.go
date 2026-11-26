@@ -64,10 +64,10 @@ func (f *fakeMail) ReceivedEmail(_ context.Context, id string) (resend.Email, er
 }
 
 func newMailApp(store *fakeStore, mail *fakeMail) http.Handler {
-	app := New(store, &fakeMiniflux{}, Config{
+	app := New(store, &fakeMiniflux{}, mail, nil, Config{
 		ReceivingDomain: "news.example.com",
 		BridgeOrigin:    "https://bridge.example.com",
-	}).WithReceivedMail(mail)
+	})
 	app.now = func() time.Time { return now }
 	return app.Routes()
 }

@@ -99,7 +99,7 @@ func (m *rrMiniflux) RefreshFeed(_ context.Context, id int64) error {
 }
 
 func newRRApp(store SourceStore, mf Miniflux) http.Handler {
-	app := New(store, mf, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com"})
+	app := New(store, mf, nil, nil, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com"})
 	app.now = func() time.Time { return now }
 	return app.Routes()
 }

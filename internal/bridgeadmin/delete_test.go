@@ -168,9 +168,8 @@ func deleteFixture() (*fakeStore, *fakeMiniflux, *fakeObjects) {
 }
 
 func newDeleteApp(store *fakeStore, mf *fakeMiniflux, objects *fakeObjects) http.Handler {
-	app := New(store, mf, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com"})
+	app := New(store, mf, nil, objects, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com"})
 	app.now = func() time.Time { return now }
-	app.WithObjects(objects)
 	return app.Routes()
 }
 

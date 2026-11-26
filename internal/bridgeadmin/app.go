@@ -57,13 +57,16 @@ type App struct {
 	cfg       Config
 	now       func() time.Time
 	newSecret func() (string, error)
-	objects   ObjectStore // set by WithObjects; Delete needs it
 	mail      ReceivedMail
+	objects   ObjectStore
 }
 
-func New(store SourceStore, mf Miniflux, cfg Config) *App {
+// New wires the app to its four systems. mail (Resend) may be nil: Confirm
+// and Unclaimed mail then say mail is unavailable. objects (R2) may be nil:
+// Delete then fails at the step that removes stored issues.
+func New(store SourceStore, mf Miniflux, mail ReceivedMail, objects ObjectStore, cfg Config) *App {
 	cfg.BridgeOrigin = strings.TrimRight(cfg.BridgeOrigin, "/")
-	return &App{store: store, miniflux: mf, cfg: cfg, now: time.Now, newSecret: NewSecret}
+	return &App{store: store, miniflux: mf, mail: mail, objects: objects, cfg: cfg, now: time.Now, newSecret: NewSecret}
 }
 
 func (a *App) Routes() http.Handler {

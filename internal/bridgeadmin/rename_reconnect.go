@@ -43,17 +43,15 @@ func (a *App) lookupSource(ctx context.Context, alias string) (Source, error) {
 	return Source{}, errNoSource
 }
 
-// feedFor finds the Miniflux feed of a Source by its feed URL, as the List
-// does. ok is false when Miniflux has no such feed.
+// feedFor finds the Miniflux feed of a Source (feedsOf). ok is false when
+// Miniflux has no such feed.
 func (a *App) feedFor(ctx context.Context, alias string) (feed miniflux.Feed, ok bool, err error) {
 	feeds, err := a.miniflux.Feeds(ctx)
 	if err != nil {
 		return miniflux.Feed{}, false, fmt.Errorf("could not read the Miniflux feeds: %w", err)
 	}
-	for _, f := range feeds {
-		if f.FeedURL == a.feedURL(alias) {
-			return f, true, nil
-		}
+	if matched := feedsOf(feeds, alias); len(matched) > 0 {
+		return matched[0], true, nil
 	}
 	return miniflux.Feed{}, false, nil
 }
@@ -186,7 +184,7 @@ func (a *App) reconnectSource(w http.ResponseWriter, r *http.Request) {
 // reconnect rotates a Source's feed password: a new one is generated, its
 // hash replaces the old in D1, and Miniflux gets the plaintext, either as the
 // existing feed's credentials (then a fetch to clear any auth error) or, if
-// the feed is gone (matched by feed URL), as a fresh subscription in the
+// the feed is gone (matched by feed path, see feedsOf), as a fresh subscription in the
 // default category. The plaintext lives only in this function.
 //
 // Everything that can fail without side effects (reading Miniflux, picking

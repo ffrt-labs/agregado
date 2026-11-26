@@ -113,7 +113,7 @@ func lennyFixture() (*rrStore, *rrMiniflux) {
 	mf := &rrMiniflux{fakeMiniflux: &fakeMiniflux{
 		categories: []miniflux.Category{{ID: 7, Title: "Newsletters"}},
 		feeds: []miniflux.Feed{
-			{ID: 41, Title: "Someone else", FeedURL: "https://elsewhere.example/feed/lenny.atom"},
+			{ID: 41, Title: "Someone else", FeedURL: "https://elsewhere.example/feed/lenny-podcast.atom"},
 			{ID: 42, Title: "Lenny", FeedURL: "https://bridge.example.com/feed/lenny.atom"},
 		},
 	}}
@@ -141,6 +141,20 @@ func TestRename_UpdatesTheD1NameAndTheMinifluxTitleTogether(t *testing.T) {
 
 	page := get(t, app, "/sources/lenny/edit?done=renamed").Body.String()
 	mustContain(t, page, "Renamed to Lenny&#39;s Newsletter", `value="Lenny&#39;s Newsletter"`, "lenny@news.example.com")
+}
+
+func TestRename_FindsTheFeedWhateverItsOrigin(t *testing.T) {
+	store, mf := lennyFixture()
+	mf.feeds[1].FeedURL = "http://bridge-old.workers.dev/feed/lenny.atom"
+
+	rec := post(t, newRRApp(store, mf), "/sources/lenny/rename", url.Values{"display_name": {"Lenny's Newsletter"}})
+
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/sources/lenny/edit?done=renamed" {
+		t.Fatalf("status %d location %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if mf.feeds[1].Title != "Lenny's Newsletter" {
+		t.Errorf("Miniflux feeds = %+v", mf.feeds)
+	}
 }
 
 func TestRename_PutsTheOldNameBackInD1WhenMinifluxRefuses(t *testing.T) {

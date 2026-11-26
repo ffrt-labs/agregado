@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,8 +44,9 @@ type Config struct {
 	// (<alias>@<domain>), the Resend catch-all.
 	ReceivingDomain string
 	// BridgeOrigin is the Bridge Worker's scheme and host, no trailing slash.
-	// A Source's feed is BridgeOrigin + "/feed/<alias>.atom", the same URL
-	// Miniflux subscribes to and the List matches Miniflux feeds by.
+	// A Source's feed is BridgeOrigin + "/feed/<alias>.atom", the URL
+	// Miniflux subscribes to. Existing feeds are matched by path only
+	// (feedsOf).
 	BridgeOrigin string
 }
 
@@ -82,6 +84,22 @@ func (a *App) Routes() http.Handler {
 
 func (a *App) feedURL(alias string) string {
 	return a.cfg.BridgeOrigin + "/feed/" + alias + ".atom"
+}
+
+// feedsOf picks alias's Bridge feeds out of Miniflux's. A feed is matched by
+// its URL path, /feed/<alias>.atom, ignoring case, scheme and origin, so a
+// feed subscribed under an older Bridge host still counts. List, Rename,
+// Reconnect and Delete all match feeds this way.
+func feedsOf(feeds []miniflux.Feed, alias string) []miniflux.Feed {
+	want := "/feed/" + alias + ".atom"
+	var out []miniflux.Feed
+	for _, f := range feeds {
+		u, err := url.Parse(strings.TrimSpace(f.FeedURL))
+		if err == nil && strings.EqualFold(u.Path, want) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func (a *App) address(alias string) string {
@@ -135,11 +153,6 @@ func (a *App) list(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("miniflux feeds unavailable", "component", "bridge-admin", "err", feedsErr)
 		page.MinifluxError = feedsErr.Error()
 	}
-	byURL := make(map[string]miniflux.Feed, len(feeds))
-	for _, f := range feeds {
-		byURL[f.FeedURL] = f
-	}
-
 	for _, s := range sources {
 		row := sourceRow{Source: s, Address: a.address(s.Alias)}
 		if st, ok := stats[s.Alias]; ok {
@@ -151,19 +164,20 @@ func (a *App) list(w http.ResponseWriter, r *http.Request) {
 		if s.Alias == r.URL.Query().Get("activated") {
 			page.Activated = s.DisplayName
 		}
-		switch feed, ok := byURL[a.feedURL(s.Alias)]; {
+		matched := feedsOf(feeds, s.Alias)
+		switch {
 		case feedsErr != nil:
 			row.Health = healthUnknown
-		case !ok:
+		case len(matched) == 0:
 			row.Health = healthNoFeed
-		case feed.ParsingErrorCount > 0:
-			row.Health, row.HealthError = healthFailing, feed.ParsingErrorMessage
-			row.CheckedAt = &feed.CheckedAt
-		case feed.CheckedAt.IsZero():
+		case matched[0].ParsingErrorCount > 0:
+			row.Health, row.HealthError = healthFailing, matched[0].ParsingErrorMessage
+			row.CheckedAt = &matched[0].CheckedAt
+		case matched[0].CheckedAt.IsZero():
 			row.Health = healthPending
 		default:
 			row.Health = healthOK
-			row.CheckedAt = &feed.CheckedAt
+			row.CheckedAt = &matched[0].CheckedAt
 		}
 		page.Rows = append(page.Rows, row)
 	}

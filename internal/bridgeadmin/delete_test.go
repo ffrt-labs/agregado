@@ -326,6 +326,18 @@ func assertSyntaxGoneAndTLDRKept(t *testing.T, store *fakeStore, mf *fakeMiniflu
 	}
 }
 
+func TestDelete_RemovesTheFeedWhateverItsOrigin(t *testing.T) {
+	store, mf, objects := deleteFixture()
+	mf.feeds[0].FeedURL = "http://bridge-old.workers.dev/feed/Syntax.atom"
+
+	rec := post(t, newDeleteApp(store, mf, objects), "/sources/syntax/delete", nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d\n%s", rec.Code, rec.Body)
+	}
+	assertSyntaxGoneAndTLDRKept(t, store, mf, objects)
+}
+
 func TestDelete_PausesBeforeTouchingAnythingElse(t *testing.T) {
 	store, mf, objects := deleteFixture()
 	mf.deleteErr = errors.New("miniflux: DELETE /v1/feeds/11 returned 500: boom")

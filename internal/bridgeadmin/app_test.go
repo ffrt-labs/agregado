@@ -153,7 +153,7 @@ func TestList_ShowsEachSourceWithAddressStatusStatsAndFetchHealth(t *testing.T) 
 		{FeedURL: "https://bridge.example.com/feed/tldr.atom", CheckedAt: now.Add(-time.Hour)},
 		{FeedURL: "https://bridge.example.com/feed/dw-berlin-briefing.atom", CheckedAt: now.Add(-time.Hour),
 			ParsingErrorCount: 3, ParsingErrorMessage: "401 Unauthorized"},
-		{FeedURL: "https://elsewhere.example/feed/syntax.atom"},
+		{FeedURL: "https://elsewhere.example/feed/syntax-weekly.atom"},
 	}}
 
 	rec := get(t, newTestApp(store, mf), "/")
@@ -171,6 +171,20 @@ func TestList_ShowsEachSourceWithAddressStatusStatsAndFetchHealth(t *testing.T) 
 	if want := now.Add(-30 * 24 * time.Hour); !store.statsFrom.Equal(want) {
 		t.Errorf("stats window starts %v, want %v", store.statsFrom, want)
 	}
+}
+
+// Miniflux may hold the feed under another origin (the Bridge moved host,
+// or was subscribed by its workers.dev name) or another case: the path names
+// the alias, so that is what is matched.
+func TestList_MatchesTheMinifluxFeedByPathWhateverTheOriginOrCase(t *testing.T) {
+	store := &fakeStore{sources: []Source{{Alias: "tldr", DisplayName: "TLDR", Status: StatusActive}}}
+	mf := &fakeMiniflux{feeds: []miniflux.Feed{
+		{FeedURL: "HTTP://Bridge-Old.Workers.dev/FEED/TLDR.atom", CheckedAt: now.Add(-time.Hour)},
+	}}
+
+	body := get(t, newTestApp(store, mf), "/").Body.String()
+
+	mustContain(t, body, "Fetch OK")
 }
 
 func TestList_StillRendersWhenMinifluxIsDown(t *testing.T) {

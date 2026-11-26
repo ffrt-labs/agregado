@@ -175,10 +175,7 @@ func (a *App) remove(ctx context.Context, alias string) error {
 	if err != nil {
 		return fmt.Errorf("could not read Miniflux feeds to remove this one: %w", err)
 	}
-	for _, feed := range feeds {
-		if feed.FeedURL != a.feedURL(alias) {
-			continue
-		}
+	for _, feed := range feedsOf(feeds, alias) {
 		if err := a.miniflux.DeleteFeed(ctx, feed.ID); err != nil {
 			return fmt.Errorf("could not remove the Miniflux feed: %w", err)
 		}

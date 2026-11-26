@@ -72,8 +72,10 @@ next to D1 and R2, or the homelab, next to Miniflux and n8n.
 7. **The app's configuration names the Bridge's addresses**:
    `BRIDGE_ORIGIN` (the Worker's origin, as n8n uses it) and
    `BRIDGE_RECEIVING_DOMAIN` (the Resend catch-all). A Source's feed is
-   `BRIDGE_ORIGIN/feed/<alias>.atom`, and the List finds its Miniflux feed by
-   that exact URL.
+   `BRIDGE_ORIGIN/feed/<alias>.atom`. List, Rename, Reconnect and Delete find
+   its Miniflux feed by the path `/feed/<alias>.atom` alone, ignoring case,
+   scheme and origin, so feeds subscribed under an older Bridge host still
+   match.
 8. **Confirm reads mail from Resend's receiving API and never renders it**
    (#229). The app's key is `BRIDGE_ADMIN_RESEND_API_KEY`. A Pending Source's
    page lists the mail to its address (`GET /emails/receiving?to=`, the
@@ -108,8 +110,10 @@ next to D1 and R2, or the homelab, next to Miniflux and n8n.
   tailnet addresses. Requests from the server itself (Docker gateway
   addresses) are refused as well.
 - Changing `BRIDGE_ORIGIN` (for example when `bridge.felipefreitas.dev` gets
-  its record, ADR-0008) breaks the List's feed matching until every Miniflux
-  feed URL is updated.
+  its record, ADR-0008) does not break feed matching, but existing Miniflux
+  feeds keep fetching the old host until their URLs are updated. A feed under
+  any host with the path `/feed/<alias>.atom` counts as the Source's, so
+  Delete removes it too.
 - If Miniflux creates the feed but its answer is lost (a timeout), the
   rollback leaves a Miniflux feed for an alias D1 no longer has. It shows as
   a 404 in Miniflux and is removed by hand.

@@ -36,6 +36,11 @@ env:
   BRIDGE_ORIGIN: ${{ vars.BRIDGE_ORIGIN }}
   BRIDGE_RECEIVING_DOMAIN: ${{ vars.BRIDGE_RECEIVING_DOMAIN }}
   MINIFLUX_URL: ${{ vars.MINIFLUX_URL }}
+  # Delete (agregado#230) empties a Source's issues from R2 over the S3 API,
+  # with a token scoped to the bucket.
+  BRIDGE_R2_BUCKET: ${{ vars.BRIDGE_R2_BUCKET }}
+  BRIDGE_ADMIN_R2_ACCESS_KEY_ID: ${{ secrets.BRIDGE_ADMIN_R2_ACCESS_KEY_ID }}
+  BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY: ${{ secrets.BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY }}
 
 jobs:
   deploy:

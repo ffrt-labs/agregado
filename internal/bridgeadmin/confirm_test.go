@@ -156,6 +156,55 @@ func TestActivate_RefusesASourceThatIsNotPending(t *testing.T) {
 	}
 }
 
+func TestList_PendingSourcesLinkToConfirm(t *testing.T) {
+	body := get(t, newMailApp(pendingTLDR(), &fakeMail{}), "/").Body.String()
+	mustContain(t, body, `href="/sources/tldr/confirm"`)
+	if strings.Contains(body, `href="/sources/morning-brew/confirm"`) {
+		t.Errorf("an Active Source links to Confirm\n%s", body)
+	}
+}
+
+func TestList_UnclaimedMailOffersToRegisterEachUnknownAlias(t *testing.T) {
+	mail := &fakeMail{inbox: []resend.Email{
+		{ID: "e5", To: []string{"Lenny <Lenny@News.Example.com>"}, From: "lenny@substack.com", Subject: "Welcome to Lenny's",
+			CreatedAt: time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)},
+		{ID: "e4", To: []string{"tldr@news.example.com"}, From: "dan@tldr.tech", Subject: "Known Source"},
+		{ID: "e3", To: []string{"someone@elsewhere.example"}, From: "x@y.z", Subject: "Other domain"},
+		{ID: "e2", To: []string{"lenny@news.example.com"}, From: "lenny@substack.com", Subject: "Confirm Lenny's"},
+		{ID: "e1", To: []string{"odd alias@news.example.com"}, From: "a@b.c", Subject: "<b>odd</b>"},
+	}}
+	rec := get(t, newMailApp(pendingTLDR(), mail), "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	mustContain(t, body,
+		"Unclaimed mail",
+		"lenny@news.example.com", "2 emails", "Welcome to Lenny&#39;s", "2026-11-26 09:00 UTC",
+		`href="/sources/new?alias=lenny"`,
+		`href="/sources/new?alias=odd%20alias"`, "&lt;b&gt;odd&lt;/b&gt;",
+	)
+	for _, wrong := range []string{"Known Source", "Other domain", "Confirm Lenny"} {
+		if strings.Contains(body, wrong) {
+			t.Errorf("unclaimed mail shows %q\n%s", wrong, body)
+		}
+	}
+	if len(mail.filters) != 1 || len(mail.filters[0]) != 0 {
+		t.Errorf("list filters = %v, want one unfiltered call", mail.filters)
+	}
+	if len(mail.opened) != 0 {
+		t.Errorf("the List opened emails %v; it needs no bodies", mail.opened)
+	}
+}
+
+func TestList_ResendDownLeavesTheSourcesListed(t *testing.T) {
+	rec := get(t, newMailApp(pendingTLDR(), &fakeMail{listErr: errors.New("resend: timeout")}), "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	mustContain(t, rec.Body.String(), "TLDR", "Resend is unreachable, so unclaimed mail is unknown: resend: timeout")
+}
+
 func TestD1Store_ActivateOnlyTurnsPendingRowsActive(t *testing.T) {
 	store, calls := d1Stub(t, map[string]string{"UPDATE sources SET status = 'active'": `[]`})
 	ok, err := store.Activate(context.Background(), "tldr")

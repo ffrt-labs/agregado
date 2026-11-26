@@ -39,9 +39,10 @@ type receivedMail struct {
 // unclaimedAlias is recent mail to an alias that has no Source, grouped by
 // alias: how many, and the newest one.
 type unclaimedAlias struct {
-	Alias  string
-	Count  int
-	Latest receivedMail
+	Alias   string
+	Address string
+	Count   int
+	Latest  receivedMail
 }
 
 type confirmPage struct {
@@ -119,6 +120,48 @@ func (a *App) mailTo(ctx context.Context, address string) ([]receivedMail, strin
 		out = append(out, m)
 	}
 	return out, ""
+}
+
+// unclaimed groups the latest received mail by alias, keeping only aliases
+// on the receiving domain that no Source has, newest first. A nil mail port
+// shows nothing; a Resend failure is returned for a notice.
+func (a *App) unclaimed(ctx context.Context, sources []Source) ([]unclaimedAlias, string) {
+	if a.mail == nil {
+		return nil, ""
+	}
+	emails, err := a.mail.ReceivedEmails(ctx)
+	if err != nil {
+		slog.Warn("resend mail unavailable", "component", "bridge-admin", "err", err)
+		return nil, err.Error()
+	}
+	known := make(map[string]bool, len(sources))
+	for _, s := range sources {
+		known[s.Alias] = true
+	}
+	domain := "@" + strings.ToLower(a.cfg.ReceivingDomain)
+	var groups []unclaimedAlias
+	index := map[string]int{}
+	for _, e := range emails {
+		seen := map[string]bool{}
+		for _, to := range e.To {
+			address := mailbox(to)
+			alias, ok := strings.CutSuffix(address, domain)
+			if !ok || alias == "" || strings.Contains(alias, "@") || known[alias] || seen[alias] {
+				continue
+			}
+			seen[alias] = true
+			if i, ok := index[alias]; ok {
+				groups[i].Count++
+				continue
+			}
+			index[alias] = len(groups)
+			groups = append(groups, unclaimedAlias{
+				Alias: alias, Address: address, Count: 1,
+				Latest: receivedMail{ID: e.ID, Subject: e.Subject, From: e.From, Received: receivedAt(e.CreatedAt)},
+			})
+		}
+	}
+	return groups, ""
 }
 
 func (a *App) activate(w http.ResponseWriter, r *http.Request) {

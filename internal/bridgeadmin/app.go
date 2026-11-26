@@ -167,6 +167,7 @@ func (a *App) list(w http.ResponseWriter, r *http.Request) {
 	sort.SliceStable(page.Rows, func(i, j int) bool {
 		return strings.ToLower(page.Rows[i].DisplayName) < strings.ToLower(page.Rows[j].DisplayName)
 	})
+	page.Unclaimed, page.MailError = a.unclaimed(ctx, sources)
 	a.render(w, http.StatusOK, "list.html", page)
 }
 

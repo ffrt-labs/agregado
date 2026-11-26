@@ -46,11 +46,15 @@ next to D1 and R2, or the homelab, next to Miniflux and n8n.
    with an address restriction: the app has no login, so the route, not DNS
    alone, is the boundary. The container publishes no host port.
 3. **It reaches the Bridge's storage through Cloudflare's REST API**, not
-   through the Worker: D1's query endpoint for Sources and entries (and R2 for
-   Delete, #230). Miniflux is reached over the `edge` Docker network.
+   through the Worker: D1's query endpoint for Sources and entries. Delete
+   (#230) removes R2 objects through R2's S3-compatible API instead, signed
+   with SigV4 (`internal/cloudflare/r2`, ported from `n8n/src/sigv4.js`),
+   because only that API takes a token scoped to one bucket. Miniflux is
+   reached over the `edge` Docker network.
 4. **Dedicated credentials**, each revocable without touching n8n or
-   Agregado: a Cloudflare token scoped to D1 Edit on `bridge` (R2 write is
-   added with Delete), a Miniflux API key, and from #229 a Resend key.
+   Agregado: a Cloudflare token scoped to D1 Edit on `bridge`, an R2 token
+   with Object Read & Write on `bridge-original-html` only (its S3 access key
+   pair, #230), a Miniflux API key, and from #229 a Resend key.
    They are separate from Agregado's Workers AI token. The boot log carries
    none of them (`cmd/bridge-admin/startup_test.go`).
 5. **The app owns the feed password only for the length of an Add.** It

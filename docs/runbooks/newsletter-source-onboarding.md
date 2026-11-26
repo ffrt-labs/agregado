@@ -18,6 +18,14 @@ Then subscribe at the publisher with the receiving address the List shows, and
 confirm and activate as in steps 3 and 4 below. Those steps move into the app
 with #229.
 
+**Pause** stops a Source turning mail into Articles and keeps everything;
+**Resume** makes it Active again. **Delete** shows how many issues go, then
+pauses the Source and removes its Miniflux feed, its issues in R2 and D1, and
+its row. If a step fails, the Source stays Paused with the error shown, and
+Delete again resumes where it stopped. Afterwards, unsubscribe at the
+publisher. Permalinks to its issues in old Digests then return 404
+([ADR-0003](../adr/0003-deliberate-non-goals.md), amendment 2026-11-26).
+
 ## By hand
 
 The manual flow, for when the app is down.

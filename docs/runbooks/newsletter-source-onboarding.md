@@ -4,6 +4,24 @@ Applies to the Resend + n8n Bridge ([ADR-0007](../adr/0007-resend-n8n-cloudflare
 There is no `FORWARD_EMAIL` and no Gmail forwarding; confirmation mail is read in
 Resend's dashboard.
 
+## With the Newsletters app
+
+From a tailnet device, open `https://newsletters.felipefreitas.dev`
+(`cmd/bridge-admin`, [ADR-0012](../adr/0012-newsletter-sources-are-managed-by-a-tailnet-only-homelab-app.md)).
+**Add a newsletter**: enter the display name, check the suggested alias and the
+Miniflux category, and save. The app creates the Pending Source in D1 and
+subscribes Miniflux to its feed with a fresh password, which it does not keep.
+If Miniflux refuses the subscription, nothing is saved; fix the cause and add
+it again.
+
+Then subscribe at the publisher with the receiving address the List shows, and
+confirm and activate as in steps 3 and 4 below. Those steps move into the app
+with #229.
+
+## By hand
+
+The manual flow, for when the app is down.
+
 1. **Create the Source row** in D1 with `status = 'pending'`. The alias is the
    local-part of the address; the feed secret is stored only as its SHA-256:
 

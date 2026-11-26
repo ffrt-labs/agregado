@@ -9,7 +9,7 @@ var bridgeAdminEnv = map[string]string{
 	"CLOUDFLARE_ACCOUNT_ID":         "acct",
 	"BRIDGE_ADMIN_CF_API_TOKEN":     "cf-token",
 	"BRIDGE_D1_DATABASE_ID":         "db-id",
-	"BRIDGE_ORIGIN":                 "https://bridge.example.com/",
+	"BRIDGE_ORIGIN":                 "https://bridge.example.com",
 	"BRIDGE_RECEIVING_DOMAIN":       "news.example.com",
 	"MINIFLUX_URL":                  "http://miniflux:8080",
 	"BRIDGE_ADMIN_MINIFLUX_API_KEY": "mf-key",

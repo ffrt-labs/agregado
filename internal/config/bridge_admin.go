@@ -1,10 +1,6 @@
 package config
 
-import (
-	"strings"
-
-	"github.com/caarlos0/env/v10"
-)
+import "github.com/caarlos0/env/v10"
 
 // BridgeAdmin configures the Newsletters app (cmd/bridge-admin, spec #225).
 // It is a separate struct because that binary never touches Agregado's
@@ -16,8 +12,8 @@ type BridgeAdmin struct {
 	Http
 	Logging
 	Cloudflare BridgeAdminCloudflare
-	Bridge     Bridge
-	Miniflux   Miniflux
+	Bridge     BridgeAdminBridge
+	Miniflux   BridgeAdminMiniflux
 	Resend     BridgeAdminResend
 	R2         BridgeAdminR2
 }
@@ -50,13 +46,13 @@ type BridgeAdminCloudflare struct {
 	APIToken string `env:"BRIDGE_ADMIN_CF_API_TOKEN,required,notEmpty"`
 }
 
-// Bridge locates the Bridge's storage and addresses.
-type Bridge struct {
+// BridgeAdminBridge locates the Bridge's storage and addresses.
+type BridgeAdminBridge struct {
 	// D1DatabaseID is the `bridge` D1 database (email-worker/wrangler.jsonc).
 	// Same name n8n uses.
 	D1DatabaseID string `env:"BRIDGE_D1_DATABASE_ID,required,notEmpty"`
-	// Origin is the Bridge Worker's scheme and host, no trailing slash (one is
-	// trimmed). Same name and meaning as n8n's BRIDGE_ORIGIN. Feeds live at
+	// Origin is the Bridge Worker's scheme and host; bridgeadmin.New trims a
+	// trailing slash. Same name and meaning as n8n's BRIDGE_ORIGIN. Feeds live at
 	// Origin + "/feed/<alias>.atom".
 	Origin string `env:"BRIDGE_ORIGIN,required,notEmpty"`
 	// ReceivingDomain is the Resend catch-all domain: every Source's address
@@ -64,7 +60,8 @@ type Bridge struct {
 	ReceivingDomain string `env:"BRIDGE_RECEIVING_DOMAIN,required,notEmpty"`
 }
 
-type Miniflux struct {
+// BridgeAdminMiniflux is the reader backend the app subscribes feeds in.
+type BridgeAdminMiniflux struct {
 	// URL is the Miniflux origin, e.g. http://miniflux:8080 over the edge
 	// network.
 	URL    string `env:"MINIFLUX_URL,required,notEmpty"`
@@ -76,6 +73,5 @@ func LoadBridgeAdmin() (*BridgeAdmin, error) {
 	if err := env.Parse(cfg); err != nil {
 		return nil, err
 	}
-	cfg.Bridge.Origin = strings.TrimRight(cfg.Bridge.Origin, "/")
 	return cfg, nil
 }

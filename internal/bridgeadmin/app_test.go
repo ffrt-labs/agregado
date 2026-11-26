@@ -246,6 +246,17 @@ func TestAdd_RegistersAPendingSourceAndSubscribesMinifluxWithItsPassword(t *test
 	}
 }
 
+func TestAdd_SubscribesWithoutADoubleSlashWhenTheOriginEndsInOne(t *testing.T) {
+	mf := &fakeMiniflux{categories: []miniflux.Category{{ID: 7, Title: "Newsletters"}}}
+	app := New(&fakeStore{}, mf, Config{ReceivingDomain: "news.example.com", BridgeOrigin: "https://bridge.example.com/"})
+
+	post(t, app.Routes(), "/sources", url.Values{"display_name": {"Syntax"}, "alias": {"syntax"}, "category_id": {"7"}})
+
+	if len(mf.subscribed) != 1 || mf.subscribed[0].FeedURL != "https://bridge.example.com/feed/syntax.atom" {
+		t.Fatalf("subscriptions = %+v", mf.subscribed)
+	}
+}
+
 func TestAdd_SuggestsTheAliasWhenLeftBlank(t *testing.T) {
 	store := &fakeStore{}
 	mf := &fakeMiniflux{categories: []miniflux.Category{{ID: 7, Title: "Newsletters"}}}

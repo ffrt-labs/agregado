@@ -43,7 +43,8 @@ type Config struct {
 	// ReceivingDomain is the domain of every Source's receiving address
 	// (<alias>@<domain>), the Resend catch-all.
 	ReceivingDomain string
-	// BridgeOrigin is the Bridge Worker's scheme and host, no trailing slash.
+	// BridgeOrigin is the Bridge Worker's scheme and host. New trims a
+	// trailing slash; nothing else needs to.
 	// A Source's feed is BridgeOrigin + "/feed/<alias>.atom", the URL
 	// Miniflux subscribes to. Existing feeds are matched by path only
 	// (feedsOf).

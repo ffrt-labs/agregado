@@ -1,0 +1,45 @@
+{{define "add.html"}}{{template "head" "Add a newsletter"}}
+<h1>Add a newsletter</h1>
+<p><a href="/">Back to the Sources</a></p>
+
+{{if .Error}}<div class="notice notice-bad">{{.Error}}</div>{{end}}
+
+<form method="post" action="/sources">
+  <label for="display_name">Display name</label>
+  <input type="text" id="display_name" name="display_name" value="{{.DisplayName}}" required autofocus>
+  <p class="hint">The feed title in Miniflux.</p>
+
+  <label for="alias">Alias</label>
+  <input type="text" id="alias" name="alias" value="{{.Alias}}" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="48">
+  <p class="hint">Lowercase letters, digits and hyphens. The receiving address is <code><span id="alias-preview">{{if .Alias}}{{.Alias}}{{else}}alias{{end}}</span>@{{.Domain}}</code>. It cannot be changed later. Left blank, it is taken from the display name.</p>
+
+  <label for="category_id">Miniflux category</label>
+  <select id="category_id" name="category_id">
+    {{- range .Categories}}
+    <option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Title}}</option>
+    {{- end}}
+  </select>
+
+  <p><button type="submit">Add as Pending</button></p>
+</form>
+
+<script>
+  // Suggest the alias from the display name until the alias is edited by hand.
+  // The server applies the same rule (SuggestAlias) when the alias is blank.
+  (function () {
+    var name = document.getElementById("display_name");
+    var alias = document.getElementById("alias");
+    var preview = document.getElementById("alias-preview");
+    var edited = alias.value !== "";
+    var fold = { "ß": "ss", "æ": "ae", "œ": "oe", "ø": "o" };
+    function suggest(s) {
+      s = s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      s = s.replace(/[ßæœø]/g, function (c) { return fold[c]; });
+      return s.replace(/['’]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "");
+    }
+    function show() { preview.textContent = alias.value || "alias"; }
+    name.addEventListener("input", function () { if (!edited) { alias.value = suggest(name.value); show(); } });
+    alias.addEventListener("input", function () { edited = alias.value !== ""; show(); });
+  })();
+</script>
+{{template "foot"}}{{end}}

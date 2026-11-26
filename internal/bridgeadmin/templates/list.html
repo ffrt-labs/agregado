@@ -1,0 +1,45 @@
+{{define "list.html"}}{{template "head" "Sources"}}
+<h1>Newsletter Sources</h1>
+<p><a href="/sources/new">Add a newsletter</a></p>
+
+{{if .Added}}<div class="notice notice-ok">Added {{.Added}}. It is Pending: subscribe at the publisher with its receiving address below.</div>{{end}}
+{{if .MinifluxError}}<div class="notice notice-bad">Miniflux is unreachable, so fetch health is unknown: {{.MinifluxError}}</div>{{end}}
+
+<table>
+  <thead>
+    <tr><th>Name</th><th>Alias</th><th>Receiving address</th><th>Status</th><th>Last issue</th><th>Issues, 30 days</th><th>Miniflux</th></tr>
+  </thead>
+  <tbody>
+  {{range .Rows}}
+    <tr>
+      <td>{{.DisplayName}}</td>
+      <td><code>{{.Alias}}</code></td>
+      <td><span class="address"><input type="text" readonly value="{{.Address}}" onfocus="this.select()"><button type="button" data-copy="{{.Address}}">Copy</button></span></td>
+      <td><span class="status status-{{.Status}}">{{title .Status}}</span></td>
+      <td>{{if .LastIssueAt}}{{date .LastIssueAt}}{{else}}<span class="muted">No issues yet</span>{{end}}</td>
+      <td class="num">{{.Last30Days}}</td>
+      <td>
+        {{- if eq .Health "ok"}}<span class="ok">Fetch OK</span>{{if .CheckedAt}} <span class="muted">({{date .CheckedAt}})</span>{{end}}
+        {{- else if eq .Health "failing"}}<span class="bad">Fetch failing</span>: {{.HealthError}}
+        {{- else if eq .Health "unchecked"}}<span class="muted">Not fetched yet</span>
+        {{- else if eq .Health "missing"}}<span class="bad">No Miniflux feed</span>
+        {{- else}}<span class="muted">Fetch unknown</span>{{end -}}
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="7" class="muted">No Newsletter Sources yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+
+<script>
+  document.querySelectorAll("button[data-copy]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      navigator.clipboard.writeText(button.dataset.copy).then(function () {
+        button.textContent = "Copied";
+        setTimeout(function () { button.textContent = "Copy"; }, 1500);
+      });
+    });
+  });
+</script>
+{{template "foot"}}{{end}}

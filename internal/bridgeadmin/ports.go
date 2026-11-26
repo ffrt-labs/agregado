@@ -1,0 +1,64 @@
+// Package bridgeadmin is the Newsletters app (cmd/bridge-admin): a small,
+// server-rendered, tailnet-only web app that manages the Bridge's Newsletter
+// Sources end to end (spec #225, ADR-0012). It reads and writes the Bridge's
+// D1 tables and drives Miniflux's API; it never touches Agregado's Postgres.
+//
+// Each external system sits behind one small interface below. Later slices
+// grow them (Resend mail for Confirm, R2 objects for Delete, feed updates for
+// Rename/Reconnect) and the tests fake them, per ADR-0002.
+package bridgeadmin
+
+import (
+	"context"
+	"time"
+
+	"github.com/felipeafreitas/agregado/internal/miniflux"
+)
+
+// Newsletter Source statuses, as stored in D1 sources.status. n8n turns mail
+// into Articles only for Active (n8n/src/entry.js gateSource).
+const (
+	StatusPending = "pending"
+	StatusActive  = "active"
+	StatusPaused  = "paused"
+)
+
+// Source is one Newsletter Source row. Alias is sources.id: the lowercase
+// local-part of its receiving address, immutable once registered.
+type Source struct {
+	Alias       string
+	DisplayName string
+	Status      string
+}
+
+// IssueStats summarises a Source's stored issues (D1 entries rows).
+type IssueStats struct {
+	LastIssueAt *time.Time
+	Last30Days  int
+}
+
+// SourceStore is the Bridge's D1 (sources and entries tables) as this app
+// needs it. D1Store is the real one.
+type SourceStore interface {
+	Sources(ctx context.Context) ([]Source, error)
+	// IssueStats is keyed by alias; Sources with no issues are absent. Last30Days
+	// counts issues published at or after since.
+	IssueStats(ctx context.Context, since time.Time) (map[string]IssueStats, error)
+	SourceExists(ctx context.Context, alias string) (bool, error)
+	// InsertPending registers a Source as Pending with the hex SHA-256 of its
+	// feed password. It fails if the alias is taken.
+	InsertPending(ctx context.Context, source Source, secretHash string) error
+	// RemovePending deletes the Source row only while it is still Pending: the
+	// rollback for an Add whose Miniflux subscription failed. A no-op when the
+	// row is gone or no longer Pending.
+	RemovePending(ctx context.Context, alias string) error
+}
+
+// Miniflux is the reader backend's API as this app needs it. *miniflux.Client
+// is the real one.
+type Miniflux interface {
+	Feeds(ctx context.Context) ([]miniflux.Feed, error)
+	Categories(ctx context.Context) ([]miniflux.Category, error)
+	CreateCategory(ctx context.Context, title string) (miniflux.Category, error)
+	CreateFeed(ctx context.Context, feed miniflux.NewFeed) (int64, error)
+}

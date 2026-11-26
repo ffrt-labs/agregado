@@ -182,9 +182,9 @@ func TestList_UnclaimedMailOffersToRegisterEachUnknownAlias(t *testing.T) {
 		"Unclaimed mail",
 		"lenny@news.example.com", "2 emails", "Welcome to Lenny&#39;s", "2026-11-26 09:00 UTC",
 		`href="/sources/new?alias=lenny"`,
-		`href="/sources/new?alias=odd%20alias"`, "&lt;b&gt;odd&lt;/b&gt;",
+		"odd alias@news.example.com", "&lt;b&gt;odd&lt;/b&gt;", "cannot be registered",
 	)
-	for _, wrong := range []string{"Known Source", "Other domain", "Confirm Lenny"} {
+	for _, wrong := range []string{"Known Source", "Other domain", "Confirm Lenny", `href="/sources/new?alias=odd`} {
 		if strings.Contains(body, wrong) {
 			t.Errorf("unclaimed mail shows %q\n%s", wrong, body)
 		}

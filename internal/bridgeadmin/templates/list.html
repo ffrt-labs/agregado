@@ -52,7 +52,7 @@
       <td><code>{{.Address}}</code></td>
       <td class="num">{{.Count}} {{if eq .Count 1}}email{{else}}emails{{end}}</td>
       <td>{{if .Latest.Subject}}{{.Latest.Subject}}{{else}}<span class="muted">(no subject)</span>{{end}}<br><span class="muted">From {{.Latest.From}}{{if .Latest.Received}} · {{.Latest.Received}}{{end}}</span></td>
-      <td><a href="/sources/new?alias={{.Alias}}">Register this alias</a></td>
+      <td>{{if .Invalid}}<span class="muted">This alias cannot be registered: {{.Invalid}}.</span>{{else}}<a href="/sources/new?alias={{.Alias}}">Register this alias</a>{{end}}</td>
     </tr>
   {{end}}
   </tbody>

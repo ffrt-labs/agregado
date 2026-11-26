@@ -37,12 +37,14 @@ type receivedMail struct {
 }
 
 // unclaimedAlias is recent mail to an alias that has no Source, grouped by
-// alias: how many, and the newest one.
+// alias: how many, and the newest one. Invalid says why the alias cannot
+// name a Source (ValidateAlias); then no Register is offered.
 type unclaimedAlias struct {
 	Alias   string
 	Address string
 	Count   int
 	Latest  receivedMail
+	Invalid string
 }
 
 type confirmPage struct {
@@ -155,10 +157,14 @@ func (a *App) unclaimed(ctx context.Context, sources []Source) ([]unclaimedAlias
 				continue
 			}
 			index[alias] = len(groups)
-			groups = append(groups, unclaimedAlias{
+			group := unclaimedAlias{
 				Alias: alias, Address: address, Count: 1,
 				Latest: receivedMail{ID: e.ID, Subject: e.Subject, From: e.From, Received: receivedAt(e.CreatedAt)},
-			})
+			}
+			if err := ValidateAlias(alias); err != nil {
+				group.Invalid = err.Error()
+			}
+			groups = append(groups, group)
 		}
 	}
 	return groups, ""

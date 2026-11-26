@@ -15,16 +15,16 @@ func lastCall(t *testing.T, calls *[]d1Call) d1Call {
 	return (*calls)[len(*calls)-1]
 }
 
-func TestD1Store_PauseSetsPausedWhateverTheStatus(t *testing.T) {
+func TestD1Store_PauseOnlyTouchesActiveRows(t *testing.T) {
 	store, calls := d1Stub(t, nil)
 
 	if err := store.Pause(context.Background(), "syntax"); err != nil {
 		t.Fatal(err)
 	}
 	call := lastCall(t, calls)
-	if !strings.HasPrefix(call.SQL, "UPDATE sources SET status = 'paused'") || strings.Contains(call.SQL, " AND ") ||
+	if !strings.HasPrefix(call.SQL, "UPDATE sources SET status = 'paused'") || !strings.Contains(call.SQL, "AND status = 'active'") ||
 		len(call.Params) != 1 || call.Params[0] != "syntax" {
-		t.Errorf("call = %+v", call)
+		t.Errorf("call = %+v, want an update guarded by status = 'active'", call)
 	}
 }
 

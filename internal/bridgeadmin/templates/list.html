@@ -28,7 +28,7 @@
       </td>
       <td class="actions">
         {{- if eq .Status "paused"}}<form method="post" action="/sources/{{.Alias}}/resume"><button type="submit">Resume</button></form>
-        {{- else}}<form method="post" action="/sources/{{.Alias}}/pause"><button type="submit">Pause</button></form>{{end}}
+        {{- else if eq .Status "active"}}<form method="post" action="/sources/{{.Alias}}/pause"><button type="submit">Pause</button></form>{{end}}
         <a href="/sources/{{.Alias}}/delete">Delete</a>
       </td>
     </tr>

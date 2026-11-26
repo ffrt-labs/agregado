@@ -4,7 +4,7 @@
 
 {{if .Error}}
 <div class="notice notice-bad">Delete stopped: {{.Error}}</div>
-<p>{{.DisplayName}} stays Paused, so no new mail is stored. Delete again picks up where it stopped.</p>
+<p>{{if eq .Status "active"}}{{.DisplayName}} is still Active, so nothing was removed.{{else if .Status}}{{.DisplayName}} stays {{title .Status}}, so no new mail is stored.{{end}} Delete again picks up where it stopped.</p>
 {{end}}
 
 <p>This removes <code>{{.Address}}</code> for good:</p>

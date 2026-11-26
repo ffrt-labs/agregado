@@ -102,8 +102,9 @@ type IssueSummary struct {
 // succeeds without changing anything, which is what lets an interrupted
 // Delete resume.
 type SourceRemoval interface {
-	// Pause sets a Source Paused, whatever its status. n8n then ignores its
-	// mail; everything stored is kept.
+	// Pause sets an Active Source Paused; other statuses are untouched. n8n
+	// then ignores its mail; everything stored is kept. Since only Active
+	// moves to Paused, Resume never lets a Pending Source skip Activate.
 	Pause(ctx context.Context, alias string) error
 	// Resume sets a Paused Source Active again; other statuses are untouched.
 	Resume(ctx context.Context, alias string) error

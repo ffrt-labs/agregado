@@ -135,7 +135,10 @@ func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 	if err := a.remove(ctx, alias); err != nil {
 		slog.Error("delete newsletter source failed", "component", "bridge-admin", "alias", alias, "err", err)
 		page := deletePage{Source: source, Address: a.address(alias), Error: err.Error()}
-		page.Status = StatusPaused
+		// remove paused it if it was Active; show the status it is left in.
+		if current, ok, err := a.findSource(ctx, alias); err == nil && ok {
+			page.Source = current
+		}
 		if issues, sumErr := a.store.IssueSummary(ctx, alias); sumErr == nil {
 			page.Issues = issues
 		}
@@ -149,7 +152,10 @@ func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 // remove deletes a Newsletter Source and everything the Bridge stored for
 // it, in the order spec #225 sets:
 //
-//  1. Pause, so n8n ignores mail arriving meanwhile and stores nothing new.
+//  1. Pause an Active Source, so n8n ignores mail arriving meanwhile and
+//     stores nothing new. A Pending or Paused one is left as it is: n8n
+//     already stores nothing for it, and pausing a Pending Source would let
+//     Resume skip Activate.
 //  2. Remove the Miniflux feed.
 //  3. Remove the R2 objects, keyed by entries id.
 //  4. Remove the D1 entries rows.
@@ -157,7 +163,7 @@ func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 //
 // The entries rows go only after every object is gone, since they are the
 // only record of the keys. Every step succeeds on something already removed,
-// so after a failure at any point (the Source is then Paused) running remove
+// so after a failure at any point (the Source is then not Active) running remove
 // again picks up where it stopped. Articles already in the Article Index,
 // with their Scores and Bookmarks, are not touched (ADR-0003 amendment).
 func (a *App) remove(ctx context.Context, alias string) error {

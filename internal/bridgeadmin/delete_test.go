@@ -49,7 +49,7 @@ func (f *fakeStore) Pause(_ context.Context, alias string) error {
 	if err := f.fail("pause"); err != nil {
 		return err
 	}
-	f.setStatus(alias, StatusPaused)
+	f.setStatus(alias, StatusPaused, StatusActive)
 	return nil
 }
 
@@ -215,6 +215,51 @@ func TestResume_MakesAPausedSourceActiveAgain(t *testing.T) {
 		t.Errorf("status = %s, want active", got)
 	}
 	mustContain(t, get(t, app, "/").Body.String(), `action="/sources/syntax/pause"`)
+}
+
+// Only an Active Source can be paused, so a Paused one always had been
+// Active and Resume can never let a Pending Source skip Activate.
+func TestPause_LeavesAPendingSourcePending(t *testing.T) {
+	store, mf, objects := deleteFixture()
+	store.sources[0].Status = StatusPending
+	app := newDeleteApp(store, mf, objects)
+
+	post(t, app, "/sources/syntax/pause", nil)
+	post(t, app, "/sources/syntax/resume", nil)
+
+	if got := statusOf(store, "syntax"); got != StatusPending {
+		t.Errorf("status = %s, want pending: only Activate makes a Pending Source active", got)
+	}
+}
+
+func TestList_OffersNoPauseOnAPendingSource(t *testing.T) {
+	store, mf, objects := deleteFixture()
+	store.sources[0].Status = StatusPending
+
+	body := get(t, newDeleteApp(store, mf, objects), "/").Body.String()
+
+	if strings.Contains(body, `action="/sources/syntax/pause"`) || strings.Contains(body, `action="/sources/syntax/resume"`) {
+		t.Errorf("a Pending row offers Pause or Resume\n%s", body)
+	}
+	mustContain(t, body, `action="/sources/tldr/pause"`, `href="/sources/syntax/delete"`)
+}
+
+func TestDelete_AFailedDeleteOfAPendingSourceCannotBeResumedIntoActive(t *testing.T) {
+	store, mf, objects := deleteFixture()
+	store.sources[0].Status = StatusPending
+	mf.deleteErr = errors.New("miniflux: DELETE /v1/feeds/11 returned 500: boom")
+	app := newDeleteApp(store, mf, objects)
+
+	rec := post(t, app, "/sources/syntax/delete", nil)
+	post(t, app, "/sources/syntax/resume", nil)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	mustContain(t, rec.Body.String(), "stays Pending")
+	if got := statusOf(store, "syntax"); got != StatusPending {
+		t.Errorf("status = %s, want pending", got)
+	}
 }
 
 func TestList_OffersPauseAndDeleteForEachSource(t *testing.T) {

@@ -82,6 +82,15 @@ next to D1 and R2, or the homelab, next to Miniflux and n8n.
    Unclaimed mail is the latest 100 unfiltered, grouped by alias, minus
    aliases that have a Source. Activate moves only a Pending Source to
    Active. Resend being down never blocks the List or Activate.
+9. **Only an Active Source can be paused, and Resume only moves Paused to
+   Active** (#230). Pause is guarded by `status = 'active'` in D1, and the
+   List offers it only on Active rows. Delete's first step is the same
+   Pause, so it pauses an Active Source and leaves a Pending one Pending:
+   n8n stores nothing for a Pending Source anyway. Every Paused Source was
+   therefore Active before, and Resume can never let a Pending Source skip
+   Activate, not even one whose Delete failed halfway. The alternative, a
+   separate "deleting" status or remembering the status before the pause,
+   needs a D1 migration and n8n would have to learn it. Rejected.
 
 ## Consequences
 

@@ -126,13 +126,17 @@ func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
-		// Already deleted, e.g. a retry of a run whose answer was lost. Run
-		// the steps anyway: they are no-ops if everything is gone, and they
-		// clear leftovers (a feed, objects) if not.
+		// No row, e.g. a retry of a run whose answer was lost. Run the steps
+		// anyway: they clear leftovers (a feed, objects) if there are any.
 		source = Source{Alias: alias, DisplayName: alias}
 	}
 
-	if err := a.remove(ctx, alias); err != nil {
+	removed, err := a.remove(ctx, alias)
+	if err == nil && !found && !removed {
+		a.render(w, http.StatusNotFound, "error.html", errorPage{Message: "Nothing to delete", Detail: errNoSource.Error() + " " + alias})
+		return
+	}
+	if err != nil {
 		slog.Error("delete newsletter source failed", "component", "bridge-admin", "alias", alias, "err", err)
 		page := deletePage{Source: source, Address: a.address(alias), Error: err.Error()}
 		// remove paused it if it was Active; show the status it is left in.
@@ -166,39 +170,45 @@ func (a *App) deleteSource(w http.ResponseWriter, r *http.Request) {
 // so after a failure at any point (the Source is then not Active) running remove
 // again picks up where it stopped. Articles already in the Article Index,
 // with their Scores and Bookmarks, are not touched (ADR-0003 amendment).
-func (a *App) remove(ctx context.Context, alias string) error {
+//
+// leftovers reports whether a feed or stored issues were found to remove; it
+// tells a Source-less Delete that cleaned up from one that found nothing.
+func (a *App) remove(ctx context.Context, alias string) (leftovers bool, err error) {
 	if err := a.store.Pause(ctx, alias); err != nil {
-		return fmt.Errorf("could not pause the Source in D1, so nothing was removed: %w", err)
+		return leftovers, fmt.Errorf("could not pause the Source in D1, so nothing was removed: %w", err)
 	}
 
 	feeds, err := a.miniflux.Feeds(ctx)
 	if err != nil {
-		return fmt.Errorf("could not read Miniflux feeds to remove this one: %w", err)
+		return leftovers, fmt.Errorf("could not read Miniflux feeds to remove this one: %w", err)
 	}
-	for _, feed := range feedsOf(feeds, alias) {
+	matched := feedsOf(feeds, alias)
+	leftovers = len(matched) > 0
+	for _, feed := range matched {
 		if err := a.miniflux.DeleteFeed(ctx, feed.ID); err != nil {
-			return fmt.Errorf("could not remove the Miniflux feed: %w", err)
+			return leftovers, fmt.Errorf("could not remove the Miniflux feed: %w", err)
 		}
 	}
 
 	ids, err := a.store.EntryIDs(ctx, alias)
 	if err != nil {
-		return fmt.Errorf("could not list the stored issues in D1: %w", err)
+		return leftovers, fmt.Errorf("could not list the stored issues in D1: %w", err)
 	}
+	leftovers = leftovers || len(ids) > 0
 	if len(ids) > 0 && a.objects == nil {
-		return errors.New("could not remove the stored issues: R2 is not configured")
+		return leftovers, errors.New("could not remove the stored issues: R2 is not configured")
 	}
 	for i, id := range ids {
 		if err := a.objects.DeleteObject(ctx, id); err != nil {
-			return fmt.Errorf("could not remove stored issue %d of %d from R2: %w", i+1, len(ids), err)
+			return leftovers, fmt.Errorf("could not remove stored issue %d of %d from R2: %w", i+1, len(ids), err)
 		}
 	}
 
 	if err := a.store.DeleteEntries(ctx, alias); err != nil {
-		return fmt.Errorf("could not remove the issues from D1: %w", err)
+		return leftovers, fmt.Errorf("could not remove the issues from D1: %w", err)
 	}
 	if err := a.store.DeleteSource(ctx, alias); err != nil {
-		return fmt.Errorf("could not remove the Source row from D1: %w", err)
+		return leftovers, fmt.Errorf("could not remove the Source row from D1: %w", err)
 	}
-	return nil
+	return leftovers, nil
 }

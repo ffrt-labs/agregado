@@ -412,17 +412,39 @@ func TestDelete_InterruptedAtAnyStepResumesOnRetry(t *testing.T) {
 	}
 }
 
-// A delete whose last step succeeded but whose answer was lost is retried
-// against a Source that no longer exists: that is success, not an error.
-func TestDelete_AnAlreadyDeletedSourceIsDone(t *testing.T) {
+// Deleting an alias that has no Source and nothing left behind (an unknown
+// alias, or a second Delete after the first finished) is a 404, not a
+// "Deleted" page for something that was never there.
+func TestDelete_AnAliasWithNothingLeftIs404(t *testing.T) {
 	store, mf, objects := deleteFixture()
 	app := newDeleteApp(store, mf, objects)
 	post(t, app, "/sources/syntax/delete", nil)
 
-	rec := post(t, app, "/sources/syntax/delete", nil)
+	for _, alias := range []string{"syntax", "nope"} {
+		rec := post(t, app, "/sources/"+alias+"/delete", nil)
 
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Deleted") {
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404\n%s", alias, rec.Code, rec.Body)
+		}
+		mustContain(t, rec.Body.String(), "no such Newsletter Source")
+	}
+}
+
+// A Delete whose Source row is gone but which left something behind (here a
+// Miniflux feed) still clears it and reports Deleted.
+func TestDelete_AGoneSourceWithLeftoversIsCleanedUp(t *testing.T) {
+	store, mf, objects := deleteFixture()
+	store.sources = store.sources[1:]
+	delete(store.issues.entries, "syntax")
+
+	rec := post(t, newDeleteApp(store, mf, objects), "/sources/syntax/delete", nil)
+
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d\n%s", rec.Code, rec.Body)
+	}
+	mustContain(t, rec.Body.String(), "Deleted syntax")
+	if len(mf.feeds) != 1 || mf.feeds[0].ID != 12 {
+		t.Errorf("feeds = %+v, want syntax's removed", mf.feeds)
 	}
 }
 

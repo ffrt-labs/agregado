@@ -5,6 +5,8 @@
 **Amended:** 2026-11-16 — the RabbitMQ, dead-letter and admin-endpoint
 mechanics two entries relied on were removed (#85). See "Amendment,
 2026-11-16" below.
+**Amended:** 2026-11-26 — deleting a Newsletter Source is the one exception
+to "nothing is ever deleted" (#230). See "Amendment, 2026-11-26" below.
 
 ## Context
 
@@ -77,6 +79,9 @@ Markdown.
 
 Accepted for now on the basis that a single user's feed volume is small relative
 to disk. Described in the archive as Phase 11.2.
+
+One exception since 2026-11-26: deleting a Newsletter Source removes its
+stored issues (see the amendment below).
 
 **Revisit when** disk becomes a real constraint, or sooner if raw newsletter HTML
 persistence ships (each newsletter adds 50–200KB) — which is why that HTML lives
@@ -164,6 +169,33 @@ longer reaches anyone.
 tailnet plus a shared secret on private routes
 ([ADR-0008](0008-agregado-is-tailnet-only.md)); ADR-0001's tunnel ACL covers
 only the n8n ingest path.
+
+## Amendment, 2026-11-26: deleting a Newsletter Source removes its issues
+
+Recorded with Delete in the Newsletters app
+([#230](https://github.com/ffrt-labs/agregado/issues/230), spec
+[#225](https://github.com/ffrt-labs/agregado/issues/225),
+[ADR-0012](0012-newsletter-sources-are-managed-by-a-tailnet-only-homelab-app.md)).
+
+**Article retention: nothing is ever deleted** gains one exception. Deleting
+a Newsletter Source (see **Delete** in `CONTEXT.md`) removes everything the
+Bridge stored for it: its Miniflux feed, its issues' original HTML in R2
+(keyed by `entries.id`), its D1 `entries` rows and its `sources` row. The
+comment on `entries.published_at` in
+`email-worker/migrations/0001_sources_and_entries.sql` ("never pruned") is
+true of every Source except a deleted one.
+
+The exception is narrow:
+
+- It happens only when the owner deletes a Source by hand, one at a time.
+  There is still no retention policy, age-based pruning or bulk delete.
+- Articles that Source already produced stay: their Article Index rows,
+  Scores and Bookmarks are not touched. Pause, unlike Delete, keeps
+  everything.
+
+**Accepted cost:** Bridge permalinks (`/p/<uuid>`) for that Source's issues,
+including those linked from old Digests, return 404 afterwards, because the
+`entries` row and the R2 object behind them are gone.
 
 ## Consequences
 

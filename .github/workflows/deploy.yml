@@ -27,6 +27,22 @@ env:
   LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
   LANGFUSE_PROMPT_CACHE_TTL: ${{ vars.LANGFUSE_PROMPT_CACHE_TTL }}
 
+  # The Newsletters app (cmd/bridge-admin, agregado#225). Dedicated
+  # credentials, revocable without touching n8n's or Agregado's. It shares
+  # CLOUDFLARE_ACCOUNT_ID above.
+  BRIDGE_ADMIN_CF_API_TOKEN: ${{ secrets.BRIDGE_ADMIN_CF_API_TOKEN }}
+  BRIDGE_ADMIN_MINIFLUX_API_KEY: ${{ secrets.BRIDGE_ADMIN_MINIFLUX_API_KEY }}
+  BRIDGE_ADMIN_RESEND_API_KEY: ${{ secrets.BRIDGE_ADMIN_RESEND_API_KEY }}
+  BRIDGE_D1_DATABASE_ID: ${{ vars.BRIDGE_D1_DATABASE_ID }}
+  BRIDGE_ORIGIN: ${{ vars.BRIDGE_ORIGIN }}
+  BRIDGE_RECEIVING_DOMAIN: ${{ vars.BRIDGE_RECEIVING_DOMAIN }}
+  MINIFLUX_URL: ${{ vars.MINIFLUX_URL }}
+  # Delete (agregado#230) empties a Source's issues from R2 over the S3 API,
+  # with a token scoped to the bucket.
+  BRIDGE_R2_BUCKET: ${{ vars.BRIDGE_R2_BUCKET }}
+  BRIDGE_ADMIN_R2_ACCESS_KEY_ID: ${{ secrets.BRIDGE_ADMIN_R2_ACCESS_KEY_ID }}
+  BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY: ${{ secrets.BRIDGE_ADMIN_R2_SECRET_ACCESS_KEY }}
+
 jobs:
   deploy:
     name: Deployment
@@ -47,7 +63,7 @@ jobs:
           ls -la /usr/bin/docker || echo "not at /usr/bin/docker"
           ls -la /bin/docker || echo "not at /bin/docker"
 
-      - name: Build Agregado image
+      - name: Build images
         run: /usr/bin/docker compose --profile prod build --no-cache
 
       - name: Start database
@@ -69,9 +85,9 @@ jobs:
 
       - name: Start service
         run: |
-          if ! docker compose --profile prod up -d --force-recreate --wait --wait-timeout 120 agregado; then
+          if ! docker compose --profile prod up -d --force-recreate --wait --wait-timeout 120 agregado bridge-admin; then
             echo "::error::Service did not become healthy within 120s."
             docker compose --profile prod ps
-            docker compose --profile prod logs --tail 50 agregado
+            docker compose --profile prod logs --tail 50 agregado bridge-admin
             exit 1
           fi

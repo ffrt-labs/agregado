@@ -1,0 +1,33 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.}} · Newsletters</title>
+<style>
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 2rem auto; max-width: 72rem; padding: 0 1rem; color: #1b1b1b; }
+  h1 { font-size: 1.4rem; } a { color: #0b57d0; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid #e3e3e3; vertical-align: top; }
+  th { font-weight: 600; font-size: .85rem; color: #555; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .status { font-size: .8rem; padding: .1rem .45rem; border-radius: .6rem; background: #eee; }
+  .status-active { background: #d8f3dc; } .status-pending { background: #fff3c4; } .status-paused { background: #e5e5e5; }
+  .ok { color: #1a7f37; } .bad { color: #b3261e; } .muted { color: #777; }
+  .address { display: flex; gap: .3rem; } .address input { font: inherit; font-size: .85rem; width: 18rem; border: 1px solid #ccc; padding: .1rem .3rem; }
+  .notice { padding: .6rem .8rem; border-radius: .3rem; margin: 1rem 0; }
+  .notice-ok { background: #d8f3dc; } .notice-bad { background: #fde2e1; }
+  form label { display: block; margin: .8rem 0 .2rem; font-weight: 600; }
+  form input[type=text], form select { font: inherit; padding: .3rem .4rem; width: 24rem; max-width: 100%; }
+  form .hint { font-size: .85rem; color: #555; margin: .2rem 0; }
+  button { font: inherit; padding: .3rem .8rem; cursor: pointer; }
+  td.actions { white-space: nowrap; } td.actions form { display: inline; margin-right: .4rem; }
+</style>
+</head>
+<body>
+{{end}}
+
+{{define "foot"}}
+</body>
+</html>
+{{end}}

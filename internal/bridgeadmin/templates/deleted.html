@@ -1,0 +1,6 @@
+{{define "deleted.html"}}{{template "head" "Deleted"}}
+<h1>Newsletter Sources</h1>
+<div class="notice notice-ok">Deleted {{.DisplayName}}.</div>
+<p>Remember to unsubscribe at the publisher. Mail it still sends to <code>{{.Address}}</code> is now ignored, as for any unknown alias, and shows up under Unclaimed mail.</p>
+<p><a href="/">Back to the Sources</a></p>
+{{template "foot"}}{{end}}

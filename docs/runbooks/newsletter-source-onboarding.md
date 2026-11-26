@@ -4,6 +4,51 @@ Applies to the Resend + n8n Bridge ([ADR-0007](../adr/0007-resend-n8n-cloudflare
 There is no `FORWARD_EMAIL` and no Gmail forwarding; confirmation mail is read in
 Resend's dashboard.
 
+## With the Newsletters app
+
+From a tailnet device, open `https://newsletters.felipefreitas.dev`
+(`cmd/bridge-admin`, [ADR-0012](../adr/0012-newsletter-sources-are-managed-by-a-tailnet-only-homelab-app.md)).
+**Add a newsletter**: enter the display name, check the suggested alias and the
+Miniflux category, and save. The app creates the Pending Source in D1 and
+subscribes Miniflux to its feed with a fresh password, which it does not keep.
+If Miniflux refuses the subscription, nothing is saved; fix the cause and add
+it again.
+
+Then subscribe at the publisher with the receiving address the List shows.
+Open the Source's **Confirm** link (Pending Sources only). It lists the mail
+Resend received for that address with the links found in each email; follow
+the confirmation link, then press **Activate**. The emails themselves are
+never shown.
+
+The List's **Unclaimed mail** section shows recent mail to aliases with no
+Source. **Register this alias** opens Add with the alias filled in.
+
+The app reads mail with its own Resend key, `BRIDGE_ADMIN_RESEND_API_KEY`.
+Resend has no read-only key type and a sending-only key cannot read received
+mail, so create a full-access key for the app (Resend dashboard, API Keys),
+separate from n8n's.
+
+Click a Source's name to **Rename** it (the display name in D1, which is the
+feed title, and the Miniflux feed title change together; the alias never
+changes) or **Reconnect** it. Reconnect rotates the feed password and gives the
+new one to Miniflux, subscribing the feed again if it was deleted there. Use it
+when the List shows "Fetch failing" with a 401 or "No Miniflux feed". If it
+reports a Miniflux error after saving the new hash, Reconnect again.
+
+**Pause** stops an Active Source turning mail into Articles and keeps
+everything; **Resume** makes it Active again. A Pending Source has no Pause:
+Confirm and Activate it instead. **Delete** shows how many issues go, then
+pauses the Source if it is Active and removes its Miniflux feed, its issues in
+R2 and D1, and its row. If a step fails, the Source stays Paused (or Pending)
+with the error shown, and Delete again resumes where it stopped. Deleting an
+alias that has no Source and nothing left behind answers 404. Afterwards, unsubscribe at the
+publisher. Permalinks to its issues in old Digests then return 404
+([ADR-0003](../adr/0003-deliberate-non-goals.md), amendment 2026-11-26).
+
+## By hand
+
+The manual flow, for when the app is down.
+
 1. **Create the Source row** in D1 with `status = 'pending'`. The alias is the
    local-part of the address; the feed secret is stored only as its SHA-256:
 

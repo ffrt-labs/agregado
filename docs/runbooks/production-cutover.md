@@ -108,8 +108,8 @@ For the matching n8n `BRIDGE_ORIGIN` and `verify-ingest.sh` `BRIDGE_HOST`
 values, see [n8n/README.md](../../n8n/README.md#configuration-n8n).
 
 Adding one later follows
-[newsletter-source-onboarding.md](newsletter-source-onboarding.md). #225
-tracks a small app to automate it.
+[newsletter-source-onboarding.md](newsletter-source-onboarding.md), through the
+Newsletters app (#225).
 
 ---
 

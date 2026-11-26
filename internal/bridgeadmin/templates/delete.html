@@ -1,0 +1,21 @@
+{{define "delete.html"}}{{template "head" "Delete a newsletter"}}
+<h1>Delete {{.DisplayName}}</h1>
+<p><a href="/">Back to the Sources</a></p>
+
+{{if .Error}}
+<div class="notice notice-bad">Delete stopped: {{.Error}}</div>
+<p>{{if eq .Status "active"}}{{.DisplayName}} is still Active, so nothing was removed.{{else if .Status}}{{.DisplayName}} stays {{title .Status}}, so no new mail is stored.{{end}} Delete again picks up where it stopped.</p>
+{{end}}
+
+<p>This removes <code>{{.Address}}</code> for good:</p>
+<ul>
+  <li>its Miniflux feed,</li>
+  <li>{{if .Issues.Count}}{{.Issues.Count}} issue{{if ne .Issues.Count 1}}s{{end}}{{with .Issues.LastIssueAt}}, last on {{date .}}{{end}}{{else}}its stored issues (none yet){{end}}, from the Bridge's R2 and D1,</li>
+  <li>and the Source itself.</li>
+</ul>
+<p>Articles it already produced stay in the Article Index, with their Scores and Bookmarks. Bridge permalinks to its issues in old Digests will stop working.</p>
+
+<form method="post" action="/sources/{{.Alias}}/delete">
+  <p><button type="submit">{{if .Error}}Delete again{{else}}Delete {{.DisplayName}}{{end}}</button></p>
+</form>
+{{template "foot"}}{{end}}

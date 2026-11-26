@@ -1,0 +1,151 @@
+# ADR 0012: Newsletter Sources are managed by a tailnet-only homelab app, not the Bridge Worker
+
+**Status:** Accepted
+
+**Date:** 2026-11-26
+
+**Issue:** [#228](https://github.com/ffrt-labs/agregado/issues/228) (spec [#225](https://github.com/ffrt-labs/agregado/issues/225))
+
+**Unaffected:** ADR-0007's split. The Bridge Worker keeps its two read paths
+and gains no write path. ADR-0008's boundary for Agregado itself.
+
+## Context
+
+Adding a newsletter to the Bridge took wrangler, the Resend dashboard and a
+Miniflux subscription by hand, across two machines
+([runbook](../runbooks/newsletter-source-onboarding.md)). Nothing showed which
+Newsletter Sources exist, how often they publish, or whether Miniflux can still
+read their feeds. Spec #225 settles a small **Newsletters** app that manages
+Newsletter Sources end to end. This ADR records where it runs and how it is
+reached.
+
+Two places were possible: the Bridge Worker on Cloudflare, which already sits
+next to D1 and R2, or the homelab, next to Miniflux and n8n.
+
+- **Miniflux is tailnet-only.** Add must subscribe Miniflux to the new feed,
+  and the List shows Miniflux's fetch health. A Worker cannot reach Miniflux
+  without a new public route into the homelab.
+- **The Worker has no write path, on purpose** (ADR-0007,
+  `email-worker/src/index.ts`): it serves Atom feeds and permalinks, and n8n
+  writes D1 and R2. An admin UI there would be the first public write surface
+  on the Bridge, and would need real authentication.
+- **Agregado is going headless** (#85) and has no UI left to host this in.
+- **One user.** Agregado has no login and relies on the tailnet (ADR-0008).
+  The same can hold for this app if its route only admits tailnet clients.
+
+## Decision
+
+1. **The Newsletters app is a separate Go service in this repository,
+   `cmd/bridge-admin`**, with its own container in `docker-compose.yml`,
+   built and started by the existing deploy pipeline. It renders HTML on the
+   server (`html/template`) and uses no JavaScript beyond small conveniences
+   (alias suggestion, copy button).
+2. **It runs on the homelab and is served at `newsletters.felipefreitas.dev`
+   by the homelab-edge Caddy.** The route admits only `remote_ip
+   100.64.0.0/10` (the tailnet range). This is the first homelab-edge route
+   with an address restriction: the app has no login, so the route, not DNS
+   alone, is the boundary. The container publishes no host port.
+3. **It reaches the Bridge's storage through Cloudflare's REST API**, not
+   through the Worker: D1's query endpoint for Sources and entries. Delete
+   (#230) removes R2 objects through R2's S3-compatible API instead, signed
+   with SigV4 (`internal/cloudflare/r2`, ported from `n8n/src/sigv4.js`),
+   because only that API takes a token scoped to one bucket. Miniflux is
+   reached over the `edge` Docker network.
+4. **Dedicated credentials**, each revocable without touching n8n or
+   Agregado: a Cloudflare token scoped to D1 Edit on `bridge`, an R2 token
+   with Object Read & Write on `bridge-original-html` only (its S3 access key
+   pair, #230), a Miniflux API key, and from #229 a Resend key.
+   They are separate from Agregado's Workers AI token. The boot log carries
+   none of them (`cmd/bridge-admin/startup_test.go`).
+5. **The app owns the feed password only for the length of an Add.** It
+   generates 24 random bytes, writes their SHA-256 to D1 (the Worker's
+   `verifySecret`), gives the plaintext to Miniflux as the feed's Basic-auth
+   password, and keeps it nowhere.
+6. **A failed Miniflux subscription rolls the Add back.** The Pending row is
+   inserted first, because Miniflux fetches the feed while subscribing and the
+   Worker 404s an unknown alias. If the subscription fails, the app deletes
+   the row again (only while it is still Pending), so no Source is left with a
+   feed nobody can read. The alternative, keeping the row and offering
+   Reconnect, was rejected for Add: Reconnect (#231) exists for Sources that
+   already have a subscription, and a half-added Source would show up in the
+   List as something to clean up.
+7. **The app's configuration names the Bridge's addresses**:
+   `BRIDGE_ORIGIN` (the Worker's origin, as n8n uses it) and
+   `BRIDGE_RECEIVING_DOMAIN` (the Resend catch-all). A Source's feed is
+   `BRIDGE_ORIGIN/feed/<alias>.atom`. List, Rename, Reconnect and Delete find
+   its Miniflux feed by the path `/feed/<alias>.atom` alone, ignoring case,
+   scheme and origin, so feeds subscribed under an older Bridge host still
+   match.
+8. **Confirm reads mail from Resend's receiving API and never renders it**
+   (#229). The app's key is `BRIDGE_ADMIN_RESEND_API_KEY`. A Pending Source's
+   page lists the mail to its address (`GET /emails/receiving?to=`, the
+   latest 100) with subject, sender, date and the `http(s)` links found in
+   each body (`GET /emails/receiving/{id}`, hrefs only, shown escaped).
+   Unclaimed mail is the latest 100 unfiltered, grouped by alias, minus
+   aliases that have a Source. Activate moves only a Pending Source to
+   Active. Resend being down never blocks the List or Activate.
+9. **Only an Active Source can be paused, and Resume only moves Paused to
+   Active** (#230). Pause is guarded by `status = 'active'` in D1, and the
+   List offers it only on Active rows. Delete's first step is the same
+   Pause, so it pauses an Active Source and leaves a Pending one Pending:
+   n8n stores nothing for a Pending Source anyway. Every Paused Source was
+   therefore Active before, and Resume can never let a Pending Source skip
+   Activate, not even one whose Delete failed halfway. The alternative, a
+   separate "deleting" status or remembering the status before the pause,
+   needs a D1 migration and n8n would have to learn it. Rejected.
+
+## Consequences
+
+### Good
+
+- Adding a newsletter is one form. No wrangler, no script, no second machine.
+- The Worker stays read-only and public; the only new write surface is on the
+  tailnet.
+- Miniflux, n8n and the app all see the same D1 rows, and n8n needs no change:
+  it already ignores any status other than `active`.
+
+### Bad, accepted
+
+- A device on the home LAN cannot use the app, since the route admits only
+  tailnet addresses. Requests from the server itself (Docker gateway
+  addresses) are refused as well.
+- Changing `BRIDGE_ORIGIN` (for example when `bridge.felipefreitas.dev` gets
+  its record, ADR-0008) does not break feed matching, but existing Miniflux
+  feeds keep fetching the old host until their URLs are updated. A feed under
+  any host with the path `/feed/<alias>.atom` counts as the Source's, so
+  Delete removes it too.
+- If Miniflux creates the feed but its answer is lost (a timeout), the
+  rollback leaves a Miniflux feed for an alias D1 no longer has. It shows as
+  a 404 in Miniflux and is removed by hand.
+- The Cloudflare token can edit the whole `bridge` database. D1 tokens cannot
+  be scoped to tables.
+- The Resend key is not read-only. Resend keys are either full access or
+  sending access, and sending access cannot read received mail, so
+  `BRIDGE_ADMIN_RESEND_API_KEY` must be a full-access key. The app only
+  makes GET calls with it; it is still revocable apart from n8n's.
+- Unclaimed mail only sees the latest 100 received emails, and Resend's `to`
+  filter is exact and case-sensitive, so mail to `TLDR@` does not show on
+  `tldr`'s Confirm page.
+
+## Alternatives considered
+
+### An admin path on the Bridge Worker
+
+Close to D1 and R2, but it cannot reach Miniflux, and it would put a write
+path and a login on a public hostname. Rejected.
+
+### A page inside Agregado
+
+Agregado is becoming headless (#85), and the Bridge is not Agregado's
+storage. Sharing a process would also share credentials and the deploy's
+failure modes. Rejected.
+
+### A CLI or script
+
+Cheaper to build, but it brings back the two-machine problem, and it gives no
+place to see Sources, their stats and their feed health. Rejected.
+
+## Notes
+
+- Vocabulary: **Newsletter Source**, **Delete** in `CONTEXT.md`.
+- The Caddy route lives in `ffrt-labs/homelab-edge` and deploys separately.
